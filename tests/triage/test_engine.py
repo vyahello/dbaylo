@@ -32,7 +32,7 @@ def test_empty_report_returns_floor_not_reassurance() -> None:
     assert outcome.action == DEFAULT_FLOOR
     assert outcome.matched_rule_ids == ()
     # The floor message defaults toward care; it never says "you're fine".
-    assert "doctor" in outcome.message.lower()
+    assert "лікар" in outcome.message.lower()
 
 
 def test_outcome_action_never_below_floor() -> None:
@@ -61,7 +61,7 @@ def test_monotonicity_adding_a_symptom_never_lowers_action(extra: Symptom) -> No
 def test_disclaimer_always_present() -> None:
     for report in _all_reports():
         assert evaluate(report).disclaimer
-        assert "not a doctor" in evaluate(report).disclaimer.lower()
+        assert "не лікар" in evaluate(report).disclaimer.lower()
 
 
 def test_matched_rule_ids_reported() -> None:
@@ -76,7 +76,7 @@ def test_rules_are_injectable() -> None:
             condition="test",
             triggers=frozenset({Symptom.FEVER}),
             action=Action.SEE_DOCTOR,
-            message="Please see a doctor about this fever.",
+            message="Звернись до лікаря щодо цієї температури.",
             rationale="test rule",
         ),
     )

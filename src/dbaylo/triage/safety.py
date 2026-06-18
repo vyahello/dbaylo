@@ -7,6 +7,10 @@ Two of the discovery's non-negotiable rails live here as executable checks:
 * Rail #3 — "triage asymmetry, escalate up only": output text must never tell the
   user they can skip care.
 
+This module is the *mechanism*; the Ukrainian vocabulary it checks against
+(``FORBIDDEN_REASSURANCES``, the dose-directive patterns, the disclaimer) lives
+in :mod:`dbaylo.locale`, so guard and tests read from one source.
+
 Scope note (important): these scanners operate on **bot-generated output text**
 (triage messages today; LLM output later) — *not* on database field names.
 Storing what a doctor prescribed (``Medication.dose``, ``Medication.schedule``)
@@ -18,35 +22,14 @@ from __future__ import annotations
 
 import re
 
-DISCLAIMER = (
-    "I'm Дбайло — a caring friend, not a doctor. I can't diagnose or prescribe. "
-    "When in doubt, talk to a medical professional."
-)
+from dbaylo import locale
 
-# Phrases that would amount to telling the user they can skip care. The engine
-# can only escalate up, so these must never appear in any message it emits.
-FORBIDDEN_REASSURANCES: tuple[str, ...] = (
-    "skip the doctor",
-    "no need to see a doctor",
-    "don't need a doctor",
-    "do not need a doctor",
-    "no need for a doctor",
-    "you're fine",
-    "you are fine",
-    "nothing to worry about",
-    "you don't need to worry",
-    "no need to worry",
-    "it's nothing",
-    "it is nothing",
-)
+# Re-exported so callers can keep importing the disclaimer from the guard module.
+DISCLAIMER = locale.DISCLAIMER
+FORBIDDEN_REASSURANCES = locale.FORBIDDEN_REASSURANCES
 
-# Dose-directive shapes: a quantity + unit, or imperative dosing language. These
-# are checked against *output text only* — never against schema/field names.
-_DOSE_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"\b\d+(?:\.\d+)?\s?(?:mg|mcg|µg|g|ml|iu|units?)\b", re.IGNORECASE),
-    re.compile(r"\btake\s+\d+\b", re.IGNORECASE),
-    re.compile(r"\b\d+\s+(?:tablets?|pills?|capsules?|drops?)\b", re.IGNORECASE),
-    re.compile(r"\b(?:once|twice|\d+\s+times?)\s+(?:a|per)\s+day\b", re.IGNORECASE),
+_DOSE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
+    re.compile(pattern, re.IGNORECASE) for pattern in locale.DOSE_DIRECTIVE_PATTERNS
 )
 
 

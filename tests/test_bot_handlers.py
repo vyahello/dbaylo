@@ -42,4 +42,4 @@ def test_bot_copy_is_safe(text: str) -> None:
 
 @pytest.mark.parametrize("text", [START_TEXT, HELP_TEXT, CHECKIN_STUB_TEXT])
 def test_bot_copy_carries_disclaimer(text: str) -> None:
-    assert "not a doctor" in text.lower()
+    assert "не лікар" in text.lower()

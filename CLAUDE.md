@@ -44,6 +44,17 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
 When in doubt, **escalate toward care.** Never add prescribing logic or any autonomous
 "skip the doctor" logic, anywhere.
 
+## Language
+
+**All user-facing bot text is Ukrainian** (command replies, triage messages,
+disclaimer, errors). **Code stays English** — identifiers, enum tokens, rule ids,
+docstrings, comments, this file. Every Ukrainian string lives in the single
+module `src/dbaylo/locale.py`, so the safety guard and the tests read from one
+source. The safety vocabulary is Ukrainian too: `locale.FORBIDDEN_REASSURANCES`
+and `locale.DOSE_DIRECTIVE_PATTERNS` (the patterns require a dose object or a
+number, so negated copy like the disclaimer's "не призначаю лікування" is safe).
+When adding any user-facing string, put it in `locale.py` — never inline.
+
 ## Triage model (the core)
 
 - `Symptom` (StrEnum) — controlled vocabulary in. No free text, no LLM in this layer.

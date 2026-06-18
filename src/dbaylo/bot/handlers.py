@@ -11,32 +11,9 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
-from dbaylo.triage.safety import DISCLAIMER
+from dbaylo.locale import CHECKIN_STUB_TEXT, HELP_TEXT, START_TEXT
 
 router = Router(name="commands")
-
-START_TEXT = (
-    "Привіт! Я Дбайло — your caring health companion. 🌿\n\n"
-    "I help you keep track of how you're doing, watch for warning signs, and "
-    "build habits that stick.\n\n"
-    f"{DISCLAIMER}\n\n"
-    "Try /help to see what I can do."
-)
-
-HELP_TEXT = (
-    "Here's what I can do so far:\n\n"
-    "/start — meet Дбайло\n"
-    "/help — this message\n"
-    "/checkin — a quick daily check-in (coming soon)\n\n"
-    f"{DISCLAIMER}"
-)
-
-CHECKIN_STUB_TEXT = (
-    "Daily check-ins are on the way. 🛠️\n\n"
-    "Soon I'll ask about your sleep, water, training, mood, and how you feel — "
-    "and gently flag anything worth a doctor's eyes.\n\n"
-    f"{DISCLAIMER}"
-)
 
 
 @router.message(Command("start"))

@@ -30,6 +30,10 @@ Python 3.12 · aiogram 3 · FastAPI · SQLAlchemy 2.0 + Alembic · SQLite · APS
 Lean dependencies; config is hand-rolled with python-dotenv. Any future Claude calls go
 through the `claude` binary via subprocess (Claude Code OAuth), not the Anthropic SDK.
 
+**Language:** the bot speaks Ukrainian to the user; the code stays English. Every
+user-facing string lives in `src/dbaylo/locale.py` (including the Ukrainian safety
+vocabulary the guard checks against).
+
 ## Setup
 
 ```bash

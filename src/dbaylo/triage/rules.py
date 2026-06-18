@@ -10,6 +10,7 @@ engine's only job is to escalate toward care.
 
 from __future__ import annotations
 
+from dbaylo import locale
 from dbaylo.triage.types import Action, Symptom, TriageRule
 
 # --- Kidney stones (the first seeded condition) ---------------------------------
@@ -23,10 +24,7 @@ KIDNEY_STONE_RULES: tuple[TriageRule, ...] = (
         condition="kidney_stone",
         triggers=frozenset({Symptom.INABILITY_TO_URINATE}),
         action=Action.EMERGENCY,
-        message=(
-            "Not being able to urinate can mean a blockage and needs to be seen "
-            "right now. Please get emergency care or call emergency services."
-        ),
+        message=locale.KS_INABILITY_TO_URINATE,
         rationale="Acute urinary retention / obstruction is a urological emergency.",
         source="docs/dbaylo-discovery.md#L3",
     ),
@@ -35,10 +33,7 @@ KIDNEY_STONE_RULES: tuple[TriageRule, ...] = (
         condition="kidney_stone",
         triggers=frozenset({Symptom.FEVER, Symptom.CHILLS}),
         action=Action.URGENT_CARE,
-        message=(
-            "Fever with chills can signal an infection that needs prompt "
-            "attention. Please seek urgent care today."
-        ),
+        message=locale.KS_FEVER_CHILLS,
         rationale="Fever + chills raises concern for infection; needs prompt assessment.",
         source="docs/dbaylo-discovery.md#L3",
     ),
@@ -50,11 +45,7 @@ KIDNEY_STONE_RULES: tuple[TriageRule, ...] = (
         condition="kidney_stone",
         triggers=frozenset({Symptom.FEVER, Symptom.CHILLS, Symptom.FLANK_PAIN}),
         action=Action.EMERGENCY,
-        message=(
-            "Fever and chills together with flank pain can mean an infected, "
-            "blocked kidney — this is an emergency. Please get emergency care or "
-            "call emergency services now."
-        ),
+        message=locale.KS_FEVER_CHILLS_FLANK,
         rationale=(
             "Fever + chills + flank pain suggests an obstructed, infected stone "
             "(possible urosepsis) — a time-critical emergency."
@@ -66,10 +57,7 @@ KIDNEY_STONE_RULES: tuple[TriageRule, ...] = (
         condition="kidney_stone",
         triggers=frozenset({Symptom.UNCONTROLLED_VOMITING}),
         action=Action.URGENT_CARE,
-        message=(
-            "Vomiting you can't keep on top of can leave you dehydrated and needs "
-            "prompt care. Please seek urgent care today."
-        ),
+        message=locale.KS_UNCONTROLLED_VOMITING,
         rationale="Intractable vomiting risks dehydration; needs prompt assessment.",
         source="docs/dbaylo-discovery.md#L3",
     ),
@@ -78,10 +66,7 @@ KIDNEY_STONE_RULES: tuple[TriageRule, ...] = (
         condition="kidney_stone",
         triggers=frozenset({Symptom.BLOOD_IN_URINE_FIRST_TIME}),
         action=Action.SEE_DOCTOR,
-        message=(
-            "Seeing blood in your urine for the first time should always be "
-            "checked by a doctor. Please book a visit to have it looked at."
-        ),
+        message=locale.KS_BLOOD_FIRST_TIME,
         rationale="New-onset haematuria always warrants medical evaluation.",
         source="docs/dbaylo-discovery.md#L3",
     ),

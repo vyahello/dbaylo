@@ -14,6 +14,7 @@ match more rules, so ``max`` can only rise.
 
 from __future__ import annotations
 
+from dbaylo import locale
 from dbaylo.triage import safety
 from dbaylo.triage.rules import RULES
 from dbaylo.triage.types import (
@@ -27,11 +28,7 @@ from dbaylo.triage.types import (
 # default toward attention. This is the encoded form of the safety asymmetry.
 DEFAULT_FLOOR: Action = Action.MONITOR
 
-_FLOOR_MESSAGE = (
-    "I can't spot a specific red flag in what you've told me, but I'm not able to "
-    "assess this for you. Keep an eye on how you feel, and see a doctor if it "
-    "persists, worsens, or you're worried."
-)
+_FLOOR_MESSAGE = locale.FLOOR_MESSAGE
 
 
 def evaluate(
