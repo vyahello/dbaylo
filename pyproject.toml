@@ -1,0 +1,73 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dbaylo"
+version = "0.1.0"
+description = "Дбайло — a personal health & wellness companion on Telegram. A friend with guardrails, not a doctor."
+readme = "README.md"
+requires-python = "==3.12.*"
+license = { text = "MIT" }
+authors = [{ name = "Volodymyr Yahello" }]
+dependencies = [
+    "aiogram>=3,<4",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "sqlalchemy>=2.0,<2.1",
+    "alembic>=1.13",
+    # Locked stack: declared now, wired in Stage 3 (reminders / daily check-in scheduling).
+    "apscheduler>=3.10,<4",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.23",
+    "pytest-cov>=5",
+    "httpx>=0.27",
+    "ruff>=0.4",
+    "mypy>=1.10",
+]
+
+[project.scripts]
+dbaylo-bot = "dbaylo.bot.app:run"
+dbaylo-web = "dbaylo.web.app:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"
+
+[tool.coverage.run]
+branch = true
+source = ["dbaylo.triage"]
+
+[tool.coverage.report]
+show_missing = true
+# The triage module is the safety core — it carries the highest bar.
+fail_under = 90
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+# B008: calling Depends() in argument defaults is the intended FastAPI idiom.
+ignore = ["B008"]
+
+[tool.mypy]
+python_version = "3.12"
+packages = ["dbaylo"]
+mypy_path = "src"
+strict = true
+# aiogram/apscheduler ship partial stubs; don't fail the build on their internals.
+[[tool.mypy.overrides]]
+module = ["apscheduler.*"]
+ignore_missing_imports = true

@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtualenv
+venv/
+.venv/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local data — never commit a user's health data or original lab files
+*.db
+*.sqlite3
+data/
+
+# Secrets / local env
+.env
+
+# Claude Code machine-local overrides (curated allowlist lives in .claude/settings.json)
+.claude/settings.local.json
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
