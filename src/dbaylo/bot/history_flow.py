@@ -98,14 +98,10 @@ async def _send_list(message: Message, reports: list[LabReport], orphans: int) -
 # --- /history (and /reports) ----------------------------------------------------
 
 
-@router.message(Command("history", "reports"))
-async def cmd_history(message: Message, command: CommandObject) -> None:
-    tg = _telegram_id(message)
-    if tg is None:
-        return
-    raw = (command.args or "").strip()
+async def render_history(message: Message, telegram_id: int, raw: str = "") -> None:
+    """List confirmed reports (optionally filtered) — from /history or the menu."""
     async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
+        user = await ensure_user(session, telegram_id=telegram_id)
         filt = None
         if raw:
             labs = await history.known_labs(session, user_id=user.id)
@@ -113,6 +109,14 @@ async def cmd_history(message: Message, command: CommandObject) -> None:
         reports = await history.list_confirmed(session, user_id=user.id, filt=filt)
         orphans = await history.count_orphans(session, user_id=user.id, now=datetime.now())
     await _send_list(message, reports, orphans)
+
+
+@router.message(Command("history", "reports"))
+async def cmd_history(message: Message, command: CommandObject) -> None:
+    tg = _telegram_id(message)
+    if tg is None:
+        return
+    await render_history(message, tg, (command.args or "").strip())
 
 
 # --- Natural-language history search (gate FIRST, then deterministic parse) ------

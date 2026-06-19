@@ -13,7 +13,14 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from dbaylo.bot import companion_flow, history_flow, lab_flow, navigator_flow, proactive_flow
+from dbaylo.bot import (
+    companion_flow,
+    history_flow,
+    lab_flow,
+    menu_flow,
+    navigator_flow,
+    proactive_flow,
+)
 from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
@@ -25,9 +32,11 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     """Build a Dispatcher with the owner lock and all routers registered.
 
     The owner lock is an **outer** update middleware, so it runs before any router
-    or handler (fail-closed: an unset ``owner_id`` of 0 refuses everyone). Router
-    order: commands first, then lab intake (documents/photos + its edit FSM), then
-    the navigator commands (/price, /coverage), then proactive management, then the
+    or handler (fail-closed: an unset ``owner_id`` of 0 refuses everyone). A message-
+    level ``CommandStateResetMiddleware`` then aborts an in-progress dialog on a command
+    or menu-label tap. Router order: commands first, then the button menu (its exact-
+    label taps must win over later text handlers), then lab intake (documents/photos +
+    its edit FSM), the navigator commands (/price, /coverage), proactive management, the
     history flow (it claims only free text that *looks* like a history request), and
     finally the companion — whose free-text catch-all is ``StateFilter(None)`` so it
     never steals a turn from an FSM flow.
@@ -39,6 +48,9 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     # dialog so it is never consumed as the dialog's text answer.
     dispatcher.message.outer_middleware(CommandStateResetMiddleware())
     dispatcher.include_router(router)
+    # The menu is registered early so its exact-label taps win over the history-NL and
+    # companion free-text handlers (a reply-keyboard tap is a plain text message).
+    dispatcher.include_router(menu_flow.router)
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)
     dispatcher.include_router(proactive_flow.router)

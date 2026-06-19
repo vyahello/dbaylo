@@ -170,6 +170,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   per-handler rule: **blank/whitespace input never creates a record** (goal · problem · medication ·
   check-in answer with `locale.NOTHING_SAVED`). `python -m dbaylo.maintenance.cleanup_phantoms`
   removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
+- **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
+  new domain logic. A persistent `ReplyKeyboardMarkup` (📊 Аналізи · 🎯 Цілі · ⚕️ Проблеми · 💊 Ліки ·
+  🔔 Нагадування · 💰 Ціни/НСЗУ · ❓ Довідка) is shown from `/start`. Each label opens a section screen
+  (message + inline actions) that **delegates to reused helpers** — the commands are now aliases over
+  the same `open_*` / `start_*_dialog` helpers (`companion_flow` · `proactive_flow` · `history_flow` ·
+  `navigator_flow`). Menu labels are matched by **exact equality** (`F.text == locale.MENU_*`,
+  `StateFilter(None)`) in the `menu` router registered **before** history-NL/companion, so a tap never
+  leaks into chat; `locale.MENU_LABELS` is also a reset trigger in `CommandStateResetMiddleware`
+  (message-level only — callbacks keep their own cancel) so a label tap mid-dialog aborts it. Every
+  FSM dialog carries a shared inline `[Скасувати]` (`callbacks.CANCEL_DIALOG`, one central handler →
+  clears any state, saves nothing). `/price`·`/coverage` gained a small `NavStates` so the **typed**
+  answer routes through `run_price`/`run_coverage` (i.e. `gate.screen`) **identically to the arg** — a
+  symptom in the drug field short-circuits to triage. No new models/migrations.
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
@@ -219,7 +232,8 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 
 ```
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
-             labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
+             labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  web/  locale.py  config.py
+             bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history)
 migrations/  Alembic 0001..0005   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
@@ -255,4 +269,8 @@ shipped. **Tier 0 (done):** owner lock + off-box backups. **Tier 1.1 (done):** p
 conditional check-in (active concerns), medication & repeat-lab reminders, reminder management, live
 `ReminderScheduler`. **Tier 1.2 (done):** history & retrieval — `/history`·`/reports`·`/trend`,
 original-file + stored-results access, deterministic NL search (gate-first, companion fallback),
-two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge.
+two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge. **FSM-cancel fix (done):**
+commands abort in-progress dialogs; blank input never persists; phantom-row cleanup CLI. **Tier 1.3
+(done):** button menu — persistent reply keyboard + section screens delegating to reused flow helpers,
+shared `[Скасувати]`, menu labels reset state, navigator FSM gated like the command arg (UI layer only,
+no new models).

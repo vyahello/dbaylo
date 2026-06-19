@@ -598,3 +598,49 @@ NAV_SUPERLATIVE_PATTERNS: tuple[str, ...] = (
     r"\b100\s*%\s*(?:виліку\w*|успіх\w*|результат\w*|одуж\w*)",
     r"\b(?:точно|напевно)\s+виліку\w+",
 )
+
+
+# --- Tier 1.3: button menu (persistent reply keyboard + section screens) ---------
+
+# Persistent reply-keyboard labels. These are matched by EXACT equality and routed
+# before the history-NL / companion handlers; they are also reset triggers for the
+# command-cancel middleware (a menu tap aborts an in-progress dialog), so MENU_LABELS
+# must stay the single source of truth for "what counts as a menu tap".
+MENU_LABS = "📊 Аналізи"
+MENU_GOALS = "🎯 Цілі"
+MENU_PROBLEMS = "⚕️ Проблеми"
+MENU_MEDS = "💊 Ліки"
+MENU_REMINDERS = "🔔 Нагадування"
+MENU_PRICES = "💰 Ціни/НСЗУ"
+MENU_HELP = "❓ Довідка"
+
+MENU_LABELS: frozenset[str] = frozenset(
+    {MENU_LABS, MENU_GOALS, MENU_PROBLEMS, MENU_MEDS, MENU_REMINDERS, MENU_PRICES, MENU_HELP}
+)
+
+# Section-screen intros (each shown with its inline action buttons).
+MENU_LABS_INTRO = "Аналізи. Надішли фото або PDF, щоб додати новий — я зчитаю й збережу."
+MENU_GOALS_INTRO = "Твої цілі для здоров'я."
+MENU_PROBLEMS_INTRO = "Те, що зараз турбує (за активними проблемами я роблю щоденні чек-іни)."
+MENU_MEDS_INTRO = "Твої ліки та нагадування про них."
+MENU_PRICES_INTRO = "Ціни на ліки та покриття за Програмою медичних гарантій (ПМГ)."
+
+# Section inline-button labels.
+BTN_MENU_HISTORY = "📋 Переглянути історію"
+BTN_MENU_GOALS_LIST = "📋 Мої цілі"
+BTN_MENU_GOAL_NEW = "➕ Нова ціль"
+BTN_MENU_PROB_LIST = "📋 Активні"
+BTN_MENU_PROB_NEW = "➕ Додати"
+BTN_MENU_MED_LIST = "📋 Мої ліки"
+BTN_MENU_MED_NEW = "➕ Додати"
+BTN_MENU_PRICE = "💊 Ціна ліків"
+BTN_MENU_COVERAGE = "🏥 Покриття НСЗУ"
+
+# The single shared dialog-cancel button (clears whatever FSM is active, saves nothing).
+BTN_DIALOG_CANCEL = "✖️ Скасувати"
+DIALOG_CANCELLED = "Скасовано — нічого не зберіг."
+
+# "Мої ліки" list view (reuses the per-medication turn-off button).
+MED_LIST_HEADER = "Твої ліки:"
+MED_LIST_EMPTY = "Ліків поки немає. Додай через «➕ Додати» або /medication."
+MED_LIST_ITEM = "💊 {name} ({times})"

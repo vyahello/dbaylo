@@ -12,6 +12,7 @@ from aiogram import Router
 from aiogram.filters import Command
 from aiogram.types import Message
 
+from dbaylo.bot.keyboards import main_menu_keyboard
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
 from dbaylo.locale import HELP_TEXT, START_TEXT
@@ -27,9 +28,10 @@ async def cmd_start(message: Message) -> None:
         async with get_session() as session:
             await ensure_user(session, message.from_user.id, message.from_user.full_name)
             await session.commit()
-    await message.answer(START_TEXT)
+    # Show the persistent button menu so the owner never has to type commands blindly.
+    await message.answer(START_TEXT, reply_markup=main_menu_keyboard())
 
 
 @router.message(Command("help"))
 async def cmd_help(message: Message) -> None:
-    await message.answer(HELP_TEXT)
+    await message.answer(HELP_TEXT, reply_markup=main_menu_keyboard())

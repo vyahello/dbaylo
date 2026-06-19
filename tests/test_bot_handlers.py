@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.bot.app import build_dispatcher, make_sender
 from dbaylo.bot.handlers import cmd_help, cmd_start
+from dbaylo.bot.keyboards import main_menu_keyboard
 from dbaylo.db.models import User
 from dbaylo.locale import HELP_TEXT, START_TEXT
 from dbaylo.triage.safety import contains_dose_directive, contains_forbidden_reassurance
@@ -20,7 +21,7 @@ from dbaylo.triage.safety import contains_dose_directive, contains_forbidden_rea
 async def test_cmd_help_replies() -> None:
     message = AsyncMock()
     await cmd_help(message)
-    message.answer.assert_awaited_once_with(HELP_TEXT)
+    message.answer.assert_awaited_once_with(HELP_TEXT, reply_markup=main_menu_keyboard())
 
 
 async def test_cmd_start_replies_and_captures_the_user(
@@ -34,7 +35,8 @@ async def test_cmd_start_replies_and_captures_the_user(
     message = AsyncMock()
     message.from_user = SimpleNamespace(id=4242, full_name="Owner")
     await cmd_start(message)
-    message.answer.assert_awaited_once_with(START_TEXT)
+    # /start shows the persistent menu keyboard so nothing must be typed blindly.
+    message.answer.assert_awaited_once_with(START_TEXT, reply_markup=main_menu_keyboard())
     user = await async_session.scalar(select(User).where(User.telegram_id == 4242))
     assert user is not None  # chat_id captured on /start
 
@@ -44,8 +46,8 @@ def test_build_dispatcher_registers_routers_and_owner_lock() -> None:
     from dbaylo.bot.state_reset import CommandStateResetMiddleware
 
     dispatcher = build_dispatcher()
-    # commands + lab_flow + navigator + proactive + history + companion.
-    assert len(dispatcher.sub_routers) == 6
+    # commands + menu + lab_flow + navigator + proactive + history + companion.
+    assert len(dispatcher.sub_routers) == 7
     # The owner lock is an outer update middleware (runs before any router).
     assert any(isinstance(m, OwnerOnlyMiddleware) for m in dispatcher.update.outer_middleware)
     # A /command cancels any FSM dialog before handlers resolve (message-level outer mw).

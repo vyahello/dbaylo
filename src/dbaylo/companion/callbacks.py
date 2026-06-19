@@ -116,3 +116,18 @@ def parse_history_trend(data: str) -> tuple[int, int] | None:
     if head == HIST_TREND and rid.isdigit() and idx.isdigit():
         return int(rid), int(idx)
     return None
+
+
+# --- Tier 1.3: button-menu section actions (static, no ids) ----------------------
+
+MENU_OPEN_HISTORY = "menu_hist"
+MENU_GOALS_LIST = "menu_goals"
+MENU_GOAL_NEW = "menu_goal_new"
+MENU_PROB_LIST = "menu_probs"
+MENU_PROB_NEW = "menu_prob_new"
+MENU_MED_LIST = "menu_meds"
+MENU_MED_NEW = "menu_med_new"
+MENU_PRICE = "menu_price"
+MENU_COVERAGE = "menu_coverage"
+# The one shared dialog-cancel callback (handled centrally; clears any active FSM).
+CANCEL_DIALOG = "menu_cancel"

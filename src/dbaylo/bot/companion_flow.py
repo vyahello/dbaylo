@@ -20,6 +20,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from dbaylo import locale
+from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.companion import checkin, goals
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.db import get_session
@@ -43,12 +44,17 @@ def _telegram_id(message: Message) -> int | None:
 # --- Goals ----------------------------------------------------------------------
 
 
+async def start_goal_dialog(message: Message, state: FSMContext) -> None:
+    """Enter the goal dialog (from /goal or the menu) — always cancellable."""
+    await state.set_state(GoalStates.waiting_for_goal)
+    await message.answer(locale.GOAL_ASK_TEXT, reply_markup=cancel_keyboard())
+
+
 @router.message(Command("goal"))
 async def cmd_goal(message: Message, command: CommandObject, state: FSMContext) -> None:
     text = (command.args or "").strip()
     if not text:
-        await state.set_state(GoalStates.waiting_for_goal)
-        await message.answer(locale.GOAL_ASK_TEXT)
+        await start_goal_dialog(message, state)
         return
     await _save_goal(message, text)
 
@@ -73,15 +79,20 @@ async def _save_goal(message: Message, text: str) -> None:
     await message.answer(result.message)
 
 
+async def open_goals(message: Message, telegram_id: int) -> None:
+    """Render the user's goals (from /goals or the menu)."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        text = await goals.list_goals(session, user=user)
+    await message.answer(text)
+
+
 @router.message(Command("goals"))
 async def cmd_goals(message: Message) -> None:
     tg_id = _telegram_id(message)
     if tg_id is None:
         return
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg_id)
-        text = await goals.list_goals(session, user=user)
-    await message.answer(text)
+    await open_goals(message, tg_id)
 
 
 # --- Daily check-in -------------------------------------------------------------
@@ -90,7 +101,7 @@ async def cmd_goals(message: Message) -> None:
 @router.message(Command("checkin"))
 async def cmd_checkin(message: Message, state: FSMContext) -> None:
     await state.set_state(CheckinStates.waiting_for_answer)
-    await message.answer(checkin.build_prompt())
+    await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
 
 
 @router.message(CheckinStates.waiting_for_answer, F.text)

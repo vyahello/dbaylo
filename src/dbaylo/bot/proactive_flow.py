@@ -17,6 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
+from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -55,6 +56,12 @@ def _fmt_when(when: datetime | None) -> str:
 # --- Problems (active concerns) -------------------------------------------------
 
 
+async def start_problem_dialog(message: Message, state: FSMContext) -> None:
+    """Enter the add-problem dialog (from /problem or the menu) — always cancellable."""
+    await state.set_state(ProblemStates.waiting_name)
+    await message.answer(locale.PROBLEM_ASK_TEXT, reply_markup=cancel_keyboard())
+
+
 @router.message(Command("problem"))
 async def cmd_problem(
     message: Message,
@@ -64,8 +71,7 @@ async def cmd_problem(
 ) -> None:
     arg = (command.args or "").strip()
     if not arg:
-        await state.set_state(ProblemStates.waiting_name)
-        await message.answer(locale.PROBLEM_ASK_TEXT)
+        await start_problem_dialog(message, state)
         return
     await state.clear()
     await _add_problem(message, arg, reminder_scheduler)
@@ -94,13 +100,10 @@ async def _add_problem(message: Message, name: str, scheduler: ReminderScheduler
     await message.answer(locale.PROBLEM_ADDED)
 
 
-@router.message(Command("problems"))
-async def cmd_problems(message: Message) -> None:
-    tg = _telegram_id(message)
-    if tg is None:
-        return
+async def open_problems(message: Message, telegram_id: int) -> None:
+    """List active concerns with their resolve/rename buttons (from /problems or menu)."""
     async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
+        user = await ensure_user(session, telegram_id=telegram_id)
         active = await concerns.list_active(session, user_id=user.id)
     if not active:
         await message.answer(locale.PROBLEM_LIST_EMPTY)
@@ -122,6 +125,14 @@ async def cmd_problems(message: Message) -> None:
             ]
         )
         await message.answer(f"• {condition.name}", reply_markup=keyboard)
+
+
+@router.message(Command("problems"))
+async def cmd_problems(message: Message) -> None:
+    tg = _telegram_id(message)
+    if tg is None:
+        return
+    await open_problems(message, tg)
 
 
 @router.callback_query(F.data.startswith(callbacks.PROBLEM_RESOLVE + ":"))
@@ -153,7 +164,7 @@ async def on_problem_rename(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(ProblemStates.waiting_rename)
     await state.update_data(condition_id=condition_id)
     if isinstance(callback.message, Message):
-        await callback.message.answer(locale.PROBLEM_ASK_RENAME)
+        await callback.message.answer(locale.PROBLEM_ASK_RENAME, reply_markup=cancel_keyboard())
     await callback.answer()
 
 
@@ -173,10 +184,15 @@ async def on_problem_new_name(message: Message, state: FSMContext) -> None:
 # --- Medications ----------------------------------------------------------------
 
 
+async def start_medication_dialog(message: Message, state: FSMContext) -> None:
+    """Enter the add-medication dialog (from /medication or the menu) — cancellable."""
+    await state.set_state(MedStates.waiting_name)
+    await message.answer(locale.MED_ASK_NAME, reply_markup=cancel_keyboard())
+
+
 @router.message(Command("medication"))
 async def cmd_medication(message: Message, state: FSMContext) -> None:
-    await state.set_state(MedStates.waiting_name)
-    await message.answer(locale.MED_ASK_NAME)
+    await start_medication_dialog(message, state)
 
 
 @router.message(MedStates.waiting_name, F.text)
@@ -188,7 +204,7 @@ async def on_medication_name(message: Message, state: FSMContext) -> None:
         return
     await state.update_data(med_name=name)
     await state.set_state(MedStates.waiting_times)
-    await message.answer(locale.MED_ASK_TIMES)
+    await message.answer(locale.MED_ASK_TIMES, reply_markup=cancel_keyboard())
 
 
 @router.message(MedStates.waiting_times, F.text)
@@ -215,23 +231,34 @@ async def on_medication_times(
     await message.answer(locale.MED_ADDED.format(name=name, times=pretty))
 
 
+async def open_medications(message: Message, telegram_id: int) -> None:
+    """List the user's medications, each with the existing per-medication turn-off."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        meds = await medications.list_medications(session, user_id=user.id)
+    if not meds:
+        await message.answer(locale.MED_LIST_EMPTY)
+        return
+    await message.answer(locale.MED_LIST_HEADER)
+    for med in meds:
+        text = locale.MED_LIST_ITEM.format(name=med.name, times=med.schedule or "?")
+        await message.answer(text, reply_markup=_off_keyboard(callbacks.medication_off(med.id)))
+
+
 # --- Reminder management --------------------------------------------------------
 
 
-@router.message(Command("reminders"))
-async def cmd_reminders(message: Message, reminder_scheduler: ReminderScheduler) -> None:
-    tg = _telegram_id(message)
-    if tg is None:
-        return
+async def open_reminders(message: Message, telegram_id: int, scheduler: ReminderScheduler) -> None:
+    """List active reminders with per-item turn-off (from /reminders or the menu)."""
     async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
+        user = await ensure_user(session, telegram_id=telegram_id)
         rows = await reminders.active_reminders_for_user(session, user_id=user.id)
         meds = {m.id: m for m in await medications.list_medications(session, user_id=user.id)}
     if not rows:
         await message.answer(locale.REMINDERS_EMPTY)
         return
 
-    next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
+    next_run = {job.id: job.next_run for job in scheduler.list_jobs()}
     await message.answer(locale.REMINDERS_HEADER)
     shown_medications: set[int] = set()
     for reminder in rows:
@@ -254,6 +281,14 @@ async def cmd_reminders(message: Message, reminder_scheduler: ReminderScheduler)
             text = locale.REMINDER_ITEM_REPEAT_LAB.format(name=reminder.payload or "?", when=when)
             keyboard = _off_keyboard(callbacks.reminder_off(reminder.id))
         await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(Command("reminders"))
+async def cmd_reminders(message: Message, reminder_scheduler: ReminderScheduler) -> None:
+    tg = _telegram_id(message)
+    if tg is None:
+        return
+    await open_reminders(message, tg, reminder_scheduler)
 
 
 @router.callback_query(F.data.startswith(callbacks.REMINDER_OFF + ":"))
