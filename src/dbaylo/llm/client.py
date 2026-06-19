@@ -19,10 +19,24 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import signal
 from collections.abc import Sequence
+from contextlib import suppress
 from dataclasses import dataclass
 
 from dbaylo.config import get_settings
+
+
+def _terminate(process: asyncio.subprocess.Process) -> None:
+    """Kill the subprocess AND its children. The `claude` binary spawns helpers, so a
+    plain ``process.kill()`` (the main process only) can leave them running and the call
+    hanging well past the timeout. We start the child in its own process group and SIGKILL
+    the whole group."""
+    try:
+        os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        with suppress(ProcessLookupError):
+            process.kill()
 
 
 class ClaudeUnavailable(RuntimeError):
@@ -116,6 +130,7 @@ async def run_claude(
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
             env=os.environ.copy(),
+            start_new_session=True,  # own process group, so the timeout can kill the whole tree
         )
     except (FileNotFoundError, OSError) as exc:  # binary missing / not executable
         raise ClaudeUnavailable(f"could not launch {settings.claude_bin!r}: {exc}") from exc
@@ -123,9 +138,16 @@ async def run_claude(
     try:
         stdout_b, stderr_b = await asyncio.wait_for(process.communicate(), timeout=timeout_s)
     except TimeoutError:
-        process.kill()
-        await process.wait()
+        _terminate(process)
+        with suppress(Exception):
+            await process.wait()
         return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=None, error="timeout")
+    except asyncio.CancelledError:
+        # An outer timeout (e.g. the upload budget) cancelled us — kill the child too.
+        _terminate(process)
+        with suppress(Exception):
+            await process.wait()
+        raise
 
     stdout = stdout_b.decode("utf-8", errors="replace")
     stderr = stderr_b.decode("utf-8", errors="replace")

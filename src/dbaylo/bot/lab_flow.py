@@ -12,6 +12,7 @@ confirmation in progress survives a restart.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
@@ -230,7 +231,14 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         report = await create_pending_report(session, user=user, file_path=path)
         report_id = report.id
 
-    outcome = await extract_with_escalation(str(path))
+    # Hard ceiling so an upload can never hang the way it once did (a stuck `claude`
+    # subprocess). `extract_with_escalation` tries up to two models; budget both passes
+    # plus slack. Any timeout / unexpected error becomes a clean "couldn't read it".
+    budget = 2 * get_settings().claude_timeout_s + 60
+    try:
+        outcome = await asyncio.wait_for(extract_with_escalation(str(path)), timeout=budget)
+    except Exception:  # noqa: BLE001 — never leave the user hanging on a bad upload
+        outcome = ExtractionFailed("extraction timed out or errored")
     if isinstance(outcome, ExtractionFailed):
         async with get_session() as session:
             pending = await session.get(LabReport, report_id)
