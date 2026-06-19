@@ -24,8 +24,8 @@ async def test_handler_replies_expected_text(handler, expected: str) -> None:
 
 def test_build_dispatcher_registers_routers() -> None:
     dispatcher = build_dispatcher()
-    # commands + lab_flow + companion.
-    assert len(dispatcher.sub_routers) == 3
+    # commands + lab_flow + navigator + companion.
+    assert len(dispatcher.sub_routers) == 4
 
 
 @pytest.mark.parametrize("text", [START_TEXT, HELP_TEXT])

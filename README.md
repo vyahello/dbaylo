@@ -18,7 +18,7 @@ A friendly wellness face on top, deterministic safety rails underneath.
 | **L1** Wellness companion (`companion/`, `wellness/`) | Goals, daily check-in, reminders, companion chat + the wellness guardrail | **Stage 3** ✅ |
 | **L2** Lab & data core (`labs/`, `db/`) | Lab intake, extraction, deterministic trends, charts | **Stage 2** ✅ |
 | **L3** Triage (`triage/`) | Deterministic red-flag engine — **the safety core** | **Stage 1** ✅ |
-| **L4** Price & НСЗУ navigator | Prices, ceiling checks, coverage, doctor info | Stage 4 |
+| **L4** Price & НСЗУ navigator (`navigator/`) | On-demand prices, МОЗ ceiling, НСЗУ coverage, transparent providers | **Stage 4** ✅ |
 
 Two deterministic cores never call an LLM and only ever **escalate toward care**: **triage**
 (symptoms) and the **wellness guardrail** (disordered-eating / unsafe goals). Neither has a code
@@ -55,9 +55,10 @@ venv/bin/ruff check src tests     # lint
 venv/bin/mypy                     # strict type check
 venv/bin/dbaylo-web               # FastAPI: GET /health, POST /webhook/{token}
 venv/bin/dbaylo-bot               # bot via long polling (needs BOT_TOKEN)
-venv/bin/dbaylo-scheduler --dry-run                         # list reminder jobs (fire nothing)
-venv/bin/python -m dbaylo.companion.checkin --dry-run       # print the check-in prompt
-venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg   # extract only (no DB/Telegram)
+venv/bin/dbaylo-scheduler --dry-run                            # list reminder jobs (fire nothing)
+venv/bin/python -m dbaylo.companion.checkin --dry-run          # print the check-in prompt
+venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg      # extract only (no DB/Telegram)
+venv/bin/python -m dbaylo.navigator.pipeline --dry-run парацетамол   # price a drug from a fixture
 ```
 
 ## Status
@@ -79,5 +80,16 @@ APScheduler rebuilt from `Reminder` rows on startup (medication, daily check-in,
 natural-Ukrainian companion chat. A second deterministic safety core (`wellness/`) handles
 disordered-eating / unsafe-goal escalation; every companion reply passes the safety guard
 (re-anchored dose detection + restrictive-diet rejection) with a deterministic fallback.
+**Stage 3.5** folded the canonical escalation order into a single `safety.gate` choke-point that
+every user-text path (and Stage 4) must pass — enforced by an import-graph test.
 
-Next: Stage 4 (price & НСЗУ navigator).
+**Stage 4 — Price & НСЗУ navigator ✅** `/price <drug>` returns cheapest options for an explicitly
+named medicine (named-drug only — it never picks a drug for a symptom) and flags a price above the
+МОЗ regulated ceiling (or says "no regulated ceiling"); `/coverage <service>` checks НСЗУ ПМГ
+**before** price and surfaces "may be free — verify" (never a categorical "free"). Provider
+aggregation is transparent — attributes and reviews *as reviews*, always carrying "це думки
+пацієнтів, не результати лікування", never a "best surgeon" ranking. Fetches fail soft (a dead
+source is skipped and named, never crashes or fabricates a price); sources verified robots-hostile
+(tabletki.ua / apteki.ua) are declared-disabled. All free-text routes through `safety.gate` first.
+
+All four roadmap layers are now shipped.

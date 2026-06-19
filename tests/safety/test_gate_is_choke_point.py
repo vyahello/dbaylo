@@ -1,7 +1,7 @@
 """Structural invariant: the safety gate is the only path from user text to the LLM.
 
 Import-graph style (like ``tests/labs/test_no_llm_in_trends.py``). Three guards over
-the ``bot/`` and ``companion/`` packages:
+the ``bot/``, ``companion/``, and ``navigator/`` packages:
 
 1. **LLM reachability => gate.** Any module importing the LLM client must also
    import ``dbaylo.safety``. A future handler that wires the LLM without the gate
@@ -21,7 +21,7 @@ from pathlib import Path
 import dbaylo
 
 _ROOT = Path(dbaylo.__file__).parent
-_SCAN_DIRS = (_ROOT / "bot", _ROOT / "companion")
+_SCAN_DIRS = (_ROOT / "bot", _ROOT / "companion", _ROOT / "navigator")
 _GATE = _ROOT / "safety" / "gate.py"
 
 

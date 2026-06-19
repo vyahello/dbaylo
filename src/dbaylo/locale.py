@@ -69,7 +69,9 @@ HELP_TEXT = (
     "/help — це повідомлення\n"
     "/checkin — швидкий щоденний чек-ін\n"
     "/goal — поставити ціль для здоров'я\n"
-    "/goals — переглянути свої цілі\n\n"
+    "/goals — переглянути свої цілі\n"
+    "/price — ціна на конкретні названі ліки\n"
+    "/coverage — чи покриває ПМГ послугу\n\n"
     "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
     f"{DISCLAIMER}"
 )
@@ -303,6 +305,10 @@ SYMPTOM_KEYWORDS: dict[str, tuple[str, ...]] = {
         "біль у попереку",
         "болить поперек",
         "ниркова коліка",
+        "болить нирка",
+        "болять нирки",
+        "біль у нирці",
+        "біль у нирках",
     ),
     "severe_pain": ("нестерпний біль", "дуже сильний біль", "гострий нестерпний біль"),
     "inability_to_urinate": (
@@ -379,3 +385,98 @@ WELLNESS_SIGNAL_KEYWORDS: dict[str, tuple[str, ...]] = {
         "мінус 10 кг за тиждень",
     ),
 }
+
+# --- Stage 4: price & НСЗУ navigator (L4) ---------------------------------------
+
+# Named-drug boundary (rail #1): /price looks up the price of an EXPLICITLY named
+# medicine; it never picks a drug for a symptom/condition. Refusal message:
+NAV_NAMED_DRUG_ONLY = (
+    "Я шукаю ціну лише на конкретно названі ліки і не підбираю препарати за симптомом "
+    "чи діагнозом. Напиши точну назву ліків — і я знайду ціни. Підбір лікування — це "
+    "завжди до лікаря."
+)
+# Patterns that mark a "pick a drug for a condition" request (-> refuse, no search).
+NAV_RECOMMENDATION_REQUEST_PATTERNS: tuple[str, ...] = (
+    r"\b(?:ліки|таблетк\w*|пігулк\w*|капсул\w*|засіб|засоби|препарат\w*|щось)\s+(?:від|для|при)\b",
+    r"\bщо\s+(?:випити|прийняти|приймати|пити|пропити)\s+(?:від|при|для|коли)\b",
+    r"\bчим\s+(?:ліку\w+|лікувати)\b",
+    r"\b(?:порадь|підкажи|порекоменду\w*)\s+(?:ліки|препарат\w*|щось)\b",
+)
+
+# Command prompts.
+NAV_ASK_DRUG = "Напиши точну назву ліків після /price — наприклад: /price парацетамол"
+NAV_ASK_SERVICE = "Напиши назву послуги після /coverage — наприклад: /coverage пологи"
+
+# Med prices.
+NAV_PRICE_HEADER = "Ось що я знайшов по «{drug}»:"
+NAV_PRICE_ITEM = "• {name} — {price} грн ({pharmacy})"
+NAV_PRICE_LINK = "  {url}"
+NAV_AUTO_READ = "(автоматично зчитано — перевір)"
+NAV_NO_RESULTS = (
+    "Не вдалося знайти ціни. Можливо, джерела зараз недоступні або назву введено неточно."
+)
+NAV_SOURCE_UNAVAILABLE = "Не вдалося отримати дані з: {sources}."
+
+# Price ceiling (МОЗ граничні ціни). Exists ONLY for the reimbursement subset — for
+# anything else we must NOT imply a price is normal or inflated (rail #4 extended).
+NAV_CEILING_ABOVE = "⚠️ Вище за граничну (регульовану державою) ціну {limit} грн."
+NAV_CEILING_WITHIN = "✅ У межах граничної (регульованої) ціни {limit} грн."
+NAV_CEILING_NONE = (
+    "Для цих ліків немає регульованої граничної ціни, тож я не можу сказати, завищена вона чи ні."
+)
+
+# НСЗУ coverage. The ONLY truthful output is "may be free — verify"; never a
+# categorical "безкоштовно" (the data is facility-level, not per-procedure).
+NAV_COVERAGE_MAYBE_FREE = (
+    "Можливо, цю послугу можна отримати безкоштовно за Програмою медичних гарантій (ПМГ) "
+    "у закладі, що має договір із НСЗУ. Це варто перевірити напряму: {url}"
+)
+NAV_COVERAGE_UNKNOWN = (
+    "Не вдалося визначити покриття за ПМГ для цієї послуги. Перевір на дашборді НСЗУ: {url}"
+)
+NSZU_DASHBOARD_URL = "https://nszu.gov.ua/likuvannya"
+
+# Conservative keyword map of service kinds that are clearly within a ПМГ package
+# (publicly defined). A match yields only "may be free — verify", never a
+# categorical claim. Keyed by package label (English id); values are Ukrainian
+# service-text tokens. Limited and extensible, like SYMPTOM_KEYWORDS.
+PMG_PACKAGE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "primary_care": ("сімейн", "терапевт", "первинн", "педіатр"),
+    "childbirth": ("пологи", "вагітн", "кесар", "ведення вагітності"),
+    "stroke": ("інсульт",),
+    "heart_attack": ("інфаркт",),
+    "cancer": ("хіміотерап", "променев терап", "онколог"),
+    "dialysis": ("діаліз", "гемодіаліз"),
+    "mental_health": ("психічн", "психіатр"),
+}
+
+# Doctor / clinic transparent aggregation (rail #4). The label is attached
+# DETERMINISTICALLY by the render template, never by the LLM.
+NAV_PROVIDER_HEADER = "Ось варіанти — остаточний вибір за тобою; це варто обговорити з лікарем:"
+REVIEWS_NOT_OUTCOMES = "Це думки пацієнтів, а не результати лікування."
+NAV_PROVIDER_NSZU_YES = "має договір із НСЗУ"
+NAV_PROVIDER_NSZU_NO = "без договору з НСЗУ"
+
+# Superlative clinical-recommendation phrasing about a named provider that the
+# navigator output guard must reject (rail #4: no "best surgeon / operate here").
+# Each requires a superlative/ranking AND a provider/medical noun, so neutral copy
+# ("найкраще пити воду", "ось список хірургів") passes.
+# Superlative adjective must sit close to a provider noun, so "найкраще обговорити
+# з лікарем" (adverb + verb) does not trip — only "найкращий хірург" (best surgeon).
+# The ranking tokens (№1, топ-1) carry no leading \b because they start with a
+# non-word char.
+NAV_SUPERLATIVE_PATTERNS: tuple[str, ...] = (
+    # superlative adjective -> provider noun (best surgeon / best clinic)
+    r"\b(?:найкращ\w+|найдосвідченіш\w+|найвідоміш\w+|найсильніш\w+|найрейтинговіш\w+|"
+    r"найпрофесійніш\w+|топов\w+)\b[^.!?]{0,20}?\b(?:хірург\w*|лікар\w*|лікарн\w*|клінік\w*|"
+    r"медцентр\w*|спеціаліст\w*|ортопед\w*|кардіолог\w*|нейрохірург\w*|уролог\w*)",
+    # provider noun -> ranking (clinic #1 / top-1 surgeon)
+    r"\b(?:хірург\w*|лікар\w*|лікарн\w*|клінік\w*|медцентр\w*|спеціаліст\w*)\b"
+    r"[^.!?]{0,20}?(?:\bнайкращ\w+|№\s*1|номер\s+один|топ-?\s*1)",
+    # "operate / get treated at" directives
+    r"\b(?:оперуйс\w*|оперуйтес\w*|лікуйс\w*|лікуйтес\w*)\s+(?:у|в|саме)\b",
+    # outcome guarantees about treatment
+    r"\bгарантован\w+\s+(?:результат\w*|одужанн\w*|виліковуванн\w*)",
+    r"\b100\s*%\s*(?:виліку\w*|успіх\w*|результат\w*|одуж\w*)",
+    r"\b(?:точно|напевно)\s+виліку\w+",
+)

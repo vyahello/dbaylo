@@ -25,8 +25,10 @@ One product, two levels: a friendly wellness face on top, safety rails underneat
   The **wellness guardrail** (`src/dbaylo/wellness/`) is its L1 sibling: a second
   deterministic safety core for disordered-eating / unsafe-goal escalation. Together
   these two cores own **all** escalation; the companion LLM never decides it.
-- **L4 — Price & НСЗУ navigator** — med/lab/clinic prices, price-ceiling checks, coverage
-  lookup, transparent doctor info. Not built yet.
+- **L4 — Price & НСЗУ navigator** (`src/dbaylo/navigator/`) — on-demand med prices, МОЗ
+  price-ceiling checks, НСЗУ coverage ("may be free — verify"), transparent provider
+  aggregation. Built in Stage 4. Every free-text entry routes through `safety.gate`; all
+  output passes the navigator guard. No price DB (on-demand + short-TTL cache).
 
 ## Safety rails — encoded in CODE, not just docs (non-negotiable)
 
@@ -42,7 +44,12 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
    never lowers the action.
 3. **No "skip the doctor" reassurance.** `safety.FORBIDDEN_REASSURANCES` is checked against
    every emitted message; `evaluate` runs every message through `safety.assert_safe_output`.
-4. **No clinical-outcome claims / no "best doctor" ranking** (L4, later).
+4. **No clinical-outcome claims / no "best doctor" ranking** (L4). Enforced by
+   `navigator.guard.assert_safe_navigator_output` (rejects superlative provider
+   recommendations) + a deterministic "reviews, not outcomes" label. Extended to price
+   data: never a fabricated "free" (coverage exposes only `may_be_covered`) or "overpriced"
+   (`CeilingStatus.NO_CEILING` for unregulated drugs). Named-drug boundary: `/price` never
+   picks a drug for a condition.
 5. **OCR never trusted silently** (L2) — always surface for confirmation, always keep
    the original file (`LabReport.source_file`).
 6. **Friend, not sycophant; no crash diets / disordered-eating; beauty via health** (L1).
@@ -143,28 +150,60 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   directly. `companion/symptoms.py` now only *detects* tokens (`detect_symptoms`); the triage call
   lives in the gate.
 
+## L4 — price & НСЗУ navigator (Stage 4)
+
+- **Entry + gate** (`navigator/pipeline.py`): `/price` (named drug) and `/coverage` (service).
+  Command args are user text — `run_price`/`run_coverage` call `gate.screen` FIRST, so a symptom
+  short-circuits to triage before any fetch/LLM. **The only navigator module that imports
+  `run_claude`** (the Claude fallback is invoked post-gate). `--dry-run` runs the pipeline over a
+  built-in HTML fixture (no network).
+- **Fetch** (`navigator/fetch.py`): async `httpx` (the one new runtime dep), fail-soft (a dead
+  source returns `ok=False`, never raises/fabricates), descriptive UA, short-TTL on-disk cache,
+  on-demand only — **no price DB**.
+- **Sources** (`navigator/sources/`): per-site deterministic parsers (mypharmacy, doc.ua, robots-
+  permissible) — a parse miss yields `[]`, never a guess. **tabletki.ua / apteki.ua are
+  declared-disabled** (verified robots-hostile) and never fetched. `extract.py` is the Claude
+  fallback (prompt + pure parser; **no `run_claude` import** here) — its prices are sanity-checked
+  and marked "перевір".
+- **Coverage** (`navigator/coverage.py`): НСЗУ open data, facility-level. The type **cannot express
+  a categorical "free"** — only `may_be_covered` + a verify link ("може бути безкоштовно за ПМГ —
+  перевір"). Coverage is checked **before** price.
+- **Ceiling** (`navigator/ceiling.py`): МОЗ regulated prices (reimbursement subset only).
+  `CeilingStatus.NO_CEILING` is first-class — for an unregulated drug we say "немає регульованої
+  стелі", never a fabricated "overpriced".
+- **Providers** (`navigator/providers.py`): transparent attributes, reviews *as reviews*, no
+  ranking. The "Це думки пацієнтів, а не результати лікування" label is attached **deterministically
+  by the render template** (not the LLM); `assert_provider_labeled` is the last net.
+- **Guard** (`navigator/guard.py`): `assert_safe_navigator_output` = no "skip the doctor"
+  reassurance + no diet prescription + **reject superlative provider recommendations** (rail #4:
+  "найкращий хірург", "оперуйтесь у", "гарантований результат"). `is_drug_recommendation_request`
+  enforces the named-drug boundary (rail #1): "/price" never picks a drug for a symptom/condition.
+  (The dose-directive check is intentionally *not* applied — product names cite dose-form tokens;
+  the navigator never advises a dose.)
+
 ## Layout
 
 ```
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
-             labs/ (L2)  companion/ (L1 face: goals·checkin·reminders·scheduler·conversation·symptoms)
+             labs/ (L2)  companion/ (L1 face)  navigator/ (L4: prices·ceiling·coverage·providers·guard)
              llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
-migrations/  Alembic 0001..0003   tests/  triage/, labs/trends, wellness/, safety/ carry the highest bar
+migrations/  Alembic 0001..0003   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
 
 ```bash
-venv/bin/python -m pytest --cov   # tests + coverage (gate >= 90% on triage·labs.trends·wellness·safety)
+venv/bin/python -m pytest --cov   # tests + coverage (gate >= 90% on the deterministic safety surfaces)
 venv/bin/ruff check src tests     # lint        venv/bin/ruff format src tests
 venv/bin/mypy                     # strict type check
 venv/bin/alembic upgrade head     # apply migrations to the DB
 venv/bin/alembic revision --autogenerate -m "msg"   # new migration after model changes
 venv/bin/dbaylo-web               # serve FastAPI (/health, /webhook/{token})
 venv/bin/dbaylo-bot               # run the bot via long polling (needs BOT_TOKEN)
-venv/bin/dbaylo-scheduler --dry-run                         # list reminder jobs, fire nothing
-venv/bin/python -m dbaylo.companion.checkin --dry-run       # print the check-in prompt
-venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg   # extract only, no DB/Telegram
+venv/bin/dbaylo-scheduler --dry-run                            # list reminder jobs, fire nothing
+venv/bin/python -m dbaylo.companion.checkin --dry-run          # print the check-in prompt
+venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg      # extract only, no DB/Telegram
+venv/bin/python -m dbaylo.navigator.pipeline --dry-run парацетамол   # price a drug from a fixture
 ```
 
 After any model change: regenerate a migration and run `alembic check` (must report no drift).
@@ -174,4 +213,6 @@ After any model change: regenerate a migration and run `alembic check` (must rep
 Stage 1 (done): skeleton + safety core. Stage 2 (done): lab intake + Claude extraction +
 OCR-confirm loop + deterministic trends + charts + humanized summary. Stage 3 (done): goals,
 daily check-in, reminders (APScheduler, DB-as-source-of-truth), companion chat, the wellness
-guardrail. Stage 4: price & НСЗУ navigator.
+guardrail. Stage 3.5 (done): the `safety.gate` choke-point. Stage 4 (done): price & НСЗУ
+navigator (med prices, МОЗ ceiling, НСЗУ coverage, transparent providers). **All roadmap layers
+shipped.**
