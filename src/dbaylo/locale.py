@@ -325,6 +325,10 @@ LAB_REPEAT_BAD_CUSTOM = (
 )
 LAB_REPEAT_SET = "Гаразд, нагадаю {when}. 🗓"
 LAB_REPEAT_LABEL = "повторні аналізи"
+# A lab button whose flow already ended (state lost on restart / a menu tap reset it).
+LAB_OFFER_EXPIRED = (
+    "Ця дія вже неактуальна. Аналіз збережено — відкрий /history, щоб попрацювати з ним."
+)
 
 # --- Tier 1.1: medications ------------------------------------------------------
 

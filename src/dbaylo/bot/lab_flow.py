@@ -32,7 +32,8 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
-from dbaylo.companion import proactive, reminders
+from dbaylo.bot.keyboards import cancel_keyboard
+from dbaylo.companion import history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -55,12 +56,27 @@ _CB_CONFIRM = "lab:confirm"
 _CB_EDIT = "lab:edit"
 _CB_CANCEL = "lab:cancel"
 
-# Post-confirm offers (repeat-lab reminder + propose an active concern).
-_CB_REPEAT = {"lab:rep:1m": 30, "lab:rep:3m": 90, "lab:rep:6m": 180}
-_CB_REPEAT_OTHER = "lab:rep:other"
+# Post-confirm offers carry the report_id in the callback data, so the buttons work
+# even when the FSM state is gone — a restart (MemoryStorage is in-memory) or a Tier 1.3
+# menu-label tap (which resets state) would otherwise leave a state-gated button silently
+# dead. Everything an offer needs (lab name, out-of-range analytes) is recomputed from the
+# saved report. Only the custom-interval sub-step still needs state, and it is set on tap.
+_CB_REPEAT_DAYS = {"lab:rep:1m": 30, "lab:rep:3m": 90, "lab:rep:6m": 180}
+_CB_REPEAT_OTHER = "lab:rep:oth"
 _CB_REPEAT_NO = "lab:rep:no"
-_CB_CONCERN_YES = "lab:con:yes"
-_CB_CONCERN_NO = "lab:con:no"
+_CB_CONCERN_YES = "lab:con:y"
+_CB_CONCERN_NO = "lab:con:n"
+
+
+def _rid_cb(prefix: str, report_id: int) -> str:
+    return f"{prefix}:{report_id}"
+
+
+def _parse_rid(prefix: str, data: str | None) -> int | None:
+    if data and data.startswith(prefix + ":"):
+        tail = data[len(prefix) + 1 :]
+        return int(tail) if tail.isdigit() else None
+    return None
 
 
 class LabStates(StatesGroup):
@@ -69,9 +85,7 @@ class LabStates(StatesGroup):
     edit_value = State()
     edit_date = State()
     edit_lab = State()
-    repeat_offer = State()
     repeat_custom = State()
-    concern_offer = State()
 
 
 # --- Pure helpers (unit-tested) -------------------------------------------------
@@ -301,8 +315,16 @@ async def _restore_confirmation(
 @router.callback_query(F.data == _CB_CONFIRM)
 async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     data = await state.get_data()
+    report_id = data.get("report_id")
+    # The pending values live only in FSM state until confirm. If that state is gone
+    # (a restart, or a menu-label tap reset it), there is nothing to save — tell the
+    # user instead of crashing on a missing key or silently doing nothing.
+    if not isinstance(report_id, int) or "report" not in data:
+        if isinstance(callback.message, Message):
+            await callback.message.answer(locale.LAB_OFFER_EXPIRED)
+        await callback.answer()
+        return
     report = _pending_report(data)
-    report_id = cast(int, data["report_id"])
     if callback.message is None:
         await callback.answer()
         return
@@ -331,48 +353,52 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(summary.text)
     await callback.answer()
 
-    # Post-confirm: a DRAFT concern name only if something is out of range (the user
-    # renames it later via /problems), and the repeat-lab offer.
-    out_of_range = [
-        a
-        for a in report.results
-        if compute_flag(a.value, a.ref_low, a.ref_high) in (ResultFlag.LOW, ResultFlag.HIGH)
-    ]
-    draft_concern = (
-        locale.PROBLEM_LAB_DRAFT.format(analyte=out_of_range[0].analyte) if out_of_range else None
-    )
-    await state.set_state(LabStates.repeat_offer)
-    await state.update_data(
-        draft_concern=draft_concern, repeat_label=report.lab or locale.LAB_REPEAT_LABEL
-    )
-    await callback.message.answer(locale.LAB_REPEAT_OFFER, reply_markup=_repeat_keyboard())
+    # The report is saved; the pending FSM data is no longer needed. The repeat/concern
+    # offers are stateless (they carry report_id), so they survive a state reset.
+    await state.clear()
+    await callback.message.answer(locale.LAB_REPEAT_OFFER, reply_markup=_repeat_keyboard(report_id))
 
 
-def _repeat_keyboard() -> InlineKeyboardMarkup:
-    keys = list(_CB_REPEAT)
+def _repeat_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    keys = list(_CB_REPEAT_DAYS)
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=locale.BTN_REPEAT_1M, callback_data=keys[0]),
-                InlineKeyboardButton(text=locale.BTN_REPEAT_3M, callback_data=keys[1]),
-                InlineKeyboardButton(text=locale.BTN_REPEAT_6M, callback_data=keys[2]),
+                InlineKeyboardButton(
+                    text=locale.BTN_REPEAT_1M, callback_data=_rid_cb(keys[0], report_id)
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_REPEAT_3M, callback_data=_rid_cb(keys[1], report_id)
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_REPEAT_6M, callback_data=_rid_cb(keys[2], report_id)
+                ),
             ],
             [
-                InlineKeyboardButton(text=locale.BTN_REPEAT_OTHER, callback_data=_CB_REPEAT_OTHER),
-                InlineKeyboardButton(text=locale.BTN_REPEAT_NO, callback_data=_CB_REPEAT_NO),
+                InlineKeyboardButton(
+                    text=locale.BTN_REPEAT_OTHER,
+                    callback_data=_rid_cb(_CB_REPEAT_OTHER, report_id),
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_REPEAT_NO, callback_data=_rid_cb(_CB_REPEAT_NO, report_id)
+                ),
             ],
         ]
     )
 
 
-def _concern_keyboard() -> InlineKeyboardMarkup:
+def _concern_keyboard(report_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_LAB_CONCERN_YES, callback_data=_CB_CONCERN_YES
+                    text=locale.BTN_LAB_CONCERN_YES,
+                    callback_data=_rid_cb(_CB_CONCERN_YES, report_id),
                 ),
-                InlineKeyboardButton(text=locale.BTN_LAB_CONCERN_NO, callback_data=_CB_CONCERN_NO),
+                InlineKeyboardButton(
+                    text=locale.BTN_LAB_CONCERN_NO,
+                    callback_data=_rid_cb(_CB_CONCERN_NO, report_id),
+                ),
             ]
         ]
     )
@@ -382,59 +408,81 @@ def _now() -> datetime:
     return datetime.now(ZoneInfo(get_settings().timezone))
 
 
-async def _create_repeat(
-    message: Message, state: FSMContext, run_at: datetime, scheduler: ReminderScheduler
+async def _do_repeat(
+    answer_to: Message,
+    *,
+    owner_tg: int,
+    report_id: int,
+    run_at: datetime,
+    scheduler: ReminderScheduler,
 ) -> None:
-    data = await state.get_data()
-    label = str(data.get("repeat_label") or locale.LAB_REPEAT_LABEL)
-    report_id = data.get("report_id")
+    """Create the repeat-lab reminder for a saved report (stateless — by report_id)."""
     async with get_session() as session:
-        user = await ensure_user(session, telegram_id=message.chat.id)
+        user = await ensure_user(session, telegram_id=owner_tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        label = (report.lab if report is not None else None) or locale.LAB_REPEAT_LABEL
         await proactive.add_repeat_lab(
-            session,
-            user=user,
-            run_at=run_at,
-            label=label,
-            scheduler=scheduler,
-            report_id=report_id if isinstance(report_id, int) else None,
+            session, user=user, run_at=run_at, label=label, scheduler=scheduler, report_id=report_id
         )
         await session.commit()
-    await message.answer(locale.LAB_REPEAT_SET.format(when=run_at.date().isoformat()))
+    await answer_to.answer(locale.LAB_REPEAT_SET.format(when=run_at.date().isoformat()))
 
 
-async def _offer_concern_or_finish(message: Message, state: FSMContext) -> None:
-    """After the repeat-lab step, offer the lab-flag concern (if any) or finish."""
-    data = await state.get_data()
-    if data.get("draft_concern"):
-        await state.set_state(LabStates.concern_offer)
-        await message.answer(locale.LAB_CONCERN_OFFER, reply_markup=_concern_keyboard())
-    else:
-        await state.clear()
+async def _draft_concern_name(owner_tg: int, report_id: int) -> str | None:
+    """The proposed concern name from a report's first out-of-range analyte, or None."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=owner_tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        if report is None:
+            return None
+        for result in history.ordered_results(report):
+            flag = compute_flag(result.value, result.ref_low, result.ref_high)
+            if flag in (ResultFlag.LOW, ResultFlag.HIGH):
+                return locale.PROBLEM_LAB_DRAFT.format(analyte=result.analyte)
+    return None
 
 
-@router.callback_query(LabStates.repeat_offer, F.data.in_(set(_CB_REPEAT)))
-async def on_repeat_pick(
+async def _offer_concern(answer_to: Message, *, owner_tg: int, report_id: int) -> None:
+    """After the repeat step, offer the lab-flag concern (if anything is out of range)."""
+    if await _draft_concern_name(owner_tg, report_id) is not None:
+        await answer_to.answer(locale.LAB_CONCERN_OFFER, reply_markup=_concern_keyboard(report_id))
+
+
+@router.callback_query(F.data.startswith("lab:rep:"))
+async def on_repeat(
     callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
 ) -> None:
-    if isinstance(callback.message, Message) and callback.data is not None:
-        run_at = _now() + timedelta(days=_CB_REPEAT[callback.data])
-        await _create_repeat(callback.message, state, run_at, reminder_scheduler)
-        await _offer_concern_or_finish(callback.message, state)
-    await callback.answer()
+    """All repeat-offer buttons — stateless (report_id is in the callback data)."""
+    data = callback.data or ""
+    owner = callback.from_user.id if callback.from_user else None
+    if not isinstance(callback.message, Message) or owner is None:
+        await callback.answer()
+        return
 
+    if (report_id := _parse_rid(_CB_REPEAT_OTHER, data)) is not None:
+        await state.set_state(LabStates.repeat_custom)
+        await state.update_data(repeat_report_id=report_id)
+        await callback.message.answer(locale.LAB_REPEAT_ASK_CUSTOM, reply_markup=cancel_keyboard())
+        await callback.answer()
+        return
 
-@router.callback_query(LabStates.repeat_offer, F.data == _CB_REPEAT_NO)
-async def on_repeat_no(callback: CallbackQuery, state: FSMContext) -> None:
-    if isinstance(callback.message, Message):
-        await _offer_concern_or_finish(callback.message, state)
-    await callback.answer()
+    if (report_id := _parse_rid(_CB_REPEAT_NO, data)) is not None:
+        await _offer_concern(callback.message, owner_tg=owner, report_id=report_id)
+        await callback.answer()
+        return
 
-
-@router.callback_query(LabStates.repeat_offer, F.data == _CB_REPEAT_OTHER)
-async def on_repeat_other(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.set_state(LabStates.repeat_custom)
-    if isinstance(callback.message, Message):
-        await callback.message.answer(locale.LAB_REPEAT_ASK_CUSTOM)
+    for prefix, days in _CB_REPEAT_DAYS.items():
+        if (report_id := _parse_rid(prefix, data)) is not None:
+            run_at = _now() + timedelta(days=days)
+            await _do_repeat(
+                callback.message,
+                owner_tg=owner,
+                report_id=report_id,
+                run_at=run_at,
+                scheduler=reminder_scheduler,
+            )
+            await _offer_concern(callback.message, owner_tg=owner, report_id=report_id)
+            break
     await callback.answer()
 
 
@@ -442,40 +490,56 @@ async def on_repeat_other(callback: CallbackQuery, state: FSMContext) -> None:
 async def on_repeat_custom(
     message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
 ) -> None:
+    data = await state.get_data()
+    report_id = data.get("repeat_report_id")
     run_at = reminders.parse_relative_when(message.text or "", base=_now())
     if run_at is None:
         await message.answer(locale.LAB_REPEAT_BAD_CUSTOM)  # stay in state
         return
-    await _create_repeat(message, state, run_at, reminder_scheduler)
-    await _offer_concern_or_finish(message, state)
-
-
-@router.callback_query(LabStates.concern_offer, F.data == _CB_CONCERN_YES)
-async def on_concern_yes(
-    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
-) -> None:
-    data = await state.get_data()
-    name = str(data.get("draft_concern") or "").strip()
-    report_id = data.get("report_id")
     await state.clear()
-    if isinstance(callback.message, Message) and name:
-        async with get_session() as session:
-            user = await ensure_user(session, telegram_id=callback.message.chat.id)
-            await proactive.add_problem(
-                session,
-                user=user,
-                name=name,
-                scheduler=reminder_scheduler,
-                report_id=report_id if isinstance(report_id, int) else None,
-            )
-            await session.commit()
-        await callback.message.answer(locale.PROBLEM_ADDED)
+    owner = message.from_user.id if message.from_user else None
+    if isinstance(report_id, int) and owner is not None:
+        await _do_repeat(
+            message,
+            owner_tg=owner,
+            report_id=report_id,
+            run_at=run_at,
+            scheduler=reminder_scheduler,
+        )
+        await _offer_concern(message, owner_tg=owner, report_id=report_id)
+
+
+@router.callback_query(F.data.startswith("lab:con:"))
+async def on_concern(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Concern-offer buttons — stateless (report_id is in the callback data)."""
+    data = callback.data or ""
+    owner = callback.from_user.id if callback.from_user else None
+    if not isinstance(callback.message, Message) or owner is None:
+        await callback.answer()
+        return
+    if (report_id := _parse_rid(_CB_CONCERN_YES, data)) is not None:
+        name = await _draft_concern_name(owner, report_id)
+        if name is not None:
+            async with get_session() as session:
+                user = await ensure_user(session, telegram_id=owner)
+                await proactive.add_problem(
+                    session,
+                    user=user,
+                    name=name,
+                    scheduler=reminder_scheduler,
+                    report_id=report_id,
+                )
+                await session.commit()
+            await callback.message.answer(locale.PROBLEM_ADDED)
     await callback.answer()
 
 
-@router.callback_query(LabStates.concern_offer, F.data == _CB_CONCERN_NO)
-async def on_concern_no(callback: CallbackQuery, state: FSMContext) -> None:
-    await state.clear()
+@router.callback_query(F.data.startswith("lab:"))
+async def on_lab_stale(callback: CallbackQuery) -> None:
+    """Fallback: any lab button whose flow already ended (state lost / already actioned)
+    still gets an acknowledgement instead of silently hanging."""
+    if isinstance(callback.message, Message):
+        await callback.message.answer(locale.LAB_OFFER_EXPIRED)
     await callback.answer()
 
 

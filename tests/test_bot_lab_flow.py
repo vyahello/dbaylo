@@ -7,14 +7,26 @@ from datetime import date
 import pytest
 
 from dbaylo.bot.lab_flow import (
+    _CB_CONCERN_NO,
+    _CB_CONCERN_YES,
+    _CB_REPEAT_NO,
+    _CB_REPEAT_OTHER,
+    _concern_keyboard,
+    _parse_rid,
+    _repeat_keyboard,
     _report_from_state,
     _report_to_state,
+    _rid_cb,
     confirmation_keyboard,
     parse_edit_target,
     parse_value,
     render_confirmation_text,
 )
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
+
+
+def _cb_datas(markup) -> list[str]:
+    return [b.callback_data for row in markup.inline_keyboard for b in row]
 
 
 def _report() -> ExtractedReport:
@@ -83,3 +95,34 @@ def test_confirmation_keyboard_has_three_buttons() -> None:
     kb = confirmation_keyboard()
     flat = [b for row in kb.inline_keyboard for b in row]
     assert len(flat) == 3
+
+
+# --- Post-confirm offers are stateless: report_id rides in the callback data --------
+
+
+def test_rid_callback_round_trips() -> None:
+    assert _parse_rid("lab:rep:1m", _rid_cb("lab:rep:1m", 42)) == 42
+    assert _parse_rid(_CB_REPEAT_NO, _rid_cb(_CB_REPEAT_NO, 7)) == 7
+
+
+def test_parse_rid_rejects_wrong_prefix_or_non_digit() -> None:
+    assert _parse_rid("lab:rep:1m", "lab:rep:3m:5") is None  # different interval
+    assert _parse_rid("lab:con:y", "lab:con:y:abc") is None  # non-numeric id
+    assert _parse_rid("lab:con:y", None) is None
+
+
+def test_repeat_keyboard_every_button_carries_the_report_id() -> None:
+    datas = _cb_datas(_repeat_keyboard(99))
+    assert all(d.endswith(":99") for d in datas)
+    # The three intervals + "other" + "no".
+    assert datas == [
+        "lab:rep:1m:99",
+        "lab:rep:3m:99",
+        "lab:rep:6m:99",
+        f"{_CB_REPEAT_OTHER}:99",
+        f"{_CB_REPEAT_NO}:99",
+    ]
+
+
+def test_concern_keyboard_carries_the_report_id() -> None:
+    assert _cb_datas(_concern_keyboard(3)) == [f"{_CB_CONCERN_YES}:3", f"{_CB_CONCERN_NO}:3"]
