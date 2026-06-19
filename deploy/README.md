@@ -20,10 +20,12 @@ cert) and prints the one sudoers line CI needs to restart it passwordlessly.
 
 ## GitHub secrets (already set)
 
+Configured under **Settings → Secrets and variables → Actions** — never hard-coded here.
+
 | Secret | Meaning |
 |---|---|
-| `VPS_HOST` | `178.105.143.68` |
-| `VPS_USER` | `cax` |
+| `VPS_HOST` | the VPS hostname or IP |
+| `VPS_USER` | the deploy user on the VPS |
 | `VPS_SSH_KEY` | private key authorized on the VPS |
 | `VPS_APP_DIR` | absolute path of the app dir on the VPS |
 
