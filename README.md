@@ -93,6 +93,8 @@ In Telegram:
 | *(send a photo/PDF)* | read a lab result → confirm → trends + chart + summary |
 | `/checkin` | quick daily check-in (sleep / water / mood / training; symptoms route to triage) |
 | `/goal`, `/goals` | set / list a wellness goal (an aggressive target is gently redirected) |
+| `/history`, `/reports` | browse saved labs (open the file, view results, delete) — filter by lab/date/`останній` |
+| `/trend <analyte>` | one analyte's movement over time + a chart (deterministic, range-relative) |
 | `/price <drug>` | cheapest options for a **named** medicine + a state-ceiling check |
 | `/coverage <service>` | is it free under НСЗУ ПМГ? (checked *before* price) |
 

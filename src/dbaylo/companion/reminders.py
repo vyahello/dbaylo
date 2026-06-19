@@ -105,11 +105,17 @@ async def create_reminder(
     schedule: str,
     payload: str | None = None,
     medication_id: int | None = None,
+    report_id: int | None = None,
 ) -> Reminder:
     """Create a reminder row (validates the schedule string is parseable)."""
     parse_schedule(schedule)  # fail fast on a malformed schedule
     reminder = Reminder(
-        user_id=user.id, type=type, schedule=schedule, payload=payload, medication_id=medication_id
+        user_id=user.id,
+        type=type,
+        schedule=schedule,
+        payload=payload,
+        medication_id=medication_id,
+        report_id=report_id,
     )
     session.add(reminder)
     await session.flush()
@@ -117,11 +123,16 @@ async def create_reminder(
 
 
 async def create_repeat_lab(
-    session: AsyncSession, *, user: User, run_at: datetime, label: str
+    session: AsyncSession, *, user: User, run_at: datetime, label: str, report_id: int | None = None
 ) -> Reminder:
     """Create a one-off repeat-lab reminder for ``run_at`` (offered on lab confirm)."""
     return await create_reminder(
-        session, user=user, type=TYPE_REPEAT_LAB, schedule=once(run_at), payload=label
+        session,
+        user=user,
+        type=TYPE_REPEAT_LAB,
+        schedule=once(run_at),
+        payload=label,
+        report_id=report_id,
     )
 
 

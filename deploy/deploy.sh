@@ -17,14 +17,15 @@ venv/bin/pip install --quiet -e .
 venv/bin/alembic upgrade head
 
 # Restart the long-polling bot (works without a TLS cert). Best-effort: the code is
-# already synced and migrated above, so a missing unit or missing NOPASSWD sudo is a
-# warning, not a failed deploy. `sudo -n` fails fast instead of hanging on a password.
-if systemctl list-unit-files 2>/dev/null | grep -q '^dbaylo-bot\.service'; then
-  sudo -n systemctl restart dbaylo-bot.service \
-    && echo "Restarted dbaylo-bot.service" \
-    || echo "::warning::Could not restart dbaylo-bot.service (need NOPASSWD sudo — see deploy/README.md)"
+# already synced and migrated above. Attempt the restart directly with `sudo -n`
+# (fails fast, never hangs) — a missing unit or missing NOPASSWD sudo becomes a
+# warning, not a failed deploy. We do NOT pre-check with `systemctl list-unit-files`:
+# that grep behaves differently under the CI ssh shell and was silently skipping the
+# restart even though the unit was installed.
+if sudo -n systemctl restart dbaylo-bot.service 2>/dev/null; then
+  echo "Restarted dbaylo-bot.service"
 else
-  echo "::warning::dbaylo-bot.service not installed yet — run deploy/setup-vps.sh once on the VPS"
+  echo "::warning::Could not restart dbaylo-bot.service — unit installed (deploy/setup-vps.sh) and NOPASSWD sudo set?"
 fi
 
 echo "Deployed $(git rev-parse --short HEAD 2>/dev/null || echo HEAD) to $APP_DIR"

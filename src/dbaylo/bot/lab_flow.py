@@ -387,10 +387,16 @@ async def _create_repeat(
 ) -> None:
     data = await state.get_data()
     label = str(data.get("repeat_label") or locale.LAB_REPEAT_LABEL)
+    report_id = data.get("report_id")
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=message.chat.id)
         await proactive.add_repeat_lab(
-            session, user=user, run_at=run_at, label=label, scheduler=scheduler
+            session,
+            user=user,
+            run_at=run_at,
+            label=label,
+            scheduler=scheduler,
+            report_id=report_id if isinstance(report_id, int) else None,
         )
         await session.commit()
     await message.answer(locale.LAB_REPEAT_SET.format(when=run_at.date().isoformat()))
@@ -450,11 +456,18 @@ async def on_concern_yes(
 ) -> None:
     data = await state.get_data()
     name = str(data.get("draft_concern") or "").strip()
+    report_id = data.get("report_id")
     await state.clear()
     if isinstance(callback.message, Message) and name:
         async with get_session() as session:
             user = await ensure_user(session, telegram_id=callback.message.chat.id)
-            await proactive.add_problem(session, user=user, name=name, scheduler=reminder_scheduler)
+            await proactive.add_problem(
+                session,
+                user=user,
+                name=name,
+                scheduler=reminder_scheduler,
+                report_id=report_id if isinstance(report_id, int) else None,
+            )
             await session.commit()
         await callback.message.answer(locale.PROBLEM_ADDED)
     await callback.answer()

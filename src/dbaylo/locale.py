@@ -74,6 +74,8 @@ HELP_TEXT = (
     "/problems — переглянути активні проблеми\n"
     "/medication — додати нагадування про ліки\n"
     "/reminders — переглянути й вимкнути нагадування\n"
+    "/history — твої збережені аналізи (файли, результати, видалення)\n"
+    "/trend — динаміка одного показника, напр. /trend глюкоза\n"
     "/price — ціна на конкретні названі ліки\n"
     "/coverage — чи покриває ПМГ послугу\n\n"
     "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
@@ -340,6 +342,45 @@ REMINDER_ITEM_REPEAT_LAB = "🧪 Повтор аналізів ({name}) — {whe
 REMINDER_NEXT_UNKNOWN = "час не визначено"
 REMINDER_TURNED_OFF = "Вимкнув нагадування."
 BTN_REMINDER_OFF = "🗑 Вимкнути"
+
+# --- Tier 1.2: history & file retrieval -----------------------------------------
+
+HIST_HEADER = "Твої збережені аналізи:"
+HIST_EMPTY = "Поки немає підтверджених аналізів. Надішли фото або PDF — я збережу й відстежуватиму."
+HIST_NO_DATE = "без дати"
+HIST_REPORT_LINE = "📅 {date} · {lab} · {count} показників {flags}"
+HIST_REPORT_UPLOADED = "   (завантажено {uploaded})"
+HIST_MORE = "Показано останні {n}. Уточни: /history synevo · /history 2026-05 · /history травень"
+HIST_FILE_GONE = "Файл недоступний — можливо, його переміщено або видалено з диска."
+HIST_RESULTS_HEADER = "{date} · {lab}:"
+BTN_HIST_FILE = "📄 Файл"
+BTN_HIST_RESULTS = "📊 Результати"
+BTN_HIST_DELETE = "🗑 Видалити"
+BTN_HIST_TREND = "📈 Динаміка"
+
+# Delete (two-step; shows what is being removed + any Tier 1.1 coupling).
+HIST_DELETE_CONFIRM = (
+    "Видалити цей аналіз НАЗАВЖДИ?\n\n{details}\n\n"
+    "Зникнуть файл і всі результати. (Він залишиться в нічній резервній копії — це навмисна "
+    "підстраховка.)"
+)
+HIST_DELETE_COUPLING = "⚠️ Разом із ним буде прибрано: {items}."
+HIST_COUPLING_CONCERN = "активну проблему «{name}» (позначу вирішеною)"
+HIST_COUPLING_REMINDER = "нагадування про повтор аналізів"
+HIST_DELETED = "Видалив назавжди. 🗑"
+HIST_DELETE_CANCELLED = "Скасував — нічого не видаляю."
+BTN_DELETE_YES = "Так, видалити"
+BTN_DELETE_NO = "Скасувати"
+
+# Orphaned PENDING uploads (opt-in cleanup).
+HIST_PENDING_FOOTER = "🧹 Прибрати незавершені завантаження ({n})"
+HIST_PENDING_CLEANED = "Прибрав незавершені завантаження: {n}."
+
+# Single-analyte trend across all reports.
+TREND_ASK = "Який показник показати в динаміці? Напр.: /trend глюкоза"
+TREND_NOT_FOUND = "Не знайшов такий показник серед твоїх аналізів."
+TREND_INSUFFICIENT = "Замало даних для динаміки — потрібно щонайменше два виміри одного показника."
+TREND_LINE = "📈 {analyte}: {value} — {movement}. Вимірів: {n}."
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 

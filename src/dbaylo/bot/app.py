@@ -13,7 +13,7 @@ import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from dbaylo.bot import companion_flow, lab_flow, navigator_flow, proactive_flow
+from dbaylo.bot import companion_flow, history_flow, lab_flow, navigator_flow, proactive_flow
 from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
@@ -26,8 +26,10 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     The owner lock is an **outer** update middleware, so it runs before any router
     or handler (fail-closed: an unset ``owner_id`` of 0 refuses everyone). Router
     order: commands first, then lab intake (documents/photos + its edit FSM), then
-    the navigator commands (/price, /coverage), then the companion — whose free-text
-    catch-all is ``StateFilter(None)`` so it never steals a turn from an FSM flow.
+    the navigator commands (/price, /coverage), then proactive management, then the
+    history flow (it claims only free text that *looks* like a history request), and
+    finally the companion — whose free-text catch-all is ``StateFilter(None)`` so it
+    never steals a turn from an FSM flow.
     """
     resolved_owner = owner_id if owner_id is not None else get_settings().owner_telegram_id
     dispatcher = Dispatcher()
@@ -36,6 +38,7 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)
     dispatcher.include_router(proactive_flow.router)
+    dispatcher.include_router(history_flow.router)
     dispatcher.include_router(companion_flow.router)
     return dispatcher
 

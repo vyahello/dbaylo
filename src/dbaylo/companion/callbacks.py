@@ -11,6 +11,16 @@ PROBLEM_RENAME = "prob_rename"
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 
+# Tier 1.2 — history & retrieval. All carry only ids/indices (well within the 64-byte
+# callback-data limit); analyte names are looked up by index, never embedded.
+HIST_FILE = "hist_file"
+HIST_RESULTS = "hist_results"
+HIST_DELETE = "hist_del"
+HIST_DELETE_OK = "hist_delok"
+HIST_DELETE_NO = "hist_delno"
+HIST_TREND = "hist_trend"
+HIST_CLEAN = "hist_clean"
+
 
 def _make(prefix: str, ident: int) -> str:
     return f"{prefix}{_SEP}{ident}"
@@ -51,3 +61,58 @@ def medication_off(medication_id: int) -> str:
 
 def parse_medication_off(data: str) -> int | None:
     return _parse(MEDICATION_OFF, data)
+
+
+# --- Tier 1.2: history & retrieval ----------------------------------------------
+
+
+def history_file(report_id: int) -> str:
+    return _make(HIST_FILE, report_id)
+
+
+def parse_history_file(data: str) -> int | None:
+    return _parse(HIST_FILE, data)
+
+
+def history_results(report_id: int) -> str:
+    return _make(HIST_RESULTS, report_id)
+
+
+def parse_history_results(data: str) -> int | None:
+    return _parse(HIST_RESULTS, data)
+
+
+def history_delete(report_id: int) -> str:
+    return _make(HIST_DELETE, report_id)
+
+
+def parse_history_delete(data: str) -> int | None:
+    return _parse(HIST_DELETE, data)
+
+
+def history_delete_ok(report_id: int) -> str:
+    return _make(HIST_DELETE_OK, report_id)
+
+
+def parse_history_delete_ok(data: str) -> int | None:
+    return _parse(HIST_DELETE_OK, data)
+
+
+def history_delete_no(report_id: int) -> str:
+    return _make(HIST_DELETE_NO, report_id)
+
+
+def parse_history_delete_no(data: str) -> int | None:
+    return _parse(HIST_DELETE_NO, data)
+
+
+def history_trend(report_id: int, index: int) -> str:
+    return f"{HIST_TREND}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_history_trend(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == HIST_TREND and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
+    return None

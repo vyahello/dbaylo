@@ -1,0 +1,392 @@
+"""Tier 1.2 — history & retrieval (deterministic logic).
+
+Covers the NL parser/router (incl. the addition-B "no concrete filter -> companion"
+boundary), listing/filtering, rendering, single-analyte trends, delete with Tier 1.1
+coupling cleanup, original-file removal, and the orphaned-upload cleanup.
+"""
+
+from __future__ import annotations
+
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, date, datetime, timedelta
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from dbaylo.companion import history, proactive
+from dbaylo.companion.scheduler import ReminderScheduler
+from dbaylo.db.models import (
+    Condition,
+    ConditionStatus,
+    LabReport,
+    LabResult,
+    Reminder,
+    ReportStatus,
+    User,
+)
+
+TZ = ZoneInfo("Europe/Kyiv")
+
+
+# --- Seed helpers ---------------------------------------------------------------
+
+
+async def _user(session: AsyncSession) -> User:
+    user = User(telegram_id=777, name="Test")
+    session.add(user)
+    await session.flush()
+    return user
+
+
+async def _report(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    on: date | None,
+    lab: str | None,
+    status: ReportStatus = ReportStatus.CONFIRMED,
+    results: tuple[tuple[str, float | None, float | None, float | None], ...] = (),
+    source_file: str | None = None,
+    created_at: datetime | None = None,
+) -> LabReport:
+    # Build results through the relationship so the collection is populated in memory
+    # (async sessions cannot lazy-load it later).
+    report = LabReport(
+        user_id=user_id,
+        report_date=on,
+        lab=lab,
+        status=status,
+        source_file=source_file,
+        results=[
+            LabResult(analyte=name, value=value, ref_low=low, ref_high=high)
+            for name, value, low, high in results
+        ],
+    )
+    if created_at is not None:
+        report.created_at = created_at
+    session.add(report)
+    await session.flush()
+    return report
+
+
+async def _sender(telegram_id: int, text: str, *, buttons: object | None = None) -> None:
+    return None
+
+
+@pytest_asyncio.fixture
+async def scheduler(async_session: AsyncSession) -> AsyncIterator[ReminderScheduler]:
+    @asynccontextmanager
+    async def factory() -> AsyncIterator[AsyncSession]:
+        yield async_session
+
+    rs = ReminderScheduler(sender=_sender, session_factory=factory, tz=TZ)
+    await rs.start()
+    yield rs
+    rs.shutdown()
+
+
+# --- NL parser + routing --------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("text", "year", "month", "day"),
+    [
+        ("покажи аналізи 2026-05-12", 2026, 5, 12),
+        ("аналізи за 2026-05", 2026, 5, None),
+        ("що було у 2025 році", 2025, None, None),
+        ("результати за травень", None, 5, None),
+        ("звіти за грудень", None, 12, None),
+    ],
+)
+def test_parse_history_query_dates(text, year, month, day) -> None:
+    filt = history.parse_history_query(text)
+    assert (filt.year, filt.month, filt.day) == (year, month, day)
+
+
+def test_parse_history_query_lab_keyword_and_known_lab() -> None:
+    assert history.parse_history_query("аналізи synevo").lab == "synevo"
+    # A real lab name not in the keyword list is matched via known_labs.
+    filt = history.parse_history_query("аналізи Медіс за травень", known_labs=("Медіс",))
+    assert filt.lab == "Медіс" and filt.month == 5
+
+
+def test_parse_history_query_latest() -> None:
+    assert history.parse_history_query("покажи останній аналіз").latest is True
+
+
+@pytest.mark.parametrize(
+    ("text", "is_query"),
+    [
+        ("покажи аналізи за травень", True),  # intent + concrete
+        ("synevo", True),  # lab keyword alone is concrete
+        ("останній аналіз", True),
+        ("покажи мої аналізи", False),  # intent, NO concrete token -> companion (addition B)
+        ("динаміка ваги", False),  # intent word, but no analyte/date token
+        ("як справи?", False),  # neither
+        ("дякую, ти супер", False),
+    ],
+)
+def test_is_history_query_routing(text, is_query) -> None:
+    assert history.is_history_query(text) is is_query
+
+
+def test_intent_without_concrete_token_yields_empty_filter() -> None:
+    # The addition-B contract: routing only fires when a concrete filter survives.
+    assert not history.parse_history_query("покажи мої аналізи").has_filter
+
+
+# --- Listing + filtering --------------------------------------------------------
+
+
+async def test_list_confirmed_recent_first_and_excludes_pending(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    await _report(async_session, user_id=user.id, on=date(2026, 1, 10), lab="A")
+    await _report(async_session, user_id=user.id, on=date(2026, 5, 20), lab="B")
+    await _report(
+        async_session, user_id=user.id, on=date(2026, 6, 1), lab="C", status=ReportStatus.PENDING
+    )
+    reports = await history.list_confirmed(async_session, user_id=user.id)
+    assert [r.lab for r in reports] == ["B", "A"]  # recent first, no PENDING
+
+
+async def test_list_confirmed_filters(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _report(async_session, user_id=user.id, on=date(2026, 5, 2), lab="Synevo")
+    await _report(async_session, user_id=user.id, on=date(2026, 5, 20), lab="Dila")
+    await _report(async_session, user_id=user.id, on=date(2025, 5, 9), lab="Synevo")
+
+    by_lab = await history.list_confirmed(
+        async_session, user_id=user.id, filt=history.HistoryFilter(lab="synevo")
+    )
+    assert {r.lab for r in by_lab} == {"Synevo"} and len(by_lab) == 2
+
+    by_month = await history.list_confirmed(
+        async_session, user_id=user.id, filt=history.HistoryFilter(year=2026, month=5)
+    )
+    assert len(by_month) == 2
+
+    latest = await history.list_confirmed(
+        async_session, user_id=user.id, filt=history.HistoryFilter(latest=True)
+    )
+    assert len(latest) == 1 and latest[0].report_date == date(2026, 5, 20)
+
+
+async def test_list_confirmed_returns_one_over_limit_for_more(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    for i in range(12):
+        await _report(async_session, user_id=user.id, on=date(2026, 1, i + 1), lab=f"L{i}")
+    reports = await history.list_confirmed(async_session, user_id=user.id, limit=10)
+    assert len(reports) == 11  # limit + 1 sentinel so the caller can show "more"
+
+
+async def test_known_labs(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _report(async_session, user_id=user.id, on=date(2026, 1, 1), lab="Synevo")
+    await _report(async_session, user_id=user.id, on=date(2026, 2, 1), lab="Synevo")
+    await _report(async_session, user_id=user.id, on=date(2026, 3, 1), lab=None)
+    assert await history.known_labs(async_session, user_id=user.id) == ("Synevo",)
+
+
+# --- Rendering ------------------------------------------------------------------
+
+
+async def test_render_report_line_flags_and_results(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 5, 12),
+        lab="Synevo",
+        results=(("Глюкоза", 7.0, 3.9, 6.1), ("Калій", 4.0, 3.5, 5.1)),
+    )
+    results = history.ordered_results(report)
+    line = history.render_report_line(report, results)
+    assert "2026-05-12" in line and "Synevo" in line
+    assert "2 показників" in line and "⬆️" in line  # one high analyte
+
+    body = history.render_report_results(report, results)
+    assert "1. Глюкоза" in body and "2. Калій" in body
+    assert "норма" in body
+
+
+async def test_render_report_line_no_date(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _report(async_session, user_id=user.id, on=None, lab=None)
+    line = history.render_report_line(report, [])
+    assert history.locale.HIST_NO_DATE in line
+    assert history.locale.LAB_LAB_UNKNOWN in line
+
+
+# --- Trends ---------------------------------------------------------------------
+
+
+async def test_trend_insufficient_single_point(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 5, 1),
+        lab="A",
+        results=(("Глюкоза", 5.0, 3.9, 6.1),),
+    )
+    view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="глюкоза")
+    assert view.found and view.chart is None
+    assert history.locale.TREND_INSUFFICIENT in view.text
+
+
+async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 1, 1),
+        lab="A",
+        results=(("Глюкоза", 7.5, 3.9, 6.1),),
+    )
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 5, 1),
+        lab="A",
+        results=(("Глюкоза", 5.0, 3.9, 6.1),),
+    )
+    view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="Глюкоза")
+    assert view.found and view.chart is not None and view.chart[:4] == b"\x89PNG"
+    assert "Глюкоза" in view.text
+
+
+async def test_trend_not_found(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="невідоме")
+    assert not view.found
+    assert history.locale.TREND_NOT_FOUND in view.text
+
+
+# --- Delete (with Tier 1.1 coupling cleanup) ------------------------------------
+
+
+async def test_delete_report_cleans_couplings_and_file(
+    async_session: AsyncSession, scheduler: ReminderScheduler, tmp_path: Path
+) -> None:
+    user = await _user(async_session)
+    source = tmp_path / "labs.pdf"
+    source.write_bytes(b"%PDF-1.4 fake")
+    report = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 5, 1),
+        lab="Synevo",
+        results=(("Глюкоза", 7.0, 3.9, 6.1),),
+        source_file=str(source),
+    )
+    # A concern proposed from this report's flag + a repeat-lab reminder, both linked.
+    condition = await proactive.add_problem(
+        async_session, user=user, name="висока глюкоза", scheduler=scheduler, report_id=report.id
+    )
+    await proactive.add_repeat_lab(
+        async_session,
+        user=user,
+        run_at=datetime(2026, 8, 1, 9, 0),
+        label="Глюкоза",
+        scheduler=scheduler,
+        report_id=report.id,
+    )
+    await async_session.commit()
+    assert sum(j.type == "checkin" for j in scheduler.list_jobs()) == 1
+    assert sum(j.type == "repeat_lab" for j in scheduler.list_jobs()) == 1
+
+    await history.delete_report(async_session, report=report, scheduler=scheduler)
+    await async_session.commit()
+
+    # Report + file gone.
+    assert await async_session.get(LabReport, report.id) is None
+    assert not source.exists()
+    # Linked concern resolved (its check-in job removed, since it was the only one).
+    refreshed = await async_session.get(Condition, condition.id)
+    assert refreshed is not None and refreshed.status == ConditionStatus.RESOLVED
+    assert sum(j.type == "checkin" for j in scheduler.list_jobs()) == 0
+    # Linked repeat-lab reminder retired.
+    assert sum(j.type == "repeat_lab" for j in scheduler.list_jobs()) == 0
+    reminder = await async_session.scalar(
+        Reminder.__table__.select().where(Reminder.report_id == report.id)
+    )
+    assert reminder is None  # report_id nulled / reminder deactivated, none dangling
+
+
+async def test_delete_report_without_couplings(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    user = await _user(async_session)
+    report = await _report(async_session, user_id=user.id, on=date(2026, 5, 1), lab="A")
+    await history.delete_report(async_session, report=report, scheduler=scheduler)
+    await async_session.commit()
+    assert await async_session.get(LabReport, report.id) is None
+
+
+async def test_linked_helpers(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _report(async_session, user_id=user.id, on=date(2026, 5, 1), lab="A")
+    async_session.add(
+        Condition(user_id=user.id, name="x", status=ConditionStatus.ACTIVE, report_id=report.id)
+    )
+    async_session.add(
+        Condition(user_id=user.id, name="y", status=ConditionStatus.RESOLVED, report_id=report.id)
+    )
+    await async_session.flush()
+    active = await history.linked_active_concerns(async_session, report.id)
+    assert [c.name for c in active] == ["x"]  # resolved one is not "active"
+
+
+# --- Orphaned uploads -----------------------------------------------------------
+
+
+async def test_orphans_counts_discarded_and_stale_pending_only(
+    async_session: AsyncSession, tmp_path: Path
+) -> None:
+    user = await _user(async_session)
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=UTC)
+    # Fresh PENDING (mid-confirmation) -> NOT an orphan.
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=None,
+        lab=None,
+        status=ReportStatus.PENDING,
+        created_at=now - timedelta(minutes=5),
+    )
+    # Stale PENDING -> orphan.
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=None,
+        lab=None,
+        status=ReportStatus.PENDING,
+        created_at=now - timedelta(hours=3),
+    )
+    # DISCARDED -> always an orphan.
+    f = tmp_path / "junk.jpg"
+    f.write_bytes(b"junk")
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=None,
+        lab=None,
+        status=ReportStatus.DISCARDED,
+        source_file=str(f),
+        created_at=now - timedelta(minutes=1),
+    )
+    # A CONFIRMED report is never an orphan.
+    await _report(async_session, user_id=user.id, on=date(2026, 5, 1), lab="A")
+
+    assert await history.count_orphans(async_session, user_id=user.id, now=now) == 2
+    removed = await history.cleanup_orphans(async_session, user_id=user.id, now=now)
+    await async_session.commit()
+    assert removed == 2
+    assert not f.exists()  # the discarded upload's file was removed
+    assert await history.count_orphans(async_session, user_id=user.id, now=now) == 0

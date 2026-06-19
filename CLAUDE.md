@@ -148,6 +148,21 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (list + turn off, next_run from the scheduler). On lab confirm the bot **offers** a repeat-lab
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
+- **Tier 1.2 — history & retrieval** (`companion/history.py`, `bot/history_flow.py`, migration
+  0005): browse stored labs. `/history` (alias `/reports`) lists **confirmed** reports recent-first
+  (cap 10, `+1` sentinel for a "уточни" hint), with per-report `[📄 Файл][📊 Результати][🗑 Видалити]`;
+  optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
+  Ukrainian month, `останній`). `/trend <analyte>` and a per-result `📈` button reuse the
+  deterministic trend engine (chart when ≥2 points). **All retrieval is no-LLM** — listing,
+  rendering, parsing are pure. The NL search is the one seam: a free-text turn is routed to history
+  only when `is_history_query` (intent **and** a concrete token); the handler calls
+  `safety.screen()` **first**, then `parse_history_query`, and **falls back to the companion** when
+  no concrete filter survives (never shows an empty result / steals normal chat). **Delete is
+  two-step**, shows exactly what is removed, and cleans up Tier 1.1 **couplings**: `Condition` /
+  repeat-lab `Reminder` rows now carry a nullable `report_id` FK (`SET NULL`), so deleting a report
+  resolves its proposed concern and retires its repeat-lab reminder (shown in the confirmation; the
+  nightly backup is the safety net). An opt-in `🧹` footer purges orphaned PENDING (>1h) / DISCARDED
+  uploads + their files. Callbacks carry ids only (well under 64 B); analytes are looked up by index.
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
@@ -199,8 +214,8 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
              labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
-                         concerns·medications·proactive·callbacks)
-migrations/  Alembic 0001..0004   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+                         concerns·medications·proactive·callbacks · history)
+migrations/  Alembic 0001..0005   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
@@ -230,4 +245,6 @@ guardrail. Stage 3.5 (done): the `safety.gate` choke-point. Stage 4 (done): pric
 navigator (med prices, МОЗ ceiling, НСЗУ coverage, transparent providers). All roadmap layers
 shipped. **Tier 0 (done):** owner lock + off-box backups. **Tier 1.1 (done):** proactive behavior —
 conditional check-in (active concerns), medication & repeat-lab reminders, reminder management, live
-`ReminderScheduler`.
+`ReminderScheduler`. **Tier 1.2 (done):** history & retrieval — `/history`·`/reports`·`/trend`,
+original-file + stored-results access, deterministic NL search (gate-first, companion fallback),
+two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge.

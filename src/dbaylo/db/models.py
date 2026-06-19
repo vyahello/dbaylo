@@ -149,6 +149,11 @@ class Condition(TimestampMixin, Base):
     # When the check-in last asked "still relevant?" — so an active concern is
     # periodically offered for closure instead of pinging forever (Tier 1.1 §B).
     last_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
+    # Set when a concern was proposed from an out-of-range lab flag, so deleting that
+    # report can clean up / surface the coupling instead of leaving it pinging (Tier 1.2).
+    report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lab_reports.id", ondelete="SET NULL"), default=None
+    )
 
     user: Mapped[User] = relationship(back_populates="conditions")
 
@@ -165,6 +170,11 @@ class Reminder(TimestampMixin, Base):
     # time, so turning a medication off deactivates every reminder that links here.
     medication_id: Mapped[int | None] = mapped_column(
         ForeignKey("medications.id", ondelete="CASCADE"), default=None
+    )
+    # Set for a repeat-lab reminder created from a report, so deleting that report can
+    # retire the reminder too (Tier 1.2 — no orphaned "repeat this lab" pings).
+    report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lab_reports.id", ondelete="SET NULL"), default=None
     )
     # Reminder rows are the scheduler's source of truth (rebuilt on startup);
     # a soft-delete flag lets a fired one-off be retired without losing the record.

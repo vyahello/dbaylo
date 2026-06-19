@@ -23,8 +23,12 @@ def _naive(dt: datetime) -> datetime:
     return dt.replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
-async def add_active(session: AsyncSession, *, user: User, name: str) -> Condition:
-    condition = Condition(user_id=user.id, name=name.strip(), status=ConditionStatus.ACTIVE)
+async def add_active(
+    session: AsyncSession, *, user: User, name: str, report_id: int | None = None
+) -> Condition:
+    condition = Condition(
+        user_id=user.id, name=name.strip(), status=ConditionStatus.ACTIVE, report_id=report_id
+    )
     session.add(condition)
     await session.flush()
     return condition

@@ -31,10 +31,15 @@ async def _active_checkin(session: AsyncSession, user_id: int) -> Reminder | Non
 
 
 async def add_problem(
-    session: AsyncSession, *, user: User, name: str, scheduler: ReminderScheduler
+    session: AsyncSession,
+    *,
+    user: User,
+    name: str,
+    scheduler: ReminderScheduler,
+    report_id: int | None = None,
 ) -> Condition:
     """Add an active concern; schedule the daily check-in if it's the first one."""
-    condition = await concerns.add_active(session, user=user, name=name)
+    condition = await concerns.add_active(session, user=user, name=name, report_id=report_id)
     if await _active_checkin(session, user.id) is None:
         reminder = await reminders.ensure_checkin_reminder(session, user=user)
         await session.flush()
@@ -81,8 +86,11 @@ async def add_repeat_lab(
     run_at: datetime,
     label: str,
     scheduler: ReminderScheduler,
+    report_id: int | None = None,
 ) -> Reminder:
-    reminder = await reminders.create_repeat_lab(session, user=user, run_at=run_at, label=label)
+    reminder = await reminders.create_repeat_lab(
+        session, user=user, run_at=run_at, label=label, report_id=report_id
+    )
     scheduler.schedule(reminder)
     return reminder
 
