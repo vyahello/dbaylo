@@ -112,6 +112,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   Row marker: **⚠️** if flagged (the lab's indicator or numerically out of range), else **✅**
   (`is_out_of_range`); the lab `conclusion` is shown. Post-confirm offers are **stateless** (carry
   `report_id`) so they survive a restart / menu-tap state reset.
+- **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
+  висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
+  `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes
+  the confirm view, `interpret()`, and `/history` rendering. `LabReport.kind`/`report_type`/
+  `narrative` persist it; narrative reports are never fed to the trend engine (no LabResults).
 - **Trend engine** (`labs/trends.py`): pure, deterministic, **no LLM/DB/network import** (enforced
   by a test). Direction is **range-relative** (`RETURNED_TO_RANGE`, `APPROACHING_RANGE`, …), never
   a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. Series are
@@ -199,6 +204,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
+- **Symptom intake** (`companion/intake.py`, Stage 6B): a multi-turn **history-taking** interview —
+  when a free-text turn is a symptom (gate→triage) or a broad physical complaint
+  (`looks_like_complaint`, router-only), `companion_flow` starts a guided intake (FSM
+  `IntakeStates.in_progress`, bounded by `MAX_TURNS`). `intake.advance` re-runs `safety.screen`
+  every turn: the **deterministic triage still owns escalation** — a `URGENT_CARE`/`EMERGENCY` red
+  flag (or a disordered-eating guardrail signal) **leads** the reply verbatim and the LLM can never
+  lower it. Output passes `assert_safe_output` + disclaimer, deterministic fallback. Imports
+  `safety.screen` + `run_claude` (gate-routed; never the escalation engines) so the AST choke-point
+  stays green.
 - **Safety gate** (`safety/gate.py`, Stage 3.5): the **single sanctioned path from user text to
   the LLM**. `screen(text, *, goal=None) -> GateDecision` encodes the one canonical order —
   symptoms→triage, else wellness guardrail, else cleared→LLM (precedence: a symptom outranks a
@@ -248,8 +262,8 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  web/  locale.py  config.py
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
-                         concerns·medications·proactive·callbacks · history)
-migrations/  Alembic 0001..0006   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+                         concerns·medications·proactive·callbacks · history · intake)
+migrations/  Alembic 0001..0007   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
@@ -285,7 +299,9 @@ original-file + stored-results access, deterministic NL search (gate-first, comp
 two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge. **Stage 5 (done):** lab
 interpretation & advice — extraction captures the lab's own out-of-range indicator + conclusion,
 ⚠️/✅ flags (no stray ❔), and `interpret()` gives an expert reading + qualitative recommendations
-(guard-backed). **FSM-cancel fix (done):**
+(guard-backed). **Stage 6 (done):** narrative/imaging documents (МРТ/УЗД/висновок — read, confirm,
+expert summary, /history) + conversational symptom intake (history-taking with the deterministic
+triage as the non-negotiable escalation backstop). **FSM-cancel fix (done):**
 commands abort in-progress dialogs; blank input never persists; phantom-row cleanup CLI. **Tier 1.3
 (done):** button menu — persistent reply keyboard + section screens delegating to reused flow helpers,
 shared `[Скасувати]`, menu labels reset state, navigator FSM gated like the command arg (UI layer only,

@@ -21,10 +21,11 @@ from aiogram.types import Message
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard
-from dbaylo.companion import checkin, goals
+from dbaylo.companion import checkin, goals, intake
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
+from dbaylo.safety import GateSource, screen
 
 router = Router(name="companion")
 
@@ -35,6 +36,10 @@ class GoalStates(StatesGroup):
 
 class CheckinStates(StatesGroup):
     waiting_for_answer = State()
+
+
+class IntakeStates(StatesGroup):
+    in_progress = State()
 
 
 def _telegram_id(message: Message) -> int | None:
@@ -120,10 +125,46 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
     await message.answer(result.message)
 
 
+# --- Symptom intake (history-taking) --------------------------------------------
+
+
+async def _run_intake_turn(
+    message: Message, state: FSMContext, transcript: list[dict[str, str]]
+) -> None:
+    reply = await intake.advance(transcript)
+    transcript.append({"role": "assistant", "text": reply.text})
+    if reply.done:
+        await state.clear()
+    else:
+        await state.set_state(IntakeStates.in_progress)
+        await state.update_data(intake=transcript)
+    await message.answer(reply.text)
+
+
+@router.message(IntakeStates.in_progress, F.text & ~F.text.startswith("/"))
+async def on_intake_turn(message: Message, state: FSMContext) -> None:
+    data = await state.get_data()
+    transcript = list(data.get("intake") or [])
+    transcript.append({"role": "user", "text": message.text or ""})
+    await _run_intake_turn(message, state, transcript)
+
+
 # --- Free-text companion chat (only when no FSM flow is active) ------------------
 
 
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
-async def on_free_text(message: Message) -> None:
-    reply = await generate_reply(message.text or "")
+async def on_free_text(message: Message, state: FSMContext) -> None:
+    text = message.text or ""
+    decision = screen(text)
+    # The wellness guardrail (disordered eating / unsafe goals) owns its own response.
+    if decision.source is GateSource.GUARDRAIL:
+        await message.answer(decision.message)
+        return
+    # A red-flag symptom OR a broader physical complaint starts the guided intake; the
+    # deterministic triage stays the escalation backstop inside the intake.
+    if decision.source is GateSource.TRIAGE or intake.looks_like_complaint(text):
+        await _run_intake_turn(message, state, [{"role": "user", "text": text}])
+        return
+    # Otherwise — ordinary companion chat.
+    reply = await generate_reply(text)
     await message.answer(reply.text)
