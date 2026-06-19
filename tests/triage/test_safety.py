@@ -15,7 +15,9 @@ from dbaylo.triage.rules import RULES
 from dbaylo.triage.safety import (
     DISCLAIMER,
     assert_safe_output,
+    contains_diet_prescription,
     contains_dose_directive,
+    contains_dose_unit_mention,
     contains_forbidden_reassurance,
 )
 from dbaylo.triage.types import Symptom, SymptomReport
@@ -81,6 +83,77 @@ def test_storing_a_dose_is_not_output_and_is_allowed() -> None:
     with pytest.raises(ValueError):
         assert_safe_output("Ібупрофен 400 мг двічі на день.")
     # ...but the field name / stored value itself is never run through the guard.
+
+
+# --- Stage 3: dose re-anchor (verb/intent primary, bare unit demoted) ----------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Твоя вага 80 кг — це чудовий орієнтир.",  # body weight
+        "Пий приблизно 2 л на день.",  # hydration in litres
+        "Намагайся випивати 1500 мл на день.",  # hydration in millilitres
+        "Спи 7–8 годин на ніч.",  # sleep hours
+        "Гуляй тричі на день — це корисно.",  # activity frequency, no dose unit
+        "Гемоглобін був 140 г/л.",  # lab concentration
+    ],
+)
+def test_benign_numerics_are_not_dose_directives(text: str) -> None:
+    """Body weight, hydration, sleep, activity, lab values must pass the hard guard."""
+    assert contains_dose_directive(text) is None
+    assert assert_safe_output(text) == text
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "500 мг/добу",  # per-time MASS dose (previously a false negative)
+        "Призначено 500 мг на добу.",
+        "Приймай 2 таблетки після їжі.",
+        "Випий 1 капсулу.",
+        "По 500 мг вранці.",
+        "5 мл тричі на день.",  # liquid-med via counted frequency
+    ],
+)
+def test_dose_directives_with_intent_are_detected(text: str) -> None:
+    assert contains_dose_directive(text) is not None
+    with pytest.raises(ValueError, match="dose directive"):
+        assert_safe_output(text)
+
+
+def test_bare_unit_is_only_a_soft_signal() -> None:
+    """A bare number+unit is the demoted secondary signal — it never hard-fails."""
+    assert contains_dose_unit_mention("2000 мл") is not None
+    assert contains_dose_directive("Я випив 2000 мл води сьогодні.") is None
+    assert assert_safe_output("Я випив 2000 мл води сьогодні.").endswith("сьогодні.")
+    # Body weight is not even a soft dose-unit mention (кг is not a dosing unit).
+    assert contains_dose_unit_mention("80 кг") is None
+
+
+# --- Stage 3: rail #6 — restrictive-diet prescriptions -------------------------
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "Їж не більше 1000 ккал на день.",  # restrictive calorie target
+        "Тримай 150 г білка щодня.",  # macro-gram target
+        "Голодуй 16 годин.",  # fasting imperative + duration
+        "Спробуй інтервальне голодування.",  # named protocol
+    ],
+)
+def test_diet_prescriptions_are_detected(text: str) -> None:
+    assert contains_diet_prescription(text) is not None
+    with pytest.raises(ValueError, match="restrictive-diet"):
+        assert_safe_output(text)
+
+
+def test_cautionary_diet_talk_is_safe() -> None:
+    """Number-less, cautionary copy about restriction is not a prescription."""
+    safe = "Жорстке голодування часто виснажує й шкодить здоров'ю."
+    assert contains_diet_prescription(safe) is None
+    assert assert_safe_output(safe) == safe
 
 
 def test_assert_safe_output_passes_clean_text() -> None:

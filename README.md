@@ -15,14 +15,16 @@ A friendly wellness face on top, deterministic safety rails underneath.
 
 | Layer | What | Status |
 |-------|------|--------|
-| **L1** Wellness companion (`bot/`) | Goals, check-ins, evidence-based nudges | Stage 3 |
+| **L1** Wellness companion (`companion/`, `wellness/`) | Goals, daily check-in, reminders, companion chat + the wellness guardrail | **Stage 3** ✅ |
 | **L2** Lab & data core (`labs/`, `db/`) | Lab intake, extraction, deterministic trends, charts | **Stage 2** ✅ |
 | **L3** Triage (`triage/`) | Deterministic red-flag engine — **the safety core** | **Stage 1** ✅ |
 | **L4** Price & НСЗУ navigator | Prices, ceiling checks, coverage, doctor info | Stage 4 |
 
-The triage core never calls an LLM and only ever **escalates toward care** — it has no code
-path that concludes "you can skip the doctor." Safety rails are enforced in code and tests,
-not just documented (see `tests/triage/test_safety.py`).
+Two deterministic cores never call an LLM and only ever **escalate toward care**: **triage**
+(symptoms) and the **wellness guardrail** (disordered-eating / unsafe goals). Neither has a code
+path that concludes "you can skip the doctor," and the companion LLM never decides escalation.
+Safety rails are enforced in code and tests, not just documented (see
+`tests/triage/test_safety.py` and `tests/wellness/`).
 
 ## Stack
 
@@ -53,6 +55,8 @@ venv/bin/ruff check src tests     # lint
 venv/bin/mypy                     # strict type check
 venv/bin/dbaylo-web               # FastAPI: GET /health, POST /webhook/{token}
 venv/bin/dbaylo-bot               # bot via long polling (needs BOT_TOKEN)
+venv/bin/dbaylo-scheduler --dry-run                         # list reminder jobs (fire nothing)
+venv/bin/python -m dbaylo.companion.checkin --dry-run       # print the check-in prompt
 venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg   # extract only (no DB/Telegram)
 ```
 
@@ -68,4 +72,12 @@ extracted values shown for confirmation in Ukrainian (date & lab editable) → o
 trend engine is pure and LLM-free; the humanized summary passes the safety guard with a
 deterministic fallback. Original files are always kept; nothing is stored before confirmation.
 
-Next: Stage 3 (goals, daily check-in, reminders, nudges) and Stage 4 (price & НСЗУ navigator).
+**Stage 3 — Companion ✅** `/goal` (validated by the wellness guardrail before it's accepted —
+an aggressive target is redirected, not stored), `/goals`, a real `/checkin` (sleep/water/mood/
+training; symptoms route to the deterministic triage engine, not the LLM), reminders on
+APScheduler rebuilt from `Reminder` rows on startup (medication, daily check-in, repeat-lab), and
+natural-Ukrainian companion chat. A second deterministic safety core (`wellness/`) handles
+disordered-eating / unsafe-goal escalation; every companion reply passes the safety guard
+(re-anchored dose detection + restrictive-diet rejection) with a deterministic fallback.
+
+Next: Stage 4 (price & НСЗУ navigator).

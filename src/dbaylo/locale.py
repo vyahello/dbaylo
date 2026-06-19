@@ -64,19 +64,15 @@ START_TEXT = (
     "Напиши /help, щоб побачити, що я вмію."
 )
 HELP_TEXT = (
-    "Ось що я вмію поки що:\n\n"
+    "Ось що я вмію:\n\n"
     "/start — знайомство з Дбайлом\n"
     "/help — це повідомлення\n"
-    "/checkin — швидкий щоденний чек-ін (скоро)\n\n"
+    "/checkin — швидкий щоденний чек-ін\n"
+    "/goal — поставити ціль для здоров'я\n"
+    "/goals — переглянути свої цілі\n\n"
+    "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
     f"{DISCLAIMER}"
 )
-CHECKIN_STUB_TEXT = (
-    "Щоденні чек-іни вже в дорозі. 🛠️\n\n"
-    "Незабаром я питатиму про твій сон, воду, тренування, настрій і самопочуття — "
-    "і м'яко підкажу, якщо щось варте уваги лікаря.\n\n"
-    f"{DISCLAIMER}"
-)
-
 # --- Safety vocabulary (Ukrainian) ----------------------------------------------
 
 # Phrases that amount to "you're fine / you can skip care". The engine can only
@@ -102,23 +98,63 @@ FORBIDDEN_REASSURANCES: tuple[str, ...] = (
     "нічого страшного",
 )
 
-# Dose / prescription phrasing Дбайло must never produce. Each pattern requires a
-# dose object or a number (see module docstring on why negated copy is safe).
+# Dose / prescription phrasing Дбайло must never *say* (rail #1). Re-anchored in
+# Stage 3 to verb/intent as the PRIMARY signal; a bare number+unit is no longer a
+# hard fail (it became the weak secondary signal ``DOSE_UNIT_SOFT_PATTERN`` below),
+# so benign companion numerics — body weight ("80 кг") and hydration ("1500 мл на
+# день", "пий ~2 л на день") — pass. The per-time rule is MASS-only {мг, мкг, г}
+# so fluid volumes {мл, л} never hard-fail; liquid-med dosing in мл is caught
+# instead by the medication-verb / counted-frequency rules ("приймай 5 мл", "5 мл
+# тричі на день"), which is the intended, acceptable catch.
+# Shared sub-patterns: mass-amount units (NOT fluid volumes) and dosage forms.
+_DOSE_FORM = r"таблетк\w*|пігулк\w*|капсул\w*|крапл\w*|крапел\w*|доз\w*"
+_DOSE_MASS = r"мг|мкг|г|грам\w*|од|мо"
+_COUNTED_FREQ = r"(?:раз|двічі|тричі|\d+\s+раз\w*)\s+на\s+(?:день|добу|тиждень)"
+
 DOSE_DIRECTIVE_PATTERNS: tuple[str, ...] = (
-    # number + unit of measure (400 мг, 5 мл, 2,5 г). The (?!\s*/) lookahead exempts
-    # concentration units used by lab forms (140 г/л, 90 мг/дл) — those are values
-    # the bot legitimately cites in a summary, not dosing directives.
-    r"\b\d+(?:[.,]\d+)?\s?(?:мг|мкг|мл|г|грам\w*|од|мо)\b(?!\s*/)",
-    # number + dosage form (2 таблетки, 3 капсули, 10 крапель, 1 доза)
-    r"\b\d+\s?(?:таблетк\w*|пігулк\w*|капсул\w*|крапл\w*|доз\w*)\b",
-    # "по N <form/unit>" (по 2 таблетки, по 5 мл)
-    r"\bпо\s+\d+\s?(?:таблетк\w*|пігулк\w*|капсул\w*|крапл\w*|мг|мл|г)\b",
-    # dosing verb + number (приймай 2, випий 1) — bare "не приймай ліки" is safe
-    r"\b(?:прийма\w+|прийми|прийняти|випий|випийте|випити|пий)\s+\d+",
-    # frequency (двічі на день, 3 рази на день)
-    r"\b(?:раз|двічі|тричі|\d+\s+раз\w*)\s+на\s+день\b",
+    # medication / apply verb + number (приймай 2, вживай 3, використовуй 5 мл)
+    r"\b(?:прийма\w+|прийми|прийня\w+|вживай\w*|вжива\w+|вжий|використов\w+|застосов\w+|закап\w+)"
+    r"\s+(?:по\s+)?\d+",
+    # drink verb + number + mass/form ONLY (випий 1 таблетку, випий 500 мг). A
+    # hydration "пий 2 л" is NOT caught here — л is a fluid volume (see note above).
+    rf"\b(?:випий|випийте|випити|пий)\s+(?:по\s+)?\d+(?:[.,]\d+)?\s?(?:{_DOSE_MASS}|{_DOSE_FORM})\b",
+    # "по N <mass|form>" (по 500 мг, по 2 таблетки) — fluid "по 2 л" excluded.
+    rf"\bпо\s+\d+(?:[.,]\d+)?\s?(?:{_DOSE_MASS}|{_DOSE_FORM})\b",
+    # number + dosage form (2 таблетки, 10 крапель, 1 доза)
+    rf"\b\d+\s?(?:{_DOSE_FORM})\b",
+    # MASS unit + per-time (500 мг/добу, 500 мг на добу, 5 г на тиждень). мл/л are
+    # excluded, so hydration "1500 мл на день" passes and "140 г/л" passes (л∉time).
+    rf"\b\d+(?:[.,]\d+)?\s?(?:{_DOSE_MASS})\s*(?:/|на\s+)\s*(?:добу|день|тиждень|годин\w*)\b",
+    # (mass|мл) + counted frequency (400 мг двічі на день, 5 мл тричі на день,
+    # 200 мг кожні 8 годин). Bare "1500 мл на день" / "2 л щодня" lack a *counted*
+    # frequency, so hydration is not caught.
+    rf"\b\d+(?:[.,]\d+)?\s?(?:{_DOSE_MASS}|мл)\s+(?:{_COUNTED_FREQ}|кожні\s+\d+\s+годин\w*)\b",
+    # medication verb (NOT пий/випий — those are also hydration) + a counted
+    # frequency, even with no number ("приймай ліки тричі на день"). "пий воду
+    # тричі на день" and "гуляй тричі на день" are deliberately not caught.
+    rf"\b(?:прийма\w+|прийми|прийня\w+|вживай\w*|вжива\w+|застосов\w+|закап\w+)\b[^.!?]{{0,40}}?{_COUNTED_FREQ}",
     # prescribe / recommend a dose (призначаю дозу, рекомендую по 2)
     r"\b(?:признач\w+|рекоменд\w+)\s+(?:дозу|дозування|по\s+\d+|\d+)",
+)
+
+# Weak SECONDARY signal: a bare number + dose-ish unit, with no verb/intent. It
+# does NOT hard-fail ``assert_safe_output`` (that is what lets "80 кг" / "2000 мл"
+# pass); it is exposed via ``safety.contains_dose_unit_mention`` for soft routing.
+DOSE_UNIT_SOFT_PATTERN: str = r"\b\d+(?:[.,]\d+)?\s?(?:мг|мкг|мл|г|грам\w*|од|мо)\b"
+
+# Rail #6: diet / restriction phrasing Дбайло must never *say*. Mirrors the dose
+# philosophy — each pattern requires a number, an imperative, or a named protocol,
+# so benign cautionary copy ("голодування виснажує") and ALLOWED health-literacy
+# ranges (sleep hours, hydration л/мл, activity frequency) are not flagged.
+DIET_PRESCRIPTION_PATTERNS: tuple[str, ...] = (
+    # restrictive calorie target (1000 ккал, 500 калорій)
+    r"\b\d{2,4}\s?(?:ккал|калор\w*)\b",
+    # macro-gram target (150 г білка, 30 г вуглеводів)
+    r"\b\d+\s?г\s+(?:вуглевод\w*|білк\w*|білок|жир\w*|клітковин\w*|цукр\w*)",
+    # fasting protocol: imperative, a duration, or a named protocol
+    r"\b(?:голодуй\w*|поголодуй\w*|постуй\w*)\b",
+    r"\bголодуванн\w*\s+(?:на\s+|по\s+)?\d+",
+    r"\b(?:інтервальн\w+|сухе|періодичн\w+|лікувальн\w+)\s+голодуванн\w*",
 )
 
 # --- Stage 2: lab intake / confirmation loop ------------------------------------
@@ -181,3 +217,165 @@ TREND_PHRASES: dict[str, str] = {
 
 LAB_SUMMARY_HEADER = "Ось що я бачу у твоїх аналізах:"
 LAB_SUMMARY_ASK_DOCTOR = "Що з цього варто обговорити з лікарем — найкраще вирішити разом із ним."
+
+# --- Stage 3: companion (L1) — goals --------------------------------------------
+
+GOAL_ASK_TEXT = (
+    "Яку ціль для здоров'я хочеш поставити? Напиши своїми словами — наприклад «краще "
+    "спати», «більше рухатися» чи «пити достатньо води»."
+)
+GOAL_ACCEPTED = (
+    "Чудова ціль — записав її. 🌱 Рухаймося до неї крок за кроком; я нагадуватиму й "
+    "підтримуватиму, без поспіху й тиску."
+)
+# Redirect (Concern.REDIRECT): aggressive target -> sustainable framing, no numbers,
+# deliberately NOT presented as clinical authority.
+GOAL_REDIRECT_AGGRESSIVE = (
+    "Я поруч, щоб допомогти тобі дійти до цього здорово. Такий темп зазвичай надто "
+    "різкий — його важко втримати, і він радше виснажує, ніж допомагає. Сталі, "
+    "помірні зміни тримаються набагато довше. Хочеш, поставимо м'якшу, плавнішу ціль?"
+)
+GOAL_LIST_HEADER = "Ось твої цілі:"
+GOAL_LIST_EMPTY = "Ти ще не поставив(-ла) жодної цілі. Напиши /goal, щоб додати першу. 🌱"
+GOAL_STATUS_LABELS: dict[str, str] = {
+    "active": "активна",
+    "achieved": "досягнута",
+    "paused": "на паузі",
+    "abandoned": "облишена",
+}
+
+# --- Stage 3: companion (L1) — wellness guardrail support message ----------------
+
+# Concern.SUPPORT: a disordered-pattern signal -> sustainable framing + a gentle
+# nudge toward professional help. No numbers, never a restrictive prescription.
+GUARDRAIL_SUPPORT = (
+    "Дякую, що ділишся цим зі мною. Те, що ти описуєш, звучить виснажливо, і я щиро "
+    "хвилююся за тебе. Харчування — це підтримка, а не покарання. Будь ласка, постався "
+    "до себе дбайливо й подумай про розмову з фахівцем, який допоможе знайти стійкий і "
+    "безпечний шлях. Ти не сам(-а) у цьому."
+)
+
+# --- Stage 3: companion (L1) — daily check-in -----------------------------------
+
+CHECKIN_PROMPT = (
+    "Привіт 🌙 Як минув твій день? Розкажи коротко: скільки годин ти спав(-ла), скільки "
+    "приблизно випив(-ла) води, чи був рух/тренування, який настрій (1–5) і чи турбує "
+    "щось у самопочутті."
+)
+CHECKIN_SAVED = "Дякую, що поділився(-лась) 💚 Занотував."
+# The single, gentle follow-up — sent once if no check-in arrived; never nags.
+CHECKIN_NUDGE = "Я тут, якщо захочеш розповісти, як минув день. Без поспіху 🌿"
+
+# --- Stage 3: companion (L1) — reminders ----------------------------------------
+
+# Medication reminder text never carries a dose (rail #1): it names the medication
+# and defers to the doctor's instructions. The dose lives only in the DB record.
+REMINDER_MEDICATION = "🔔 Нагадування про твої ліки: {name}. Прийми так, як призначив лікар. 💊"
+REMINDER_REPEAT_LAB = (
+    "🔔 Нагадування: можливо, час повторити аналізи ({name}). Звернись до лабораторії, "
+    "коли буде зручно."
+)
+
+# --- Stage 3: companion (L1) — conversation fallback ----------------------------
+
+# Deterministic, safe-by-construction reply used when the LLM is unavailable or its
+# output trips the safety guard. Health-literacy ranges only — no prescriptions.
+COMPANION_FALLBACK = (
+    "Я поруч і радий тебе чути. 🌿 Найкраще для самопочуття — стабільний сон, достатньо "
+    "води, трохи руху щодня й харчування без крайнощів. Якщо щось турбує — варто "
+    "порадитися з лікарем."
+)
+
+# --- Stage 3: symptom routing (deterministic free-text -> Symptom token) --------
+
+# Limited, extensible keyword map (like labs.trends.ANALYTE_ALIASES). Keyed by
+# Symptom.value. Disjoint from WELLNESS_SIGNAL_KEYWORDS by design: the vomiting
+# entries describe *involuntary, uncontrolled* vomiting and deliberately do NOT
+# match the self-induced "викликати блювоту" / "проносне після їжі" purging
+# phrasing — triage runs first, so an overlap would mask a purging signal.
+SYMPTOM_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "fever": ("температура", "висока температура", "жар", "гарячка", "лихоманка"),
+    "chills": ("озноб", "морозить", "тіпає від холоду"),
+    "flank_pain": (
+        "біль у боці",
+        "біль в боці",
+        "болить бік",
+        "біль у попереку",
+        "болить поперек",
+        "ниркова коліка",
+    ),
+    "severe_pain": ("нестерпний біль", "дуже сильний біль", "гострий нестерпний біль"),
+    "inability_to_urinate": (
+        "не можу помочитися",
+        "не можу сходити в туалет по-маленькому",
+        "не виходить сеча",
+        "затримка сечі",
+        "не можу помочитись",
+    ),
+    "uncontrolled_vomiting": (
+        "не можу зупинити блювоту",
+        "безперервна блювота",
+        "нестримна блювота",
+        "постійно блюю",
+        "блюю без зупину",
+    ),
+    "blood_in_urine": ("кров у сечі", "кров в сечі", "кров при сечовипусканні"),
+}
+# First-time qualifier near a blood-in-urine mention -> the rule-bearing token.
+FIRST_TIME_MARKERS: tuple[str, ...] = ("вперше", "уперше", "перший раз", "перше")
+
+# --- Stage 3: wellness guardrail signal keywords --------------------------------
+
+# Limited, extensible map (like ANALYTE_ALIASES). Keyed by signal id; scans USER
+# text (goals / check-ins). The purging entries are disjoint from the vomiting
+# SYMPTOM_KEYWORDS above (self-induced vs. involuntary), so triage's earlier pass
+# never masks a purging signal.
+WELLNESS_SIGNAL_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "extreme_restriction": (
+        "нічого не їм",
+        "нічого не їсти",
+        "перестав їсти",
+        "перестала їсти",
+        "майже не їм",
+        "морити себе голодом",
+        "морю себе голодом",
+        "тижнями не їм",
+    ),
+    "skipped_meals": (
+        "пропускаю прийоми їжі",
+        "пропускаю їжу",
+        "пропускаю сніданок",
+        "пропускаю обід",
+        "пропускаю вечерю",
+        "не їм цілий день",
+        "не їм весь день",
+        "відмовляюся від їжі",
+    ),
+    "purging": (
+        "викликаю блювоту",
+        "викликати блювоту",
+        "виблюю після їжі",
+        "проносне після їжі",
+        "проносне щоб схуднути",
+        "очищаюся після їжі",
+    ),
+    "compulsive_exercise": (
+        "відпрацювати з'їдене",
+        "відпрацьовую їжу",
+        "покарати себе тренуванням",
+        "маю спалити все з'їдене",
+        "не можу пропустити тренування",
+        "тренуюся попри біль",
+    ),
+    "crash_diet_language": (
+        "жорстка дієта",
+        "жорстку дієту",
+        "жорсткій дієті",
+        "жорсткою дієтою",
+        "детокс",
+        "сидіти на воді",
+        "сиджу на воді",
+        "схуднути на 10 кг за тиждень",
+        "мінус 10 кг за тиждень",
+    ),
+}

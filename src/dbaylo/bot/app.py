@@ -10,16 +10,22 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 
-from dbaylo.bot import lab_flow
+from dbaylo.bot import companion_flow, lab_flow
 from dbaylo.bot.handlers import router
 from dbaylo.config import get_settings
 
 
 def build_dispatcher() -> Dispatcher:
-    """Build a Dispatcher with all routers registered."""
+    """Build a Dispatcher with all routers registered.
+
+    Order matters: commands first, then lab intake (documents/photos + its edit
+    FSM), then the companion — whose free-text catch-all is ``StateFilter(None)``
+    so it never steals a turn from an active FSM flow.
+    """
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
     dispatcher.include_router(lab_flow.router)
+    dispatcher.include_router(companion_flow.router)
     return dispatcher
 
 

@@ -38,6 +38,7 @@ dev = [
 [project.scripts]
 dbaylo-bot = "dbaylo.bot.app:run"
 dbaylo-web = "dbaylo.web.app:run"
+dbaylo-scheduler = "dbaylo.companion.scheduler:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -49,12 +50,13 @@ addopts = "-q"
 
 [tool.coverage.run]
 branch = true
-# The two deterministic safety cores carry the highest bar: triage and the trend engine.
-source = ["dbaylo.triage", "dbaylo.labs.trends"]
+# The deterministic safety cores carry the highest bar: triage, the trend engine,
+# and the L1 wellness guardrail.
+source = ["dbaylo.triage", "dbaylo.labs.trends", "dbaylo.wellness"]
 
 [tool.coverage.report]
 show_missing = true
-# The triage module is the safety core — it carries the highest bar.
+# The safety cores carry the highest bar.
 fail_under = 90
 
 [tool.ruff]

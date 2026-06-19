@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Date, DateTime, Float, ForeignKey, Text, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, func, true
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -144,6 +144,11 @@ class Reminder(TimestampMixin, Base):
     type: Mapped[str] = mapped_column()
     schedule: Mapped[str] = mapped_column()
     payload: Mapped[str | None] = mapped_column(Text, default=None)
+    # Reminder rows are the scheduler's source of truth (rebuilt on startup);
+    # a soft-delete flag lets a fired one-off be retired without losing the record.
+    # next_run is intentionally NOT stored — APScheduler computes it (a DB copy
+    # would go stale); read it from the built scheduler when displaying.
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
 
     user: Mapped[User] = relationship(back_populates="reminders")
 
