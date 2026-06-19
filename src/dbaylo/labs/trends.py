@@ -160,6 +160,23 @@ def qualitative_match(value_text: str | None, ref_text: str | None) -> bool:
     return value in [option for option in _QUAL_SPLIT.split(ref) if option]
 
 
+def is_out_of_range(
+    value: float | None,
+    ref_low: float | None,
+    ref_high: float | None,
+    out_of_range: bool | None,
+) -> bool:
+    """Whether a row deserves an attention marker (⚠️).
+
+    The lab's own indicator wins when it says so; otherwise we escalate up — a value
+    numerically outside its (lab-printed) reference is flagged even if the indicator
+    was not captured. A value the lab did not flag and that is in range is not flagged.
+    """
+    if out_of_range:
+        return True
+    return compute_flag(value, ref_low, ref_high) in (ResultFlag.LOW, ResultFlag.HIGH)
+
+
 def classify(
     value: float | None,
     value_text: str | None,

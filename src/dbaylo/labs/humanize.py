@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from dbaylo import locale
 from dbaylo.labs.extraction import Runner
-from dbaylo.labs.trends import TrendSummary
+from dbaylo.labs.schema import ExtractedReport
+from dbaylo.labs.trends import TrendSummary, is_out_of_range
 from dbaylo.llm import ClaudeUnavailable, run_claude
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
@@ -67,6 +68,106 @@ def deterministic_summary(summaries: list[TrendSummary]) -> str:
 def _finalize(body: str) -> str:
     """Attach the disclaimer; the body is assumed already safety-checked."""
     return f"{body}\n\n{DISCLAIMER}"
+
+
+# --- Stage 5: expert interpretation + recommendations ---------------------------
+
+# A fuller persona than HUMANIZE_PERSONA: it gives a real per-analyte reading and
+# practical guidance, but stays inside the rails. The phrasing rules keep it past the
+# deterministic guard (no forbidden reassurance / dose / restrictive-diet numbers), so
+# legitimate output is rarely bounced to the fallback.
+INTERPRET_PERSONA = (
+    "You are Дбайло, a careful, honest health companion. You are NOT a doctor, but you DO "
+    "give an expert-level reading of the user's OWN lab report and practical guidance. "
+    "Reply EXCLUSIVELY in natural, correct Ukrainian. Structure the answer:\n"
+    "1) Загалом — one or two lines in DATA terms. If nothing is marked ATTENTION, say the "
+    "results are within range; if the lab printed a conclusion, reflect it.\n"
+    "2) Варто звернути увагу — ONLY the rows marked ATTENTION. For each: briefly what it MAY "
+    "indicate ('може свідчити про…', cautious, never a definite diagnosis) and, gently, what "
+    "it can lead to if left unaddressed.\n"
+    "3) Що допоможе — concrete but QUALITATIVE lifestyle & nutrition guidance for the flagged "
+    "items (which foods to favour or limit, sleep, movement, hydration, stress). NO numbers for "
+    "calories, macros, fasting, and NO medication/supplement dose.\n"
+    "4) Коли до лікаря — when it is worth seeing a doctor (and the specialty if obvious).\n"
+    "Be concrete and genuinely useful, but careful. NEVER: a definitive diagnosis; a medication, "
+    "supplement, or any dose; calorie/macro/fasting numbers; fabricated studies, sources, or "
+    "statistics. NEVER tell the user not to worry or that they can skip a doctor, and do not use "
+    "the phrases 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', "
+    "'нічого страшного' — describe the data instead. PLAIN TEXT ONLY — no markdown at all "
+    "(no **, *, _, #, ---, backticks); use a simple '— ' or '• ' for bullets. Telegram shows "
+    "your text verbatim."
+)
+
+
+def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> str:
+    """The structured, neutral input handed to the model (values + lab flags + trends)."""
+    lines: list[str] = []
+    if report.conclusion:
+        lines.append(f"Lab's overall conclusion: {report.conclusion}")
+    lines.append("Results (analyte | value | reference | lab mark):")
+    for a in report.results:
+        mark = (
+            "ATTENTION" if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range) else "ok"
+        )
+        lines.append(f"- {a.analyte} | {a.display_value()} | {a.display_reference()} | {mark}")
+    if summaries:
+        lines.append("")
+        lines.append(
+            "Trends vs the user's own history (describe relative to range, not 'better/worse'):"
+        )
+        for s in summaries:
+            lines.append(
+                f"- {s.analyte}: {_format_value(s)}; рух: {_movement_phrase(s)}; "
+                f"вимірів: {s.n_points}"
+            )
+    return "\n".join(lines)
+
+
+def deterministic_interpretation(report: ExtractedReport) -> str:
+    """Safe-by-construction fallback: the lab conclusion + the flagged rows + see a doctor."""
+    lines: list[str] = []
+    if report.conclusion:
+        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+    flagged = report.flagged_results()
+    if not flagged:
+        lines.append(locale.LAB_INTERPRET_ALL_NORMAL)
+    else:
+        lines.append(locale.LAB_INTERPRET_FLAGGED_HEADER)
+        for a in flagged:
+            lines.append(
+                locale.LAB_INTERPRET_FLAGGED_ITEM.format(analyte=a.analyte, value=a.display_value())
+            )
+    lines += ["", locale.LAB_INTERPRET_ASK_DOCTOR]
+    return "\n".join(lines).strip()
+
+
+async def interpret(
+    report: ExtractedReport,
+    summaries: list[TrendSummary],
+    *,
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> str:
+    """An expert-level Ukrainian reading of a confirmed report, guaranteed safe.
+
+    The model interprets the values (using the lab's own flags) + the deterministic trends
+    and gives practical guidance; every output passes ``assert_safe_output`` and gets the
+    disclaimer, with a deterministic fallback when the LLM is unavailable or trips the guard.
+    """
+    fallback = assert_safe_output(deterministic_interpretation(report))
+    try:
+        result = await runner(
+            _interpret_table(report, summaries), append_system_prompt=INTERPRET_PERSONA, model=model
+        )
+    except ClaudeUnavailable:
+        return _finalize(fallback)
+    if not result.ok or not result.text.strip():
+        return _finalize(fallback)
+    try:
+        safe_body = assert_safe_output(result.text.strip())
+    except ValueError:
+        return _finalize(fallback)
+    return _finalize(safe_body)
 
 
 async def humanize(

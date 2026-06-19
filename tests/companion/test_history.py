@@ -28,7 +28,7 @@ from dbaylo.db.models import (
     ReportStatus,
     User,
 )
-from dbaylo.labs.trends import compute_flag
+from dbaylo.labs.trends import compute_flag, is_out_of_range
 
 TZ = ZoneInfo("Europe/Kyiv")
 
@@ -63,13 +63,14 @@ async def _report(
         status=status,
         source_file=source_file,
         results=[
-            # Store the flag like persist_confirmed does — history reads the stored flag.
+            # Store flag + flagged like persist_confirmed does — history reads them.
             LabResult(
                 analyte=name,
                 value=value,
                 ref_low=low,
                 ref_high=high,
                 flag=compute_flag(value, low, high),
+                flagged=is_out_of_range(value, low, high, None),
             )
             for name, value, low, high in results
         ],
@@ -216,7 +217,7 @@ async def test_render_report_line_flags_and_results(async_session: AsyncSession)
     results = history.ordered_results(report)
     line = history.render_report_line(report, results)
     assert "2026-05-12" in line and "Synevo" in line
-    assert "2 показників" in line and "⬆️" in line  # one high analyte
+    assert "2 показників" in line and "⚠️" in line  # one out-of-range analyte
 
     body = history.render_report_results(report, results)
     assert "1. Глюкоза" in body and "2. Калій" in body

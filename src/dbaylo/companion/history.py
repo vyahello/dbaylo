@@ -217,14 +217,10 @@ def _ref_text(low: float | None, high: float | None) -> str:
 
 
 def report_flags(results: list[LabResult]) -> str:
-    emojis: list[str] = []
-    for r in results:
-        # The stored flag is the source of truth — computed at confirm time with the
-        # full extracted value (incl. qualitative text), which LabResult does not keep.
-        emoji = locale.FLAG_EMOJI.get(r.flag.value, "")
-        if r.flag.name in ("LOW", "HIGH") and emoji and emoji not in emojis:
-            emojis.append(emoji)
-    return " ".join(emojis)
+    # ⚠️ if the lab marked anything for attention (or a value was out of range); the
+    # ``flagged`` mark is the source of truth (computed at confirm with the lab's own
+    # indicator). A report with nothing flagged shows no marker.
+    return locale.FLAG_ATTENTION if any(r.flagged for r in results) else ""
 
 
 def render_report_line(report: LabReport, results: list[LabResult]) -> str:
@@ -242,14 +238,19 @@ def render_report_line(report: LabReport, results: list[LabResult]) -> str:
 def render_report_results(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
-    lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt), ""]
+    lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
+    if report.conclusion:
+        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+    lines.append("")
     for i, r in enumerate(results, 1):
-        emoji = locale.FLAG_EMOJI.get(r.flag.value, "")  # stored (smart) flag
+        emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
         value = f"{r.value:g}" if r.value is not None else "—"
         if r.unit:
             value = f"{value} {r.unit}"
         ref = _ref_text(r.ref_low, r.ref_high)
         lines.append(f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip())
+    if report.summary:  # the saved expert interpretation (already safe + has the disclaimer)
+        lines += ["", report.summary]
     return assert_safe_output("\n".join(lines))
 
 

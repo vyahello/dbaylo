@@ -47,7 +47,8 @@ def test_render_confirmation_text_is_ukrainian_and_complete() -> None:
     assert "норма" in text
     assert "Усе правильно?" in text
     assert "1. Глюкоза" in text and "2. Кетони" in text
-    assert "⬆️" in text  # 7.0 > 6.1 high flag
+    assert "⚠️" in text  # 7.0 > 6.1 -> out of range, attention marker
+    assert "✅" in text  # Кетони "не виявлено" is not flagged -> ok
 
 
 def test_render_handles_unknown_date_and_lab() -> None:

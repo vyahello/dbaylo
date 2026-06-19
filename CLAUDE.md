@@ -101,16 +101,29 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 - **Extraction** (`labs/extraction.py`): `claude --print` reads the file (Read tool) and
   returns JSON constrained by the prompt (no `--json-schema`); a **defensive parser** tolerates
   fences/partial/malformed output and degrades to "ask the user", never crashes. Default model
-  `sonnet`, escalates to `opus`; never `haiku`.
+  `sonnet`, escalates to `opus`; never `haiku`. **Captures the lab's OWN out-of-range indicator**
+  per row (`out_of_range`, the boxed/highlighted "зона уваги" — OCR of the lab's verdict, not ours)
+  and the report's overall `conclusion` (Stage 5). **Argv note:** `run_claude` ends its argv with a
+  `--` terminator — `--add-dir`/`--allowedTools` are variadic and otherwise swallow the prompt (this
+  silently broke every extraction once; `tests/test_llm_client.py` locks it).
 - **Confirmation** (`bot/lab_flow.py`): extracted values (incl. report date & lab — a wrong date
   corrupts the series) are shown in Ukrainian and editable. **Nothing is written to the DB until
   the user confirms** (rail #2); pending values live in FSM state. The original file is always kept.
+  Row marker: **⚠️** if flagged (the lab's indicator or numerically out of range), else **✅**
+  (`is_out_of_range`); the lab `conclusion` is shown. Post-confirm offers are **stateless** (carry
+  `report_id`) so they survive a restart / menu-tap state reset.
 - **Trend engine** (`labs/trends.py`): pure, deterministic, **no LLM/DB/network import** (enforced
   by a test). Direction is **range-relative** (`RETURNED_TO_RANGE`, `APPROACHING_RANGE`, …), never
   a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. Series are
   grouped by a normalized analyte name + small `ANALYTE_ALIASES` map (known limitation: extend it).
-- **Humanize** (`labs/humanize.py`): LLM writes the Ukrainian summary; every output passes
-  `assert_safe_output`, with a deterministic Ukrainian fallback. Disclaimer always appended.
+  `classify()` adds a conservative **qualitative** flag (value vs ref text, NORMAL only on a clear
+  match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker.
+- **Humanize / interpret** (`labs/humanize.py`): `humanize()` writes the trend summary; **Stage 5
+  `interpret()`** gives an expert-level reading of a confirmed report — overall verdict (in DATA
+  terms), per-flag "що може означати / до чого призведе", QUALITATIVE lifestyle+nutrition advice,
+  and when to see a doctor. Every output passes `assert_safe_output` (so no dose / restrictive-diet
+  numbers / "skip the doctor" — and normalcy is phrased "у межах норми", never the forbidden
+  "все добре") + disclaimer, with a deterministic fallback. The summary is stored on `LabReport`.
 
 ## L1 — companion (Stage 3)
 
@@ -236,7 +249,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history)
-migrations/  Alembic 0001..0005   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0006   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
@@ -269,7 +282,10 @@ shipped. **Tier 0 (done):** owner lock + off-box backups. **Tier 1.1 (done):** p
 conditional check-in (active concerns), medication & repeat-lab reminders, reminder management, live
 `ReminderScheduler`. **Tier 1.2 (done):** history & retrieval — `/history`·`/reports`·`/trend`,
 original-file + stored-results access, deterministic NL search (gate-first, companion fallback),
-two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge. **FSM-cancel fix (done):**
+two-step delete with Tier 1.1 coupling cleanup, opt-in orphan purge. **Stage 5 (done):** lab
+interpretation & advice — extraction captures the lab's own out-of-range indicator + conclusion,
+⚠️/✅ flags (no stray ❔), and `interpret()` gives an expert reading + qualitative recommendations
+(guard-backed). **FSM-cancel fix (done):**
 commands abort in-progress dialogs; blank input never persists; phantom-row cleanup CLI. **Tier 1.3
 (done):** button menu — persistent reply keyboard + section screens delegating to reused flow helpers,
 shared `[Скасувати]`, menu labels reset state, navigator FSM gated like the command arg (UI layer only,

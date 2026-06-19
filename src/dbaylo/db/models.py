@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, func, true
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, false, func, true
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -98,6 +98,10 @@ class LabReport(TimestampMixin, Base):
     # Original file is always kept and linked (safety rail #2: OCR never trusted silently).
     source_file: Mapped[str | None] = mapped_column(default=None)
     raw_ocr: Mapped[str | None] = mapped_column(Text, default=None)
+    # Stage 5: the lab's own overall conclusion (e.g. "Нормозооспермія") and Дбайло's
+    # generated expert summary, persisted so /history can show them without re-calling the LLM.
+    conclusion: Mapped[str | None] = mapped_column(Text, default=None)
+    summary: Mapped[str | None] = mapped_column(Text, default=None)
     # PENDING until the user confirms the extracted values; CONFIRMED writes results.
     status: Mapped[ReportStatus] = mapped_column(SAEnum(ReportStatus), default=ReportStatus.PENDING)
 
@@ -118,6 +122,9 @@ class LabResult(Base):
     ref_low: Mapped[float | None] = mapped_column(Float, default=None)
     ref_high: Mapped[float | None] = mapped_column(Float, default=None)
     flag: Mapped[ResultFlag] = mapped_column(SAEnum(ResultFlag), default=ResultFlag.UNKNOWN)
+    # Stage 5: the lab's own out-of-range indicator (or a numeric value outside its
+    # reference). Drives the ⚠️/✅ marker (a flag-free row is shown as ✅, "ok").
+    flagged: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
 
     report: Mapped[LabReport] = relationship(back_populates="results")
 

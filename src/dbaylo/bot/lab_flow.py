@@ -48,7 +48,7 @@ from dbaylo.labs.intake import (
 )
 from dbaylo.labs.pipeline import compute_report_summary
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import classify, compute_flag, normalize_analyte
+from dbaylo.labs.trends import compute_flag, is_out_of_range, normalize_analyte
 
 router = Router(name="labs")
 
@@ -91,6 +91,15 @@ class LabStates(StatesGroup):
 # --- Pure helpers (unit-tested) -------------------------------------------------
 
 
+def _confirm_emoji(a: ExtractedAnalyte) -> str:
+    """⚠️ if the lab flags the row (or it's out of range), ✅ if it has a value, else ❔."""
+    if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range):
+        return locale.FLAG_ATTENTION
+    if a.value is not None or a.value_text:
+        return locale.FLAG_EMOJI["normal"]
+    return locale.FLAG_EMOJI["unknown"]
+
+
 def render_confirmation_text(report: ExtractedReport) -> str:
     """Build the Ukrainian confirmation table for an extracted report."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
@@ -98,13 +107,16 @@ def render_confirmation_text(report: ExtractedReport) -> str:
     lines = [
         f"{locale.LAB_DATE_LABEL}: {date_txt}",
         f"{locale.LAB_LAB_LABEL}: {lab_txt}",
-        "",
     ]
+    if report.conclusion:
+        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+    lines.append("")
     for i, a in enumerate(report.results, 1):
-        flag = classify(a.value, a.value_text, a.ref_low, a.ref_high, a.ref_text)
-        emoji = locale.FLAG_EMOJI.get(flag.value, "")
         ref = a.display_reference()
-        line = f"{i}. {a.analyte} — {a.display_value()} ({locale.LAB_NORM_LABEL} {ref}) {emoji}"
+        line = (
+            f"{i}. {a.analyte} — {a.display_value()} "
+            f"({locale.LAB_NORM_LABEL} {ref}) {_confirm_emoji(a)}"
+        )
         lines.append(line.rstrip())
     lines += ["", locale.LAB_CONFIRM_PROMPT]
     return "\n".join(lines)
@@ -340,12 +352,21 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             analytes=report.results,
             report_date=report.report_date,
             lab=report.lab,
+            conclusion=report.conclusion,
         )
         user_id = db_report.user_id
 
     keys = {normalize_analyte(a.analyte) for a in report.results}
     async with get_session() as session:
-        summary = await compute_report_summary(session, user_id=user_id, analyte_keys=keys)
+        # Pass the confirmed report so the summary is the Stage 5 expert interpretation.
+        summary = await compute_report_summary(
+            session, user_id=user_id, analyte_keys=keys, report=report
+        )
+        # Persist the generated summary so /history can show it without re-calling the LLM.
+        stored = await session.get(LabReport, report_id)
+        if stored is not None:
+            stored.summary = summary.text
+            await session.commit()
 
     await callback.message.answer(locale.LAB_CONFIRMED)
     for name, png in summary.charts:

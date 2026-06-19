@@ -22,6 +22,10 @@ class ExtractedAnalyte:
     ref_low: float | None = None
     ref_high: float | None = None
     ref_text: str | None = None
+    # The lab's OWN out-of-range indicator (a box / highlight / asterisk / bold / colour,
+    # or a value outside the printed reference), read visually by the model. ``None`` =
+    # no reference to judge by. This is OCR of the lab's verdict, not our interpretation.
+    out_of_range: bool | None = None
 
     def display_value(self) -> str:
         """Best human rendering of the value (numeric or qualitative)."""
@@ -51,3 +55,9 @@ class ExtractedReport:
     results: list[ExtractedAnalyte] = field(default_factory=list)
     report_date: date | None = None
     lab: str | None = None
+    # The report's own overall conclusion if it prints one (e.g. "Нормозооспермія").
+    conclusion: str | None = None
+
+    def flagged_results(self) -> list[ExtractedAnalyte]:
+        """Rows the lab marked out of range (its own attention indicator)."""
+        return [a for a in self.results if a.out_of_range]

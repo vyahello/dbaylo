@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo.db.models import LabReport, LabResult, ReportStatus
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.extraction import ExtractionFailed, extract_with_escalation
-from dbaylo.labs.humanize import humanize
+from dbaylo.labs.humanize import humanize, interpret
 from dbaylo.labs.schema import ExtractedReport
 from dbaylo.labs.trends import LabPoint, TrendSummary, build_series, compute_flag, compute_trend
 
@@ -69,9 +69,18 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
 
 
 async def compute_report_summary(
-    session: AsyncSession, *, user_id: int, analyte_keys: set[str]
+    session: AsyncSession,
+    *,
+    user_id: int,
+    analyte_keys: set[str],
+    report: ExtractedReport | None = None,
 ) -> ReportSummary:
-    """Compute trends + charts + humanized summary for the given analyte keys."""
+    """Compute trends + charts + a summary for the given analyte keys.
+
+    When ``report`` is given (the just-confirmed report), the text is the Stage 5 expert
+    interpretation (values + the lab's own flags + trends + guidance); otherwise it is the
+    plain trend humanization.
+    """
     series = build_series(await load_series_points(session, user_id))
     summaries: list[TrendSummary] = [
         compute_trend(points) for key, points in series.items() if key in analyte_keys
@@ -84,7 +93,7 @@ async def compute_report_summary(
             png = render_trend_chart(series[summary.key], title=summary.analyte)
             charts.append((summary.analyte, png))
 
-    text = await humanize(summaries)
+    text = await interpret(report, summaries) if report is not None else await humanize(summaries)
     return ReportSummary(text=text, charts=charts)
 
 

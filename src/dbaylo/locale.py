@@ -209,6 +209,9 @@ FLAG_EMOJI: dict[str, str] = {
     "high": "⬆️",
     "unknown": "❔",
 }
+# Shown when the lab itself flags a row (its "зона підвищеної уваги") or a value is out
+# of range — "worth a look", not a verdict. A row with no flag is shown as ✅ ("ok").
+FLAG_ATTENTION = "⚠️"
 
 # Range-relative movement phrasing (keyed by TrendDirection.name). Deliberately
 # describes movement relative to the reference range — never a health verdict
@@ -228,6 +231,19 @@ TREND_PHRASES: dict[str, str] = {
 
 LAB_SUMMARY_HEADER = "Ось що я бачу у твоїх аналізах:"
 LAB_SUMMARY_ASK_DOCTOR = "Що з цього варто обговорити з лікарем — найкраще вирішити разом із ним."
+
+# --- Stage 5: lab interpretation & advice ---------------------------------------
+# The lab's own overall conclusion (shown in the confirm table when present).
+LAB_CONCLUSION_LABEL = "📋 Висновок лабораторії"
+# Deterministic fallback for the expert summary (used when the LLM is unavailable /
+# its output trips the safety guard). Phrasing stays in DATA terms — never "все добре"
+# / "ти здоровий" (forbidden reassurances), so the guard accepts it.
+LAB_INTERPRET_ALL_NORMAL = "Показники — в межах норми."
+LAB_INTERPRET_FLAGGED_HEADER = "Варто звернути увагу на:"
+LAB_INTERPRET_FLAGGED_ITEM = "• {analyte}: {value}"
+LAB_INTERPRET_ASK_DOCTOR = (
+    "Найкраще обговорити повну картину з лікарем — він зможе оцінити її разом із твоєю історією."
+)
 
 # --- Stage 3: companion (L1) — goals --------------------------------------------
 

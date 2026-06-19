@@ -33,6 +33,9 @@ EXTRACTION_PERSONA = (
     "{\n"
     '  "report_date": "YYYY-MM-DD" | null,\n'
     '  "lab": string | null,\n'
+    '  "conclusion": string | null,      // the report\'s OVERALL conclusion line if it\n'
+    "                                    // prints one (e.g. 'Нормозооспермія'); NOT an\n"
+    "                                    // analyte row — do not also list it in results\n"
     '  "results": [\n'
     "    {\n"
     '      "analyte": string,            // name exactly as printed (Ukrainian)\n'
@@ -41,12 +44,19 @@ EXTRACTION_PERSONA = (
     '      "unit": string | null,\n'
     '      "ref_low": number | null,\n'
     '      "ref_high": number | null,\n'
-    '      "ref_text": string | null     // range as printed if not simple low-high\n'
+    '      "ref_text": string | null,    // range as printed if not simple low-high\n'
+    '      "out_of_range": boolean | null // TRUE if the LAB ITSELF marks this row as\n'
+    "                                    // outside the reference / in an attention zone\n"
+    "                                    // (boxed, highlighted, bold, asterisk, colour),\n"
+    "                                    // OR the value is plainly outside the printed\n"
+    "                                    // reference; FALSE if clearly within reference;\n"
+    "                                    // null if there is no reference to judge by\n"
     "    }\n"
     "  ]\n"
     "}\n"
     "Preserve analyte names exactly as printed. If a field is missing or illegible "
-    "use null — never guess or invent values. Do not diagnose, interpret, or comment."
+    "use null — never guess or invent values. Report ONLY what the form shows (incl. its "
+    "own out-of-range marks); do not diagnose, interpret, or comment."
 )
 
 _DEFAULT_MODELS: tuple[str, ...] = ("sonnet", "opus")
@@ -140,6 +150,7 @@ def parse_extraction(text: str) -> ExtractedReport | None:
         results=analytes,
         report_date=_coerce_date(data.get("report_date")),
         lab=_coerce_str(data.get("lab")),
+        conclusion=_coerce_str(data.get("conclusion")),
     )
 
 
@@ -191,6 +202,7 @@ def _coerce_analyte(item: object) -> ExtractedAnalyte | None:
         ref_low=_coerce_float(item.get("ref_low")),
         ref_high=_coerce_float(item.get("ref_high")),
         ref_text=_coerce_str(item.get("ref_text")),
+        out_of_range=_coerce_bool(item.get("out_of_range")),
     )
 
 
@@ -199,6 +211,19 @@ def _coerce_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_bool(value: object) -> bool | None:
+    """Tolerant bool: real bools, or the strings the model sometimes emits."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        token = value.strip().casefold()
+        if token in ("true", "yes", "1", "так"):
+            return True
+        if token in ("false", "no", "0", "ні"):
+            return False
+    return None
 
 
 def _coerce_float(value: object) -> float | None:

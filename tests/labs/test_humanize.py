@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date
 
-from dbaylo.labs.humanize import deterministic_summary, humanize
+from dbaylo.labs.humanize import deterministic_summary, humanize, interpret
 from dbaylo.labs.trends import LabPoint, compute_trend
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable
 from dbaylo.triage.safety import DISCLAIMER, contains_dose_directive, contains_forbidden_reassurance
@@ -73,3 +73,66 @@ async def test_humanize_falls_back_when_claude_unavailable() -> None:
 async def test_humanize_empty_summaries_still_safe() -> None:
     out = await humanize([], runner=_runner("anything"))
     assert out.endswith(DISCLAIMER)
+
+
+# --- Stage 5: expert interpretation ---------------------------------------------
+
+
+def _report(*, conclusion=None, flagged=False):
+    from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
+
+    return ExtractedReport(
+        lab="Synevo",
+        conclusion=conclusion,
+        results=[
+            ExtractedAnalyte(
+                "Глюкоза",
+                value=7.0,
+                unit="ммоль/л",
+                ref_low=3.9,
+                ref_high=6.1,
+                out_of_range=flagged,
+            ),
+            ExtractedAnalyte(
+                "Колір", value=None, value_text="жовтий", ref_text="жовтий", out_of_range=False
+            ),
+        ],
+    )
+
+
+def test_deterministic_interpretation_all_normal_is_safe() -> None:
+    from dbaylo.labs.humanize import deterministic_interpretation
+    from dbaylo.locale import LAB_INTERPRET_ALL_NORMAL
+
+    text = deterministic_interpretation(_report(conclusion="Нормозооспермія", flagged=False))
+    assert "Нормозооспермія" in text and LAB_INTERPRET_ALL_NORMAL in text
+    assert contains_forbidden_reassurance(text) is None  # data terms, not "все добре"
+
+
+def test_deterministic_interpretation_lists_flagged() -> None:
+    from dbaylo.labs.humanize import deterministic_interpretation
+
+    text = deterministic_interpretation(_report(flagged=True))
+    assert "Глюкоза" in text  # the out-of-range row is surfaced
+    assert "Колір" not in text  # the ok row is not
+
+
+async def test_interpret_uses_safe_model_text() -> None:
+    body = "Загалом показники в межах норми. Варто обговорити з лікарем за потреби."
+    out = await interpret(_report(conclusion="Нормозооспермія"), _summaries(), runner=_runner(body))
+    assert body in out and out.endswith(DISCLAIMER)
+
+
+async def test_interpret_falls_back_on_forbidden_phrase() -> None:
+    # If the model says "все добре" (a forbidden reassurance), we must not send it.
+    out = await interpret(_report(), _summaries(), runner=_runner("Все добре, не хвилюйся!"))
+    assert "не хвилюйся" not in out
+    assert contains_forbidden_reassurance(out) is None
+
+
+async def test_interpret_falls_back_when_claude_unavailable() -> None:
+    async def boom(*args, **kwargs):
+        raise ClaudeUnavailable("no binary")
+
+    out = await interpret(_report(conclusion="Нормозооспермія"), _summaries(), runner=boom)
+    assert "Нормозооспермія" in out and out.endswith(DISCLAIMER)

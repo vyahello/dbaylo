@@ -16,6 +16,7 @@ from dbaylo.labs.trends import (
     classify,
     compute_flag,
     compute_trend,
+    is_out_of_range,
     normalize_analyte,
     polarity,
     qualitative_match,
@@ -74,6 +75,21 @@ def test_compute_flag(value, low, high, expected) -> None:
 )
 def test_qualitative_match(value_text, ref_text, matches) -> None:
     assert qualitative_match(value_text, ref_text) is matches
+
+
+@pytest.mark.parametrize(
+    ("value", "low", "high", "out_of_range", "expected"),
+    [
+        (7.0, 3.9, 6.1, None, True),  # numeric high, no lab mark
+        (5.0, 3.9, 6.1, None, False),  # numeric ok
+        (5.0, 3.9, 6.1, True, True),  # lab flags it even though numeric is in range (escalate up)
+        (None, None, None, True, True),  # qualitative, lab-flagged
+        (None, None, None, False, False),  # qualitative, lab says ok
+        (None, None, None, None, False),  # nothing to judge -> not flagged
+    ],
+)
+def test_is_out_of_range(value, low, high, out_of_range, expected) -> None:
+    assert is_out_of_range(value, low, high, out_of_range) is expected
 
 
 def test_classify_prefers_numeric_then_qualitative() -> None:

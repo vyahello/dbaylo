@@ -63,6 +63,25 @@ def test_parse_qualitative_value_goes_to_text() -> None:
     assert report.results[0].value_text == "не виявлено"
 
 
+def test_parse_conclusion_and_out_of_range() -> None:
+    report = parse_extraction(
+        '{"conclusion": "Нормозооспермія", "results": ['
+        '{"analyte": "Лейкоцити", "value_text": "10-15", "out_of_range": true},'
+        '{"analyte": "Об\'єм", "value": 2.0, "ref_low": 1.5, "out_of_range": false}]}'
+    )
+    assert report is not None
+    assert report.conclusion == "Нормозооспермія"
+    assert report.results[0].out_of_range is True  # lab flagged
+    assert report.results[1].out_of_range is False
+
+
+def test_parse_out_of_range_tolerates_string_bool() -> None:
+    report = parse_extraction(
+        '{"results": [{"analyte": "X", "value": 1.0, "out_of_range": "true"}]}'
+    )
+    assert report is not None and report.results[0].out_of_range is True
+
+
 def test_parse_nonnumeric_value_demoted_to_text() -> None:
     report = parse_extraction('{"results": [{"analyte": "Колір", "value": "солом’яний"}]}')
     assert report is not None
