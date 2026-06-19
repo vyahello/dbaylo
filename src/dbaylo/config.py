@@ -39,8 +39,14 @@ class Settings:
     database_url: str = f"sqlite:///{ROOT_DIR / 'dbaylo.db'}"
     # Timezone for reminders / check-ins (discovery assumes Europe/Kyiv).
     timezone: str = "Europe/Kyiv"
-    # Where original lab files are kept (Stage 2); declared now for completeness.
+    # Where original lab files are kept (Stage 2).
     storage_dir: Path = ROOT_DIR / "data" / "files"
+    # The `claude` binary (Claude Code OAuth) used for lab extraction / humanization.
+    claude_bin: str = "claude"
+    # Default model alias for extraction; escalates to "opus" on failure (Stage 2).
+    claude_model: str = "sonnet"
+    # Hard timeout (seconds) for a single `claude` subprocess call.
+    claude_timeout_s: int = 180
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -50,6 +56,9 @@ class Settings:
             database_url=_get("DATABASE_URL", cls.database_url),
             timezone=_get("TZ", "Europe/Kyiv"),
             storage_dir=Path(_get("STORAGE_DIR", str(cls.storage_dir))),
+            claude_bin=_get("CLAUDE_BIN", "claude"),
+            claude_model=_get("CLAUDE_MODEL", "sonnet"),
+            claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
         )
 
 

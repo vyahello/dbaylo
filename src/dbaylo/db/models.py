@@ -36,6 +36,18 @@ class ResultFlag(StrEnum):
     UNKNOWN = "unknown"
 
 
+class ReportStatus(StrEnum):
+    """Lifecycle of a lab report through the OCR-confirmation loop (rail #2).
+
+    A report is PENDING from intake until the user confirms the extracted values;
+    only then are LabResult rows written and the report marked CONFIRMED.
+    """
+
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    DISCARDED = "discarded"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -75,6 +87,8 @@ class LabReport(TimestampMixin, Base):
     # Original file is always kept and linked (safety rail #2: OCR never trusted silently).
     source_file: Mapped[str | None] = mapped_column(default=None)
     raw_ocr: Mapped[str | None] = mapped_column(Text, default=None)
+    # PENDING until the user confirms the extracted values; CONFIRMED writes results.
+    status: Mapped[ReportStatus] = mapped_column(SAEnum(ReportStatus), default=ReportStatus.PENDING)
 
     user: Mapped[User] = relationship(back_populates="lab_reports")
     results: Mapped[list[LabResult]] = relationship(

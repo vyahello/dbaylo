@@ -16,7 +16,7 @@ A friendly wellness face on top, deterministic safety rails underneath.
 | Layer | What | Status |
 |-------|------|--------|
 | **L1** Wellness companion (`bot/`) | Goals, check-ins, evidence-based nudges | Stage 3 |
-| **L2** Lab & data core (`db/`) | Lab intake, storage, deterministic trends | schema only (Stage 1) |
+| **L2** Lab & data core (`labs/`, `db/`) | Lab intake, extraction, deterministic trends, charts | **Stage 2** ✅ |
 | **L3** Triage (`triage/`) | Deterministic red-flag engine — **the safety core** | **Stage 1** ✅ |
 | **L4** Price & НСЗУ navigator | Prices, ceiling checks, coverage, doctor info | Stage 4 |
 
@@ -53,11 +53,19 @@ venv/bin/ruff check src tests     # lint
 venv/bin/mypy                     # strict type check
 venv/bin/dbaylo-web               # FastAPI: GET /health, POST /webhook/{token}
 venv/bin/dbaylo-bot               # bot via long polling (needs BOT_TOKEN)
+venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg   # extract only (no DB/Telegram)
 ```
 
-## Status — Stage 1
+## Status
 
-Skeleton + safety core only. No OCR, LLM, price scraping, or wellness chat yet. Delivered:
-the repo scaffold, the SQLAlchemy data model + Alembic init migration, the deterministic
-triage engine (kidney-stone red flags, 100% covered), an aiogram bot skeleton
-(`/start`, `/help`, stub `/checkin`), and a FastAPI app with `/health` and the webhook entrypoint.
+**Stage 1 — Foundation ✅** repo scaffold, SQLAlchemy data model + Alembic init migration, the
+deterministic triage engine (kidney-stone red flags), an aiogram bot skeleton, and a FastAPI app
+with `/health` + webhook.
+
+**Stage 2 — Lab core ✅** send a lab photo/PDF → Claude extraction (via the `claude` binary) →
+extracted values shown for confirmation in Ukrainian (date & lab editable) → on confirm,
+`LabResult` rows persist → deterministic per-analyte trends → chart + Ukrainian summary. The
+trend engine is pure and LLM-free; the humanized summary passes the safety guard with a
+deterministic fallback. Original files are always kept; nothing is stored before confirmation.
+
+Next: Stage 3 (goals, daily check-in, reminders, nudges) and Stage 4 (price & НСЗУ navigator).

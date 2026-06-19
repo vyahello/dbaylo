@@ -15,10 +15,14 @@ dependencies = [
     "fastapi>=0.110",
     "uvicorn[standard]>=0.29",
     "sqlalchemy>=2.0,<2.1",
+    # Async SQLite driver for the async session layer (Stage 2).
+    "aiosqlite>=0.20",
     "alembic>=1.13",
     # Locked stack: declared now, wired in Stage 3 (reminders / daily check-in scheduling).
     "apscheduler>=3.10,<4",
     "python-dotenv>=1.0",
+    # Deterministic trend charts, rendered headless (Agg backend) to PNG (Stage 2).
+    "matplotlib>=3.8",
 ]
 
 [project.optional-dependencies]
@@ -45,7 +49,8 @@ addopts = "-q"
 
 [tool.coverage.run]
 branch = true
-source = ["dbaylo.triage"]
+# The two deterministic safety cores carry the highest bar: triage and the trend engine.
+source = ["dbaylo.triage", "dbaylo.labs.trends"]
 
 [tool.coverage.report]
 show_missing = true
@@ -71,3 +76,8 @@ strict = true
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]
 ignore_missing_imports = true
+
+# matplotlib's stubs are partial/loosely typed; relax untyped-call checks where we use it.
+[[tool.mypy.overrides]]
+module = ["dbaylo.labs.charts"]
+disallow_untyped_calls = false

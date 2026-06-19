@@ -1,0 +1,75 @@
+"""Humanization tests: safety guard + deterministic fallback + disclaimer."""
+
+from __future__ import annotations
+
+from datetime import date
+
+from dbaylo.labs.humanize import deterministic_summary, humanize
+from dbaylo.labs.trends import LabPoint, compute_trend
+from dbaylo.llm import ClaudeResult, ClaudeUnavailable
+from dbaylo.triage.safety import DISCLAIMER, contains_dose_directive, contains_forbidden_reassurance
+
+
+def _summaries():
+    glucose = compute_trend(
+        [
+            LabPoint("Глюкоза", date(2026, 1, 1), 7.0, "ммоль/л", 3.9, 6.1),
+            LabPoint("Глюкоза", date(2026, 2, 1), 5.4, "ммоль/л", 3.9, 6.1),
+        ]
+    )
+    hb = compute_trend(
+        [
+            LabPoint("Гемоглобін", date(2026, 1, 1), 140.0, "г/л", 130.0, 160.0),
+            LabPoint("Гемоглобін", date(2026, 2, 1), 145.0, "г/л", 130.0, 160.0),
+        ]
+    )
+    return [glucose, hb]
+
+
+def _runner(text: str, ok: bool = True):
+    async def run(*args, **kwargs) -> ClaudeResult:
+        return ClaudeResult(ok=ok, text=text, raw_stdout=text, exit_code=0 if ok else 1)
+
+    return run
+
+
+def test_deterministic_summary_is_safe_and_mentions_values() -> None:
+    text = deterministic_summary(_summaries())
+    assert contains_forbidden_reassurance(text) is None
+    assert contains_dose_directive(text) is None  # "140 г/л" must NOT trip the guard
+    assert "Глюкоза" in text and "Гемоглобін" in text
+
+
+async def test_humanize_uses_safe_model_text() -> None:
+    body = "Твоя глюкоза повернулася в межі норми. Варто показати результати лікарю."
+    out = await humanize(_summaries(), runner=_runner(body))
+    assert body in out
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_humanize_falls_back_on_unsafe_model_text() -> None:
+    unsafe = "Все добре, можеш не йти до лікаря. Приймай 2 таблетки на день."
+    out = await humanize(_summaries(), runner=_runner(unsafe))
+    assert unsafe not in out
+    assert contains_forbidden_reassurance(out) is None
+    assert contains_dose_directive(out) is None
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_humanize_falls_back_when_call_not_ok() -> None:
+    out = await humanize(_summaries(), runner=_runner("", ok=False))
+    assert "Ось що я бачу" in out
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_humanize_falls_back_when_claude_unavailable() -> None:
+    async def boom(*args, **kwargs):
+        raise ClaudeUnavailable("no binary")
+
+    out = await humanize(_summaries(), runner=boom)
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_humanize_empty_summaries_still_safe() -> None:
+    out = await humanize([], runner=_runner("anything"))
+    assert out.endswith(DISCLAIMER)

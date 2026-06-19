@@ -15,8 +15,9 @@ One product, two levels: a friendly wellness face on top, safety rails underneat
 
 - **L1 — Wellness companion** (`src/dbaylo/bot/`) — the daily Telegram face: goals,
   lightweight check-ins, evidence-based nudges, accountability.
-- **L2 — Lab & data core** (`src/dbaylo/db/`) — lab intake, structured storage, and a
-  **deterministic** trend engine (never LLM output). Stage 1 ships the schema only.
+- **L2 — Lab & data core** (`src/dbaylo/labs/`, `src/dbaylo/db/`) — lab intake, extraction,
+  structured storage, a **deterministic** trend engine (never LLM output), and a separate
+  LLM humanization layer. Built in Stage 2.
 - **L3 — Triage** (`src/dbaylo/triage/`) — the deterministic red-flag safety core.
   **No LLM.** Pure functions, highest test coverage. This is the most important module.
 - **L4 — Price & НСЗУ navigator** — med/lab/clinic prices, price-ceiling checks, coverage
@@ -66,34 +67,54 @@ When adding any user-facing string, put it in `locale.py` — never inline.
 
 ## Stack (locked — justify any new dependency)
 
-Python **3.12** · aiogram 3 · FastAPI · SQLAlchemy 2.0 + Alembic · SQLite · APScheduler
-(declared, wired in Stage 3). Config is hand-rolled (`config.py` + python-dotenv) — lean
-by choice. **Any Claude calls go through the `claude` binary via subprocess (Claude Code
-OAuth), NOT the Anthropic SDK.** (No LLM in Stage 1.) Keep a `--dry-run` path for any
-external action added later. English-only code and comments.
+Python **3.12** · aiogram 3 · FastAPI · SQLAlchemy 2.0 (**async**, aiosqlite) + Alembic
+(sync) · SQLite · APScheduler (declared, wired in Stage 3) · matplotlib (charts). Config is
+hand-rolled (`config.py` + python-dotenv) — lean by choice. **Any Claude calls go through the
+`claude` binary via subprocess (Claude Code OAuth), NOT the Anthropic SDK** — only in
+`src/dbaylo/llm/` and `labs/{extraction,humanize}.py`. Keep a `--dry-run` path for any external
+action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code and comments.
+
+## L2 — lab pipeline (Stage 2)
+
+- **Extraction** (`labs/extraction.py`): `claude --print` reads the file (Read tool) and
+  returns JSON constrained by the prompt (no `--json-schema`); a **defensive parser** tolerates
+  fences/partial/malformed output and degrades to "ask the user", never crashes. Default model
+  `sonnet`, escalates to `opus`; never `haiku`.
+- **Confirmation** (`bot/lab_flow.py`): extracted values (incl. report date & lab — a wrong date
+  corrupts the series) are shown in Ukrainian and editable. **Nothing is written to the DB until
+  the user confirms** (rail #2); pending values live in FSM state. The original file is always kept.
+- **Trend engine** (`labs/trends.py`): pure, deterministic, **no LLM/DB/network import** (enforced
+  by a test). Direction is **range-relative** (`RETURNED_TO_RANGE`, `APPROACHING_RANGE`, …), never
+  a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. Series are
+  grouped by a normalized analyte name + small `ANALYTE_ALIASES` map (known limitation: extend it).
+- **Humanize** (`labs/humanize.py`): LLM writes the Ukrainian summary; every output passes
+  `assert_safe_output`, with a deterministic Ukrainian fallback. Disclaimer always appended.
 
 ## Layout
 
 ```
-src/dbaylo/  triage/ (L3 core)  db/ (models+base)  bot/ (aiogram)  web/ (FastAPI)  config.py
-migrations/  Alembic env + versions      tests/  triage/ has the highest bar
+src/dbaylo/  triage/ (L3)  labs/ (L2: extraction·trends·charts·humanize·intake·pipeline)
+             llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
+migrations/  Alembic 0001..0002       tests/  triage/ and labs/trends carry the highest bar
 ```
 
 ## Dev commands
 
 ```bash
-venv/bin/python -m pytest --cov   # tests + coverage (triage gate: >= 90%)
+venv/bin/python -m pytest --cov   # tests + coverage (gate >= 90% on triage + labs.trends)
 venv/bin/ruff check src tests     # lint        venv/bin/ruff format src tests
 venv/bin/mypy                     # strict type check
 venv/bin/alembic upgrade head     # apply migrations to the DB
 venv/bin/alembic revision --autogenerate -m "msg"   # new migration after model changes
 venv/bin/dbaylo-web               # serve FastAPI (/health, /webhook/{token})
 venv/bin/dbaylo-bot               # run the bot via long polling (needs BOT_TOKEN)
+venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg   # extract only, no DB/Telegram
 ```
 
 After any model change: regenerate a migration and run `alembic check` (must report no drift).
 
 ## Roadmap
 
-Stage 1 (done): skeleton + safety core. Stage 2: lab intake + Claude extraction + trends.
-Stage 3: goals, check-ins, reminders, nudges. Stage 4: price & НСЗУ navigator.
+Stage 1 (done): skeleton + safety core. Stage 2 (done): lab intake + Claude extraction +
+OCR-confirm loop + deterministic trends + charts + humanized summary. Stage 3: goals,
+check-ins, reminders, nudges. Stage 4: price & НСЗУ navigator.

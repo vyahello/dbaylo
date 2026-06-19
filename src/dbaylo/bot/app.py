@@ -10,6 +10,7 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 
+from dbaylo.bot import lab_flow
 from dbaylo.bot.handlers import router
 from dbaylo.config import get_settings
 
@@ -18,6 +19,7 @@ def build_dispatcher() -> Dispatcher:
     """Build a Dispatcher with all routers registered."""
     dispatcher = Dispatcher()
     dispatcher.include_router(router)
+    dispatcher.include_router(lab_flow.router)
     return dispatcher
 
 

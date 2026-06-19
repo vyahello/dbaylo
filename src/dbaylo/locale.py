@@ -105,8 +105,10 @@ FORBIDDEN_REASSURANCES: tuple[str, ...] = (
 # Dose / prescription phrasing Дбайло must never produce. Each pattern requires a
 # dose object or a number (see module docstring on why negated copy is safe).
 DOSE_DIRECTIVE_PATTERNS: tuple[str, ...] = (
-    # number + unit of measure (400 мг, 5 мл, 2,5 г)
-    r"\b\d+(?:[.,]\d+)?\s?(?:мг|мкг|мл|г|грам\w*|од|мо)\b",
+    # number + unit of measure (400 мг, 5 мл, 2,5 г). The (?!\s*/) lookahead exempts
+    # concentration units used by lab forms (140 г/л, 90 мг/дл) — those are values
+    # the bot legitimately cites in a summary, not dosing directives.
+    r"\b\d+(?:[.,]\d+)?\s?(?:мг|мкг|мл|г|грам\w*|од|мо)\b(?!\s*/)",
     # number + dosage form (2 таблетки, 3 капсули, 10 крапель, 1 доза)
     r"\b\d+\s?(?:таблетк\w*|пігулк\w*|капсул\w*|крапл\w*|доз\w*)\b",
     # "по N <form/unit>" (по 2 таблетки, по 5 мл)
@@ -118,3 +120,64 @@ DOSE_DIRECTIVE_PATTERNS: tuple[str, ...] = (
     # prescribe / recommend a dose (призначаю дозу, рекомендую по 2)
     r"\b(?:признач\w+|рекоменд\w+)\s+(?:дозу|дозування|по\s+\d+|\d+)",
 )
+
+# --- Stage 2: lab intake / confirmation loop ------------------------------------
+
+LAB_RECEIVED = "Отримав файл. Зчитую результати… ⏳"
+LAB_EXTRACTION_FAILED = (
+    "Не вдалося розпізнати результати. Надішли, будь ласка, чіткіше фото або PDF, "
+    "або введи значення вручну."
+)
+LAB_UNSUPPORTED_FILE = (
+    "Я вмію читати фото (JPEG/PNG) або PDF з результатами аналізів. Спробуй надіслати такий файл."
+)
+LAB_CONFIRM_PROMPT = "Усе правильно?"
+LAB_NORM_LABEL = "норма"
+LAB_DATE_LABEL = "Дата"
+LAB_LAB_LABEL = "Лабораторія"
+LAB_DATE_UNKNOWN = "невідома"
+LAB_LAB_UNKNOWN = "невідома"
+
+BTN_CONFIRM_ALL = "✅ Підтвердити все"
+BTN_EDIT = "✏️ Виправити"
+BTN_CANCEL = "🗑 Скасувати"
+
+LAB_EDIT_PICK = "Що виправити? Надішли номер рядка (1–{n}), або «дата» / «лабораторія»."
+LAB_EDIT_NEW_VALUE = "Введи правильне значення для «{name}» (тільки число):"
+LAB_EDIT_NEW_DATE = "Введи дату звіту у форматі РРРР-ММ-ДД:"
+LAB_EDIT_NEW_LAB = "Введи назву лабораторії:"
+LAB_EDIT_BAD_ROW = "Такого рядка немає. Спробуй ще раз."
+LAB_EDIT_BAD_VALUE = "Не зрозумів число. Введи значення на кшталт 5.4."
+LAB_EDIT_BAD_DATE = "Не зрозумів дату. Потрібен формат РРРР-ММ-ДД (наприклад, 2026-05-12)."
+LAB_CONFIRMED = "Готово! Зберіг результати. 📈"
+LAB_CANCELLED = "Скасував. Нічого не зберігаю."
+LAB_NOTHING_TO_TREND = (
+    "Зберіг результати. Для динаміки потрібно щонайменше два виміри одного показника."
+)
+
+# Flag markers shown next to a value (keyed by ResultFlag value).
+FLAG_EMOJI: dict[str, str] = {
+    "low": "⬇️",
+    "normal": "✅",
+    "high": "⬆️",
+    "unknown": "❔",
+}
+
+# Range-relative movement phrasing (keyed by TrendDirection.name). Deliberately
+# describes movement relative to the reference range — never a health verdict
+# ("покращується / погіршується"). See dbaylo.labs.trends.
+TREND_PHRASES: dict[str, str] = {
+    "INSUFFICIENT_DATA": "замало даних, щоб побачити динаміку",
+    "UNKNOWN_RANGE": "немає референсних меж, щоб оцінити відносно норми",
+    "STABLE_IN_RANGE": "тримається в межах норми",
+    "STABLE_OUT_OF_RANGE": "залишається поза межами норми",
+    "RETURNED_TO_RANGE": "повернувся в межі норми",
+    "LEFT_RANGE": "вийшов за межі норми",
+    "APPROACHING_RANGE": "наближається до норми",
+    "MOVING_AWAY": "віддаляється від норми",
+}
+
+# --- Stage 2: humanized summary (deterministic fallback fragments) --------------
+
+LAB_SUMMARY_HEADER = "Ось що я бачу у твоїх аналізах:"
+LAB_SUMMARY_ASK_DOCTOR = "Що з цього варто обговорити з лікарем — найкраще вирішити разом із ним."

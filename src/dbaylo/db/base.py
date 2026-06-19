@@ -1,17 +1,22 @@
-"""Declarative base, engine, and session factory.
+"""Declarative base + the async session layer.
 
-Synchronous SQLAlchemy 2.0 for Stage 1. The ORM mappings are identical for sync
-and async, so this is the only place that changes when Stage 2 moves the runtime
-to async sessions.
+Stage 2 moves the runtime to **async** SQLAlchemy (aiosqlite). The ORM mappings
+are unchanged. Alembic stays synchronous and builds its own engine in
+``migrations/env.py``, so nothing here is needed for migrations.
 """
 
 from __future__ import annotations
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
+from sqlalchemy.engine import make_url
+from sqlalchemy.ext.asyncio import (
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
+from sqlalchemy.orm import DeclarativeBase
 
 from dbaylo.config import get_settings
 
@@ -20,19 +25,29 @@ class Base(DeclarativeBase):
     """Declarative base for all ORM models."""
 
 
-engine = create_engine(get_settings().database_url, future=True)
-session_factory = sessionmaker(bind=engine, expire_on_commit=False, future=True)
+def _async_url(sync_url: str) -> str:
+    """Turn a sync SQLite URL into its aiosqlite (async) form."""
+    url = make_url(sync_url)
+    if url.drivername == "sqlite":
+        url = url.set(drivername="sqlite+aiosqlite")
+    return url.render_as_string(hide_password=False)
 
 
-@contextmanager
-def get_session() -> Iterator[Session]:
-    """Yield a session, committing on success and rolling back on error."""
-    session = session_factory()
+async_engine = create_async_engine(_async_url(get_settings().database_url), future=True)
+async_session_factory = async_sessionmaker(
+    bind=async_engine, expire_on_commit=False, class_=AsyncSession
+)
+
+
+@asynccontextmanager
+async def get_session() -> AsyncIterator[AsyncSession]:
+    """Yield an async session, committing on success and rolling back on error."""
+    session = async_session_factory()
     try:
         yield session
-        session.commit()
+        await session.commit()
     except Exception:
-        session.rollback()
+        await session.rollback()
         raise
     finally:
-        session.close()
+        await session.close()
