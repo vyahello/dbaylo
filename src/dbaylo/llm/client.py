@@ -45,6 +45,41 @@ class ClaudeResult:
     error: str | None = None
 
 
+def build_argv(
+    prompt: str,
+    *,
+    claude_bin: str,
+    append_system_prompt: str,
+    model: str,
+    allowed_tools: Sequence[str] = (),
+    add_dirs: Sequence[str] = (),
+) -> list[str]:
+    """Build the `claude` argv. The prompt is placed after a ``--`` terminator.
+
+    ``--add-dir`` / ``--allowedTools`` are **variadic** (``<...>``): without ``--``
+    the trailing variadic option swallows the positional prompt and the CLI reports
+    "Input must be provided ... as a prompt argument when using --print" (this silently
+    broke every lab extraction, which is the only path that passes ``add_dirs``). The
+    terminator keeps the prompt a positional argument.
+    """
+    argv: list[str] = [
+        claude_bin,
+        "--print",
+        "--output-format",
+        "json",
+        "--model",
+        model,
+        "--append-system-prompt",
+        append_system_prompt,
+    ]
+    if allowed_tools:
+        argv += ["--allowedTools", ",".join(allowed_tools)]
+    for directory in add_dirs:
+        argv += ["--add-dir", directory]
+    argv += ["--", prompt]
+    return argv
+
+
 async def run_claude(
     prompt: str,
     *,
@@ -65,21 +100,14 @@ async def run_claude(
     model = model or settings.claude_model
     timeout_s = timeout_s or settings.claude_timeout_s
 
-    argv: list[str] = [
-        settings.claude_bin,
-        "--print",
-        "--output-format",
-        "json",
-        "--model",
-        model,
-        "--append-system-prompt",
-        append_system_prompt,
-    ]
-    if allowed_tools:
-        argv += ["--allowedTools", ",".join(allowed_tools)]
-    for directory in add_dirs:
-        argv += ["--add-dir", directory]
-    argv.append(prompt)
+    argv = build_argv(
+        prompt,
+        claude_bin=settings.claude_bin,
+        append_system_prompt=append_system_prompt,
+        model=model,
+        allowed_tools=allowed_tools,
+        add_dirs=add_dirs,
+    )
 
     try:
         process = await asyncio.create_subprocess_exec(
