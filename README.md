@@ -4,7 +4,9 @@ A personal health & wellness companion on Telegram — coined from *дбати*,
 A trusted friend who tracks your labs better than you do, watches for warning signs, and
 helps you build sustainable habits.
 
-> **Not a doctor. Not a prescriber. A friend with guardrails.**
+> **Your personal health companion — reads and tracks your lab results, flags what's worth
+> attention, and helps you build sustainable habits. It informs and guides; it doesn't prescribe
+> or replace your doctor.**
 
 Single-user, personal use only. See [`docs/dbaylo-discovery.md`](docs/dbaylo-discovery.md)
 for the full vision and [`CLAUDE.md`](CLAUDE.md) for the architecture and safety rails.

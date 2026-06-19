@@ -7,6 +7,9 @@ for warning signs, and helps you build sustainable habits.
 
 **Not a doctor. Not a prescriber. A friend with guardrails.**
 
+User-facing positioning: informs & guides (analyzes and tracks labs, flags what's worth
+attention) but never prescribes or diagnoses.
+
 ## Naming
 - **Bot (display name):** Дбайло — coined from "дбати" (to care / look after): "the one who
   cares for you." Warm, distinctly Ukrainian, on-brand with Комунальний Дворецький, and with
