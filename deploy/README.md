@@ -43,6 +43,37 @@ Configured under **Settings → Secrets and variables → Actions** — never ha
 `.env`, the SQLite DB, stored lab files, and `venv/` are git-ignored, so `git reset --hard`
 never touches them — your data and config survive every deploy.
 
+## Off-box backups (encrypted)
+
+A nightly `systemd` timer snapshots the SQLite DB + the lab-files dir, **age-encrypts** the
+bundle to your public key, and uploads it via **rclone** — so losing the VPS disk doesn't lose
+your history, and a compromised box can't decrypt the backups (the private key lives off-box).
+
+One-time setup on the VPS:
+
+```bash
+sudo apt install -y rclone age sqlite3
+rclone config                       # add a Backblaze B2 remote (e.g. named "b2")
+# add to ~/dbaylo/.env:
+#   BACKUP_AGE_RECIPIENT=ssh-ed25519 AAAA...      # your SSH/age PUBLIC key
+#   BACKUP_RCLONE_REMOTE=b2:your-bucket/dbaylo
+#   BACKUP_RETENTION_DAYS=14
+bash deploy/setup-backup.sh         # installs + enables dbaylo-backup.timer (03:30 nightly)
+sudo systemctl start dbaylo-backup.service   # run one now; check it landed in B2
+journalctl -u dbaylo-backup -n 30 --no-pager
+```
+
+**Restore (and verify):**
+
+```bash
+rclone copy b2:your-bucket/dbaylo/dbaylo-YYYYMMDD-HHMMSS.tar.age .
+bash deploy/restore.sh dbaylo-YYYYMMDD-HHMMSS.tar.age   # decrypts, extracts, integrity_check
+```
+
+`restore.sh` restores to a scratch dir and runs `PRAGMA integrity_check` + a row count **without**
+touching live data; it prints the exact commands to swap the restored copy in (stop bot → copy →
+start). Test a restore after the first backup so you know it works **before** you need it.
+
 ## Webhook + TLS (optional, later)
 
 The bot runs fine via **long polling** with no public URL or certificate. To switch to
