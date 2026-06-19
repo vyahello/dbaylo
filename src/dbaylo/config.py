@@ -47,6 +47,10 @@ class Settings:
     claude_model: str = "sonnet"
     # Hard timeout (seconds) for a single `claude` subprocess call.
     claude_timeout_s: int = 180
+    # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
+    # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -59,6 +63,8 @@ class Settings:
             claude_bin=_get("CLAUDE_BIN", "claude"),
             claude_model=_get("CLAUDE_MODEL", "sonnet"),
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
+            web_host=_get("WEB_HOST", "127.0.0.1"),
+            web_port=int(_get("WEB_PORT", "8000")),
         )
 
 

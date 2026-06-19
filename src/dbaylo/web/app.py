@@ -27,7 +27,10 @@ def run() -> None:
     """Console-script entrypoint: serve the app with uvicorn."""
     import uvicorn
 
-    uvicorn.run("dbaylo.web.app:app", host="0.0.0.0", port=8000)
+    from dbaylo.config import get_settings
+
+    settings = get_settings()
+    uvicorn.run("dbaylo.web.app:app", host=settings.web_host, port=settings.web_port)
 
 
 if __name__ == "__main__":
