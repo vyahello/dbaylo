@@ -13,20 +13,24 @@ import asyncio
 from aiogram import Bot, Dispatcher
 
 from dbaylo.bot import companion_flow, lab_flow, navigator_flow
+from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.companion.scheduler import Sender, build_scheduler
 from dbaylo.config import get_settings
 
 
-def build_dispatcher() -> Dispatcher:
-    """Build a Dispatcher with all routers registered.
+def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
+    """Build a Dispatcher with the owner lock and all routers registered.
 
-    Order matters: commands first, then lab intake (documents/photos + its edit
-    FSM), then the navigator commands (/price, /coverage), then the companion —
-    whose free-text catch-all is ``StateFilter(None)`` so it never steals a turn
-    from an active FSM flow or a command.
+    The owner lock is an **outer** update middleware, so it runs before any router
+    or handler (fail-closed: an unset ``owner_id`` of 0 refuses everyone). Router
+    order: commands first, then lab intake (documents/photos + its edit FSM), then
+    the navigator commands (/price, /coverage), then the companion — whose free-text
+    catch-all is ``StateFilter(None)`` so it never steals a turn from an FSM flow.
     """
+    resolved_owner = owner_id if owner_id is not None else get_settings().owner_telegram_id
     dispatcher = Dispatcher()
+    dispatcher.update.outer_middleware(OwnerOnlyMiddleware(resolved_owner))
     dispatcher.include_router(router)
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)

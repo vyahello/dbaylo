@@ -33,6 +33,10 @@ class Settings:
 
     # Telegram bot token (empty until provisioned; required only to actually run).
     bot_token: str = ""
+    # Owner lock: only this Telegram user id may use the bot. 0 (the default) means
+    # "no owner set" -> the bot refuses everyone (fail-closed), so this MUST be set
+    # in production. Personal, single-user medical data — never leave it open.
+    owner_telegram_id: int = 0
     # Public base URL for the webhook entrypoint (Stage 1: placeholder).
     webhook_base_url: str = ""
     # Database URL; defaults to a local SQLite file at the repo root.
@@ -56,6 +60,7 @@ class Settings:
     def from_env(cls) -> Settings:
         return cls(
             bot_token=_get("BOT_TOKEN", ""),
+            owner_telegram_id=int(_get("OWNER_TELEGRAM_ID", "0")),
             webhook_base_url=_get("WEBHOOK_BASE_URL", ""),
             database_url=_get("DATABASE_URL", cls.database_url),
             timezone=_get("TZ", "Europe/Kyiv"),

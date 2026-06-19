@@ -75,6 +75,9 @@ HELP_TEXT = (
     "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
     f"{DISCLAIMER}"
 )
+# Owner lock: shown once to anyone who is not the configured owner.
+PRIVATE_BOT = "Вибач, це приватний бот — він працює лише для свого власника. 🔒"
+
 # --- Safety vocabulary (Ukrainian) ----------------------------------------------
 
 # Phrases that amount to "you're fine / you can skip care". The engine can only

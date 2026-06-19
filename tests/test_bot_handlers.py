@@ -22,10 +22,14 @@ async def test_handler_replies_expected_text(handler, expected: str) -> None:
     message.answer.assert_awaited_once_with(expected)
 
 
-def test_build_dispatcher_registers_routers() -> None:
+def test_build_dispatcher_registers_routers_and_owner_lock() -> None:
+    from dbaylo.bot.access import OwnerOnlyMiddleware
+
     dispatcher = build_dispatcher()
     # commands + lab_flow + navigator + companion.
     assert len(dispatcher.sub_routers) == 4
+    # The owner lock is an outer update middleware (runs before any router).
+    assert any(isinstance(m, OwnerOnlyMiddleware) for m in dispatcher.update.outer_middleware)
 
 
 async def test_make_sender_forwards_to_the_bot() -> None:
