@@ -53,8 +53,12 @@ class Settings:
     claude_bin: str = "claude"
     # Default model alias for extraction; escalates to "opus" on failure (Stage 2).
     claude_model: str = "sonnet"
-    # Hard timeout (seconds) for a single `claude` subprocess call.
+    # Hard timeout (seconds) for a single `claude` subprocess call (chat / humanize).
     claude_timeout_s: int = 180
+    # Extraction reads whole documents by vision — a big multi-page panel (e.g. an
+    # 8-page Synevo report with ~80 analytes) legitimately needs much longer than a chat
+    # turn, so lab extraction gets its own, larger timeout.
+    claude_extract_timeout_s: int = 600
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -73,6 +77,7 @@ class Settings:
             claude_bin=_get("CLAUDE_BIN", "claude"),
             claude_model=_get("CLAUDE_MODEL", "sonnet"),
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
+            claude_extract_timeout_s=int(_get("CLAUDE_EXTRACT_TIMEOUT_S", "600")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

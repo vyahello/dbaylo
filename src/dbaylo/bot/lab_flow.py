@@ -232,9 +232,10 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         report_id = report.id
 
     # Hard ceiling so an upload can never hang the way it once did (a stuck `claude`
-    # subprocess). `extract_with_escalation` tries up to two models; budget both passes
-    # plus slack. Any timeout / unexpected error becomes a clean "couldn't read it".
-    budget = 2 * get_settings().claude_timeout_s + 60
+    # subprocess). `extract_with_escalation` tries up to two models (a timeout stops the
+    # escalation), so budget both passes plus slack. Any timeout / unexpected error
+    # becomes a clean "couldn't read it".
+    budget = 2 * get_settings().claude_extract_timeout_s + 60
     try:
         outcome = await asyncio.wait_for(extract_with_escalation(str(path)), timeout=budget)
     except Exception:  # noqa: BLE001 — never leave the user hanging on a bad upload

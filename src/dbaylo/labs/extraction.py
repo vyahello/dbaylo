@@ -19,6 +19,7 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from dbaylo.config import get_settings
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable, run_claude
 
@@ -102,6 +103,7 @@ async def extract(
             allowed_tools=["Read"],
             add_dirs=[parent],
             cwd=parent,
+            timeout_s=get_settings().claude_extract_timeout_s,
         )
     except ClaudeUnavailable as exc:
         return ExtractionFailed(f"claude unavailable: {exc}")
