@@ -6,8 +6,8 @@ a misread date silently corrupts the time series), and persist only on confirm.
 
 The formatting and edit-target parsing are pure functions (unit-tested); the
 handlers stay thin. Pending values live in FSM state, never in the DB until the
-user confirms (rail #2). MemoryStorage is fine for single-user local dev; a
-persistent FSM store would be needed if the process restarts mid-confirmation.
+user confirms (rail #2). FSM state is persisted (``bot.storage.SQLiteStorage``), so a
+confirmation in progress survives a restart.
 """
 
 from __future__ import annotations

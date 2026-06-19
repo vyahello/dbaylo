@@ -45,6 +45,10 @@ class Settings:
     timezone: str = "Europe/Kyiv"
     # Where original lab files are kept (Stage 2).
     storage_dir: Path = ROOT_DIR / "data" / "files"
+    # Persistent FSM store (Stage 6): a dedicated SQLite file so in-progress dialogs /
+    # symptom interviews survive a restart. Kept separate from the domain DB so Alembic
+    # and the backups stay focused on real data.
+    fsm_db_path: Path = ROOT_DIR / "data" / "fsm.sqlite"
     # The `claude` binary (Claude Code OAuth) used for lab extraction / humanization.
     claude_bin: str = "claude"
     # Default model alias for extraction; escalates to "opus" on failure (Stage 2).
@@ -65,6 +69,7 @@ class Settings:
             database_url=_get("DATABASE_URL", cls.database_url),
             timezone=_get("TZ", "Europe/Kyiv"),
             storage_dir=Path(_get("STORAGE_DIR", str(cls.storage_dir))),
+            fsm_db_path=Path(_get("FSM_DB_PATH", str(cls.fsm_db_path))),
             claude_bin=_get("CLAUDE_BIN", "claude"),
             claude_model=_get("CLAUDE_MODEL", "sonnet"),
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),

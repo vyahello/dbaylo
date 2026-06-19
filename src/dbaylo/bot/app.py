@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import Bot, Dispatcher
+from aiogram.fsm.storage.base import BaseStorage
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
 from dbaylo.bot import (
@@ -24,11 +25,14 @@ from dbaylo.bot import (
 from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
+from dbaylo.bot.storage import SQLiteStorage
 from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 
 
-def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
+def build_dispatcher(
+    owner_id: int | None = None, *, storage: BaseStorage | None = None
+) -> Dispatcher:
     """Build a Dispatcher with the owner lock and all routers registered.
 
     The owner lock is an **outer** update middleware, so it runs before any router
@@ -40,9 +44,14 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     history flow (it claims only free text that *looks* like a history request), and
     finally the companion — whose free-text catch-all is ``StateFilter(None)`` so it
     never steals a turn from an FSM flow.
+
+    FSM state is persisted in a SQLite file (:class:`SQLiteStorage`) so an in-progress
+    dialog / symptom interview survives a restart; the connection is opened lazily, so
+    building a dispatcher (e.g. in a test) touches no disk.
     """
     resolved_owner = owner_id if owner_id is not None else get_settings().owner_telegram_id
-    dispatcher = Dispatcher()
+    storage = storage or SQLiteStorage(get_settings().fsm_db_path)
+    dispatcher = Dispatcher(storage=storage)
     dispatcher.update.outer_middleware(OwnerOnlyMiddleware(resolved_owner))
     # Runs before any router resolves a handler: a /command aborts an in-progress FSM
     # dialog so it is never consumed as the dialog's text answer.

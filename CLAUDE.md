@@ -212,7 +212,9 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   flag (or a disordered-eating guardrail signal) **leads** the reply verbatim and the LLM can never
   lower it. Output passes `assert_safe_output` + disclaimer, deterministic fallback. Imports
   `safety.screen` + `run_claude` (gate-routed; never the escalation engines) so the AST choke-point
-  stays green.
+  stays green. **FSM state is persisted** (`bot/storage.py` `SQLiteStorage` — a dedicated SQLite file
+  via the already-present `aiosqlite`, wired in `build_dispatcher`) so an in-progress interview /
+  lab confirmation survives a restart; the file is separate from the domain DB so Alembic is unaffected.
 - **Safety gate** (`safety/gate.py`, Stage 3.5): the **single sanctioned path from user text to
   the LLM**. `screen(text, *, goal=None) -> GateDecision` encodes the one canonical order —
   symptoms→triage, else wellness guardrail, else cleared→LLM (precedence: a symptom outranks a
