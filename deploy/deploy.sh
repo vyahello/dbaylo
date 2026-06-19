@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Run on the VPS by CI (after rsync) to install deps, migrate, and restart the bot.
-# Idempotent. Requires: python3.12 on PATH, a one-time `deploy/setup-vps.sh` run
-# (installs the systemd unit) and passwordless sudo for the systemctl restart.
+# Run on the VPS by CI *after* it has updated the git checkout (git reset --hard
+# origin/main). Installs deps, migrates, and restarts the bot. Idempotent. Requires:
+# python3.12 on PATH, a one-time `deploy/setup-vps.sh` run (installs the systemd
+# unit) and passwordless sudo for the systemctl restart.
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

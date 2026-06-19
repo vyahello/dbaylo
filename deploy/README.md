@@ -1,24 +1,27 @@
 # Deploy
 
-Дбайло runs on a small VPS. CI (`.github/workflows/ci-cd.yml`) runs the test suite on
-every push/PR and, on a green `main`, **rsyncs the code to the VPS and restarts the bot**.
+Дбайло runs on a small VPS as a **systemd service**. CI (`.github/workflows/ci-cd.yml`)
+runs the test suite on every push/PR and, on a green `main`, SSHes in, **pulls `main`,
+and restarts the bot**.
 
 ## One-time VPS setup
 
-On the VPS, as the deploy user:
+The first CI deploy creates the git checkout itself. You only need to provide `.env` and
+install the service once. On the VPS, as the deploy user:
 
 ```bash
-sudo apt update && sudo apt install -y python3.12 python3.12-venv git rsync
-mkdir -p ~/dbaylo && cd ~/dbaylo          # this is your VPS_APP_DIR
-git clone <your-repo-url> .                # or let CI rsync the first push
-cp .env.example .env && nano .env          # fill BOT_TOKEN (at least)
-bash deploy/setup-vps.sh                    # venv + migrate + install & enable the systemd unit
+sudo apt update && sudo apt install -y python3.12 python3.12-venv git
+cd <VPS_APP_DIR>                            # where CI checked the repo out
+cp .env.example .env && nano .env           # fill BOT_TOKEN (at least)
+bash deploy/setup-vps.sh                     # venv + migrate + install & enable the systemd unit
 ```
 
 `setup-vps.sh` installs `dbaylo-bot.service` (long-polling — works **without** a TLS
-cert) and prints the one sudoers line CI needs to restart it passwordlessly.
+cert) and prints the one sudoers line CI needs to restart it passwordlessly. The VPS also
+needs SSH access to the GitHub repo (a deploy key, or your existing key — same as any
+other bot on this box) so CI's `git fetch` works.
 
-## GitHub secrets (already set)
+## GitHub secrets
 
 Configured under **Settings → Secrets and variables → Actions** — never hard-coded here.
 
@@ -26,18 +29,19 @@ Configured under **Settings → Secrets and variables → Actions** — never ha
 |---|---|
 | `VPS_HOST` | the VPS hostname or IP |
 | `VPS_USER` | the deploy user on the VPS |
-| `VPS_SSH_KEY` | private key authorized on the VPS |
+| `VPS_SSH_KEY` | private key the runner uses to SSH into the VPS |
 | `VPS_APP_DIR` | absolute path of the app dir on the VPS |
+| `REPO_SSH_URL` | *(optional)* the repo's SSH clone URL; CI defaults to it if unset |
 
 ## How CI deploys
 
-1. `test` job: `ruff` + `ruff format --check` + `mypy` + `pytest --cov`.
-2. `deploy` job (only on green `main`): writes the SSH key, `ssh-keyscan`s the host,
-   **rsyncs** the working tree (excluding `.env`, `data/`, `venv/`, `*.db`, caches),
-   then runs `deploy/deploy.sh` on the VPS (install → `alembic upgrade head` → restart).
+1. `test` job: `ruff check` + `ruff format --check` + `mypy` + `pytest --cov`.
+2. `deploy` job (only on green `main`, via `appleboy/ssh-action`): on the VPS it ensures a
+   git checkout in `$VPS_APP_DIR`, runs `git fetch` + `git reset --hard origin/main`, then
+   `deploy/deploy.sh` (install → `alembic upgrade head` → restart `dbaylo-bot`).
 
-`.env`, the SQLite DB, and stored lab files on the VPS are never overwritten (excluded
-from rsync and protected from `--delete`).
+`.env`, the SQLite DB, stored lab files, and `venv/` are git-ignored, so `git reset --hard`
+never touches them — your data and config survive every deploy.
 
 ## Webhook + TLS (optional, later)
 

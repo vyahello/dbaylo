@@ -18,48 +18,51 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install
+      - name: Install (editable + dev)
         run: |
-          python -m venv venv
-          venv/bin/pip install --upgrade pip
-          venv/bin/pip install -e ".[dev]"
-      - name: Lint (ruff)
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+      - name: Ruff (lint + format)
         run: |
-          venv/bin/ruff check src tests
-          venv/bin/ruff format --check src tests
-      - name: Type-check (mypy --strict)
-        run: venv/bin/mypy
-      - name: Test (pytest + coverage gate)
-        run: venv/bin/python -m pytest --cov
+          ruff check src tests
+          ruff format --check src tests
+      - name: Mypy (types)
+        run: mypy
+      - name: Pytest (+ coverage gate)
+        run: pytest --cov
 
   deploy:
     name: Deploy to VPS
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    # only a real push to main, never PRs/forks; blocked unless `test` is green (needs:)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency:
       group: deploy-vps
       cancel-in-progress: false
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure SSH
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          echo "${{ secrets.VPS_SSH_KEY }}" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          ssh-keyscan -H "${{ secrets.VPS_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
-      - name: Rsync code to the VPS
-        run: |
-          rsync -az --delete \
-            --exclude='.git' --exclude='.github' \
-            --exclude='venv' --exclude='.venv' \
-            --exclude='.env' --exclude='data' --exclude='*.db' --exclude='*.sqlite3' \
-            --exclude='.claude' --exclude='__pycache__' \
-            --exclude='.mypy_cache' --exclude='.ruff_cache' --exclude='.pytest_cache' \
-            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes" \
-            ./ "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_APP_DIR }}/"
-      - name: Install, migrate, restart on the VPS
-        run: |
-          ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
-            "${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}" \
-            "bash '${{ secrets.VPS_APP_DIR }}/deploy/deploy.sh'"
+      - name: Deploy over SSH (git pull + restart)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true
+          script: |
+            set -e
+            APP_DIR="${{ secrets.VPS_APP_DIR }}"
+            APP_DIR="${APP_DIR:-$HOME/dbaylo}"
+            REPO="${{ secrets.REPO_SSH_URL }}"
+            REPO="${REPO:-git@github.com:vyahello/dbaylo.git}"
+            # Set up a git checkout in place (works for a fresh dir or a pre-existing one).
+            if [ ! -d "$APP_DIR/.git" ]; then
+              echo "No git checkout in $APP_DIR — initialising one"
+              mkdir -p "$APP_DIR"
+              git init -q "$APP_DIR"
+              git -C "$APP_DIR" remote add origin "$REPO" 2>/dev/null \
+                || git -C "$APP_DIR" remote set-url origin "$REPO"
+            fi
+            cd "$APP_DIR"
+            git fetch --prune origin
+            git reset --hard origin/main
+            bash "$APP_DIR/deploy/deploy.sh"
