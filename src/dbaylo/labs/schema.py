@@ -57,6 +57,20 @@ class ExtractedReport:
     lab: str | None = None
     # The report's own overall conclusion if it prints one (e.g. "Нормозооспермія").
     conclusion: str | None = None
+    # Stage 6 — set for a NARRATIVE document (МРТ/УЗД/висновок): the human label
+    # ("МРТ головного мозку") and the key findings body. Tabular reports leave these None.
+    report_type: str | None = None
+    narrative: str | None = None
+
+    @property
+    def is_narrative(self) -> bool:
+        """A narrative document carries findings text and (typically) no analyte rows."""
+        return bool(self.narrative) and not self.results
+
+    @property
+    def is_usable(self) -> bool:
+        """Something worth confirming: analyte rows, or a narrative body."""
+        return bool(self.results) or bool(self.narrative)
 
     def flagged_results(self) -> list[ExtractedAnalyte]:
         """Rows the lab marked out of range (its own attention indicator)."""

@@ -78,7 +78,10 @@ def _finalize(body: str) -> str:
 # legitimate output is rarely bounced to the fallback.
 INTERPRET_PERSONA = (
     "You are Дбайло, a careful, honest health companion. You are NOT a doctor, but you DO "
-    "give an expert-level reading of the user's OWN lab report and practical guidance. "
+    "give an expert-level reading of the user's OWN medical report and practical guidance. "
+    "You may receive EITHER a table of lab results with the lab's own marks, OR a NARRATIVE "
+    "document (МРТ/КТ/УЗД/висновок/виписка) with findings text and a conclusion — read "
+    "whichever you are given and interpret it the same careful way.\n"
     "Reply EXCLUSIVELY in natural, correct Ukrainian. Structure the answer:\n"
     "1) Загалом — one or two lines in DATA terms. If nothing is marked ATTENTION, say the "
     "results are within range; if the lab printed a conclusion, reflect it.\n"
@@ -101,7 +104,14 @@ INTERPRET_PERSONA = (
 
 def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> str:
     """The structured, neutral input handed to the model (values + lab flags + trends)."""
-    lines: list[str] = []
+    if report.is_narrative:
+        lines = [f"Document type: {report.report_type or 'медичний документ'}"]
+        if report.narrative:
+            lines.append(f"Findings (as printed):\n{report.narrative}")
+        if report.conclusion:
+            lines.append(f"Conclusion (as printed): {report.conclusion}")
+        return "\n".join(lines)
+    lines = []
     if report.conclusion:
         lines.append(f"Lab's overall conclusion: {report.conclusion}")
     lines.append("Results (analyte | value | reference | lab mark):")
@@ -126,6 +136,15 @@ def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> 
 def deterministic_interpretation(report: ExtractedReport) -> str:
     """Safe-by-construction fallback: the lab conclusion + the flagged rows + see a doctor."""
     lines: list[str] = []
+    if report.is_narrative:
+        if report.report_type:
+            lines.append(f"📄 {report.report_type}")
+        if report.conclusion:
+            lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+        elif report.narrative:
+            lines.append(report.narrative)
+        lines += ["", locale.LAB_INTERPRET_ASK_DOCTOR]
+        return "\n".join(lines).strip()
     if report.conclusion:
         lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
     flagged = report.flagged_results()

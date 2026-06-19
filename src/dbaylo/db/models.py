@@ -59,6 +59,18 @@ class ReportStatus(StrEnum):
     DISCARDED = "discarded"
 
 
+class ReportKind(StrEnum):
+    """Whether a report is an analyte TABLE or a NARRATIVE document (Stage 6).
+
+    TABULAR reports have LabResult rows and feed the trend engine. NARRATIVE reports
+    (МРТ / УЗД / КТ / висновок / виписка) have no analytes — only a findings text and a
+    conclusion — and are never fed to trends.
+    """
+
+    TABULAR = "tabular"
+    NARRATIVE = "narrative"
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
@@ -102,6 +114,14 @@ class LabReport(TimestampMixin, Base):
     # generated expert summary, persisted so /history can show them without re-calling the LLM.
     conclusion: Mapped[str | None] = mapped_column(Text, default=None)
     summary: Mapped[str | None] = mapped_column(Text, default=None)
+    # Stage 6: TABULAR (analyte table) vs NARRATIVE (МРТ/УЗД/висновок — findings text, no
+    # analytes). report_type is the human label ("МРТ головного мозку"); narrative is the
+    # extracted findings body.
+    kind: Mapped[ReportKind] = mapped_column(
+        SAEnum(ReportKind), default=ReportKind.TABULAR, server_default=ReportKind.TABULAR.name
+    )
+    report_type: Mapped[str | None] = mapped_column(default=None)
+    narrative: Mapped[str | None] = mapped_column(Text, default=None)
     # PENDING until the user confirms the extracted values; CONFIRMED writes results.
     status: Mapped[ReportStatus] = mapped_column(SAEnum(ReportStatus), default=ReportStatus.PENDING)
 

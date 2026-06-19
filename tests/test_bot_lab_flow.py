@@ -57,6 +57,19 @@ def test_render_handles_unknown_date_and_lab() -> None:
     assert "невідома" in text
 
 
+def test_render_confirmation_narrative_document() -> None:
+    report = ExtractedReport(
+        report_type="МРТ головного мозку",
+        narrative="Без вогнищевих змін.",
+        conclusion="Патології не виявлено",
+    )
+    text = render_confirmation_text(report)
+    assert "МРТ головного мозку" in text
+    assert "Без вогнищевих змін" in text
+    assert "Патології не виявлено" in text
+    assert "Усе правильно?" in text  # still goes through the confirm loop (rail #5)
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

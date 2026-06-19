@@ -28,6 +28,7 @@ from dbaylo.db.models import (
     LabReport,
     LabResult,
     Reminder,
+    ReportKind,
     ReportStatus,
 )
 from dbaylo.labs.charts import render_trend_chart
@@ -225,12 +226,15 @@ def report_flags(results: list[LabResult]) -> str:
 
 def render_report_line(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    line = locale.HIST_REPORT_LINE.format(
-        date=date_txt,
-        lab=report.lab or locale.LAB_LAB_UNKNOWN,
-        count=len(results),
-        flags=report_flags(results),
-    ).rstrip()
+    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    if report.kind == ReportKind.NARRATIVE:
+        line = locale.HIST_REPORT_LINE_DOC.format(
+            date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
+        ).rstrip()
+    else:
+        line = locale.HIST_REPORT_LINE.format(
+            date=date_txt, lab=lab_txt, count=len(results), flags=report_flags(results)
+        ).rstrip()
     uploaded = report.created_at.date().isoformat() if report.created_at else "?"
     return f"{line}\n{locale.HIST_REPORT_UPLOADED.format(uploaded=uploaded)}"
 
@@ -239,16 +243,26 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
     lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
-    if report.conclusion:
-        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
-    lines.append("")
-    for i, r in enumerate(results, 1):
-        emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
-        value = f"{r.value:g}" if r.value is not None else "—"
-        if r.unit:
-            value = f"{value} {r.unit}"
-        ref = _ref_text(r.ref_low, r.ref_high)
-        lines.append(f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip())
+    if report.kind == ReportKind.NARRATIVE:
+        if report.report_type:
+            lines.append(f"{locale.LAB_TYPE_LABEL}: {report.report_type}")
+        if report.narrative:
+            lines += ["", report.narrative]
+        if report.conclusion:
+            lines += ["", f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}"]
+    else:
+        if report.conclusion:
+            lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+        lines.append("")
+        for i, r in enumerate(results, 1):
+            emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
+            value = f"{r.value:g}" if r.value is not None else "—"
+            if r.unit:
+                value = f"{value} {r.unit}"
+            ref = _ref_text(r.ref_low, r.ref_high)
+            lines.append(
+                f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
+            )
     if report.summary:  # the saved expert interpretation (already safe + has the disclaimer)
         lines += ["", report.summary]
     return assert_safe_output("\n".join(lines))

@@ -245,6 +245,20 @@ LAB_INTERPRET_ASK_DOCTOR = (
     "Найкраще обговорити повну картину з лікарем — він зможе оцінити її разом із твоєю історією."
 )
 
+# --- Stage 6: narrative / imaging documents (МРТ / УЗД / висновок) ---------------
+LAB_TYPE_LABEL = "Тип"
+LAB_DOC_GENERIC = "медичний документ"
+# History list line for a narrative document (no analyte count).
+HIST_REPORT_LINE_DOC = "📄 {date} · {lab} · {report_type}"
+
+# --- Stage 6: conversational symptom intake (history-taking) ---------------------
+# Safe deterministic fallback when the intake LLM is unavailable / trips the guard.
+INTAKE_FALLBACK = (
+    "Розкажи трохи більше: де саме турбує, коли почалося, наскільки сильно і чи є ще "
+    "якісь симптоми? Якщо стан гострий або швидко погіршується — краще одразу звернутися "
+    "по медичну допомогу."
+)
+
 # --- Stage 3: companion (L1) — goals --------------------------------------------
 
 # Shown when a dialog ends with no real content (blank input, or a /command that

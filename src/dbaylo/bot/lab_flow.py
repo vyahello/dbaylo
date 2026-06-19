@@ -101,9 +101,22 @@ def _confirm_emoji(a: ExtractedAnalyte) -> str:
 
 
 def render_confirmation_text(report: ExtractedReport) -> str:
-    """Build the Ukrainian confirmation table for an extracted report."""
+    """Build the Ukrainian confirmation view for an extracted report (table or narrative)."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    if report.is_narrative:
+        lines = [
+            f"{locale.LAB_TYPE_LABEL}: {report.report_type or locale.LAB_DOC_GENERIC}",
+            f"{locale.LAB_DATE_LABEL}: {date_txt}",
+            f"{locale.LAB_LAB_LABEL}: {lab_txt}",
+            "",
+        ]
+        if report.narrative:
+            lines += [report.narrative, ""]
+        if report.conclusion:
+            lines += [f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}", ""]
+        lines.append(locale.LAB_CONFIRM_PROMPT)
+        return "\n".join(lines)
     lines = [
         f"{locale.LAB_DATE_LABEL}: {date_txt}",
         f"{locale.LAB_LAB_LABEL}: {lab_txt}",
@@ -353,6 +366,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             report_date=report.report_date,
             lab=report.lab,
             conclusion=report.conclusion,
+            report_type=report.report_type,
+            narrative=report.narrative,
         )
         user_id = db_report.user_id
 

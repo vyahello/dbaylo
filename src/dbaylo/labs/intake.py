@@ -15,7 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.config import Settings, get_settings
-from dbaylo.db.models import LabReport, LabResult, ReportStatus, User
+from dbaylo.db.models import LabReport, LabResult, ReportKind, ReportStatus, User
 from dbaylo.labs.schema import ExtractedAnalyte
 from dbaylo.labs.trends import classify, is_out_of_range
 
@@ -72,16 +72,22 @@ async def persist_confirmed(
     report_date: date | None,
     lab: str | None,
     conclusion: str | None = None,
+    report_type: str | None = None,
+    narrative: str | None = None,
 ) -> list[LabResult]:
     """Write confirmed LabResult rows and mark the report CONFIRMED.
 
     Called only after the user has confirmed the values (rail #2). The numeric flag and
     the attention ``flagged`` mark are computed deterministically here, never by the model
     (the model only reports the lab's own out-of-range indicator, which feeds ``flagged``).
+    A narrative document (``narrative`` set, no analytes) is stored as kind=NARRATIVE.
     """
     report.report_date = report_date
     report.lab = lab
     report.conclusion = conclusion
+    report.report_type = report_type
+    report.narrative = narrative
+    report.kind = ReportKind.NARRATIVE if (narrative and not analytes) else ReportKind.TABULAR
     report.status = ReportStatus.CONFIRMED
 
     results: list[LabResult] = []

@@ -136,3 +136,31 @@ async def test_interpret_falls_back_when_claude_unavailable() -> None:
 
     out = await interpret(_report(conclusion="Нормозооспермія"), _summaries(), runner=boom)
     assert "Нормозооспермія" in out and out.endswith(DISCLAIMER)
+
+
+# --- Stage 6: narrative document interpretation ---------------------------------
+
+
+def _narrative():
+    from dbaylo.labs.schema import ExtractedReport
+
+    return ExtractedReport(
+        report_type="МРТ головного мозку",
+        narrative="Без вогнищевих змін інтенсивності сигналу.",
+        conclusion="МРТ ознак патологічних змін не виявлено.",
+    )
+
+
+def test_deterministic_interpretation_narrative() -> None:
+    from dbaylo.labs.humanize import deterministic_interpretation
+
+    text = deterministic_interpretation(_narrative())
+    assert "МРТ головного мозку" in text
+    assert "не виявлено" in text
+    assert contains_forbidden_reassurance(text) is None
+
+
+async def test_interpret_narrative_uses_model_text() -> None:
+    body = "За описом МРТ — у межах норми. За потреби обговори результат з неврологом."
+    out = await interpret(_narrative(), [], runner=_runner(body))
+    assert body in out and out.endswith(DISCLAIMER)

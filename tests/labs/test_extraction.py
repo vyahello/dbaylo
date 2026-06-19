@@ -82,6 +82,32 @@ def test_parse_out_of_range_tolerates_string_bool() -> None:
     assert report is not None and report.results[0].out_of_range is True
 
 
+def test_parse_narrative_document() -> None:
+    report = parse_extraction(
+        '{"kind": "narrative", "report_type": "МРТ головного мозку",'
+        ' "narrative": "Без вогнищевих змін.", "conclusion": "Патології не виявлено",'
+        ' "results": []}'
+    )
+    assert report is not None
+    assert report.is_narrative and report.is_usable
+    assert report.report_type == "МРТ головного мозку"
+    assert report.narrative == "Без вогнищевих змін."
+    assert report.conclusion == "Патології не виявлено"
+
+
+def test_parse_narrative_tolerates_missing_results() -> None:
+    report = parse_extraction('{"report_type": "УЗД", "narrative": "опис"}')
+    assert report is not None and report.is_narrative
+
+
+async def test_extract_succeeds_on_narrative(tmp_path) -> None:
+    f = tmp_path / "doc.pdf"
+    f.write_bytes(b"x")
+    narrative = '{"kind": "narrative", "report_type": "УЗД", "narrative": "опис", "results": []}'
+    outcome = await extract(f, runner=_runner(narrative))
+    assert isinstance(outcome, ExtractedReport) and outcome.is_narrative
+
+
 def test_parse_nonnumeric_value_demoted_to_text() -> None:
     report = parse_extraction('{"results": [{"analyte": "Колір", "value": "солом’яний"}]}')
     assert report is not None

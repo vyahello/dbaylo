@@ -32,11 +32,18 @@ EXTRACTION_PERSONA = (
     "Return JSON ONLY — no prose, no markdown, no code fences — matching this shape:\n"
     "{\n"
     '  "report_date": "YYYY-MM-DD" | null,\n'
-    '  "lab": string | null,\n'
+    '  "lab": string | null,             // lab or facility / clinic name\n'
+    '  "kind": "tabular" | "narrative",  // "tabular" = an analyte results table;\n'
+    '                                    // "narrative" = a descriptive medical document\n'
+    "                                    // (МРТ/КТ/УЗД/висновок/виписка/опис) with no table\n"
+    '  "report_type": string | null,     // for narrative: the study/document type, e.g.\n'
+    "                                    // 'МРТ головного мозку', 'УЗД органів малого тазу'\n"
+    '  "narrative": string | null,       // for narrative: the KEY FINDINGS body as printed\n'
+    "                                    // (the descriptive part), faithfully, no invention\n"
     '  "conclusion": string | null,      // the report\'s OVERALL conclusion line if it\n'
-    "                                    // prints one (e.g. 'Нормозооспермія'); NOT an\n"
-    "                                    // analyte row — do not also list it in results\n"
-    '  "results": [\n'
+    "                                    // prints one (e.g. 'Нормозооспермія', or the МРТ\n"
+    "                                    // 'Висновок'); NOT an analyte row\n"
+    '  "results": [                      // analyte rows for a TABULAR report; [] for narrative\n'
     "    {\n"
     '      "analyte": string,            // name exactly as printed (Ukrainian)\n'
     '      "value": number | null,       // dot decimal; convert "3,5" -> 3.5\n'
@@ -55,8 +62,9 @@ EXTRACTION_PERSONA = (
     "  ]\n"
     "}\n"
     "Preserve analyte names exactly as printed. If a field is missing or illegible "
-    "use null — never guess or invent values. Report ONLY what the form shows (incl. its "
-    "own out-of-range marks); do not diagnose, interpret, or comment."
+    "use null — never guess or invent values. Report ONLY what the document shows (incl. its "
+    "own out-of-range marks); do not diagnose, interpret, or comment. A document with no "
+    "analyte table is 'narrative' — capture its report_type, narrative findings, and conclusion."
 )
 
 _DEFAULT_MODELS: tuple[str, ...] = ("sonnet", "opus")
@@ -84,7 +92,7 @@ async def extract(
         return ExtractionFailed(f"file not found: {path}")
 
     parent = str(path.parent)
-    prompt = f"Витягни результати аналізів із файлу: {path}. Поверни лише JSON."
+    prompt = f"Прочитай медичний документ із файлу: {path}. Поверни лише JSON."
 
     try:
         result = await runner(
@@ -102,8 +110,8 @@ async def extract(
         return ExtractionFailed(result.error or "extraction call failed")
 
     report = parse_extraction(result.text)
-    if report is None or not report.results:
-        return ExtractionFailed("could not parse any readable rows")
+    if report is None or not report.is_usable:
+        return ExtractionFailed("could not read a table or a narrative from the document")
     return report
 
 
@@ -136,9 +144,10 @@ def parse_extraction(text: str) -> ExtractedReport | None:
     if not isinstance(data, dict):
         return None
 
+    # A narrative document legitimately has no "results"; treat a missing/odd value as
+    # empty and let the caller decide usability (results OR a narrative body).
     raw_results = data.get("results")
-    if not isinstance(raw_results, list):
-        return None
+    raw_results = raw_results if isinstance(raw_results, list) else []
 
     analytes: list[ExtractedAnalyte] = []
     for item in raw_results:
@@ -151,6 +160,8 @@ def parse_extraction(text: str) -> ExtractedReport | None:
         report_date=_coerce_date(data.get("report_date")),
         lab=_coerce_str(data.get("lab")),
         conclusion=_coerce_str(data.get("conclusion")),
+        report_type=_coerce_str(data.get("report_type")),
+        narrative=_coerce_str(data.get("narrative")),
     )
 
 
