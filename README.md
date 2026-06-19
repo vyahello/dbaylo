@@ -44,13 +44,13 @@ text passes one choke-point — `safety.gate` — before any LLM or network call
 ```
 Telegram ─▶ aiogram bot ─▶ safety.gate.screen(text)        ← the only path to the LLM
                                 │
-             ┌──────────────────┼────────────────────────┐
-         symptom?          disordered /               cleared
-             │             unsafe goal?                   │
-             ▼                  ▼                          ▼
-       triage engine      wellness guardrail         LLM (companion ·
-      (deterministic,     (deterministic,            lab summary · navigator)
-       escalate up)        redirect / support)       every reply: guard + disclaimer + fallback
+             ┌──────────────────┼───────────────────────┐
+         symptom?          disordered /              cleared
+             │             unsafe goal?                 │
+             ▼                  ▼                       ▼
+       triage engine      wellness guardrail       LLM (companion ·
+      (deterministic,     (deterministic,          lab summary · navigator)
+       escalate up)        redirect / support)     every reply: guard + disclaimer + fallback
 
 Labs   photo/PDF ─▶ claude extract ─▶ you confirm ─▶ SQLite ─▶ deterministic trends ─▶ chart + summary
 Prices /price · /coverage ─▶ gate ─▶ fail-soft fetch ─▶ ceiling & ПМГ-coverage guards (never fabricates)
