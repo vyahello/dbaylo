@@ -9,7 +9,7 @@ description = "Дбайло — a personal health & wellness companion on Telegr
 readme = "README.md"
 requires-python = "==3.12.*"
 license = { text = "MIT" }
-authors = [{ name = "dbaylo" }]
+authors = [{ name = "Volodymyr Yahello" }]
 dependencies = [
     "aiogram>=3,<4",
     "fastapi>=0.110",
