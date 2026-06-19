@@ -5,7 +5,7 @@
 #
 #     bash deploy/setup-vps.sh
 #
-# Prerequisites on the VPS: python3.12, git, rsync, a filled .env in the app dir.
+# Prerequisites on the VPS: python3.12, git, a filled .env in the app dir.
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
