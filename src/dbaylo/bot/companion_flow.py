@@ -61,7 +61,10 @@ async def on_goal_text(message: Message, state: FSMContext) -> None:
 
 async def _save_goal(message: Message, text: str) -> None:
     tg_id = _telegram_id(message)
-    if tg_id is None or not text:
+    if tg_id is None:
+        return
+    if not text.strip():
+        await message.answer(locale.NOTHING_SAVED)  # blank input -> never a phantom goal
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg_id)
@@ -95,6 +98,9 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
     await state.clear()
     tg_id = _telegram_id(message)
     if tg_id is None:
+        return
+    if not (message.text or "").strip():
+        await message.answer(locale.NOTHING_SAVED)  # blank answer -> no empty check-in row
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg_id)

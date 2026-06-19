@@ -41,12 +41,17 @@ async def test_cmd_start_replies_and_captures_the_user(
 
 def test_build_dispatcher_registers_routers_and_owner_lock() -> None:
     from dbaylo.bot.access import OwnerOnlyMiddleware
+    from dbaylo.bot.state_reset import CommandStateResetMiddleware
 
     dispatcher = build_dispatcher()
     # commands + lab_flow + navigator + proactive + history + companion.
     assert len(dispatcher.sub_routers) == 6
     # The owner lock is an outer update middleware (runs before any router).
     assert any(isinstance(m, OwnerOnlyMiddleware) for m in dispatcher.update.outer_middleware)
+    # A /command cancels any FSM dialog before handlers resolve (message-level outer mw).
+    assert any(
+        isinstance(m, CommandStateResetMiddleware) for m in dispatcher.message.outer_middleware
+    )
 
 
 async def test_make_sender_forwards_to_the_bot() -> None:

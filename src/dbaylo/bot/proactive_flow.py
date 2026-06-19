@@ -81,7 +81,11 @@ async def on_problem_name(
 
 async def _add_problem(message: Message, name: str, scheduler: ReminderScheduler) -> None:
     tg = _telegram_id(message)
-    if tg is None or not name:
+    if tg is None:
+        return
+    if not name.strip():
+        # Blank input -> never a phantom concern (and never an unwanted check-in).
+        await message.answer(locale.NOTHING_SAVED)
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
@@ -177,7 +181,12 @@ async def cmd_medication(message: Message, state: FSMContext) -> None:
 
 @router.message(MedStates.waiting_name, F.text)
 async def on_medication_name(message: Message, state: FSMContext) -> None:
-    await state.update_data(med_name=(message.text or "").strip())
+    name = (message.text or "").strip()
+    if not name:
+        await state.clear()  # blank name -> abort, create nothing
+        await message.answer(locale.NOTHING_SAVED)
+        return
+    await state.update_data(med_name=name)
     await state.set_state(MedStates.waiting_times)
     await message.answer(locale.MED_ASK_TIMES)
 

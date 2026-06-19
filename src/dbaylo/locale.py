@@ -231,6 +231,10 @@ LAB_SUMMARY_ASK_DOCTOR = "Що з цього варто обговорити з 
 
 # --- Stage 3: companion (L1) — goals --------------------------------------------
 
+# Shown when a dialog ends with no real content (blank input, or a /command that
+# aborted the dialog) — so nothing phantom is ever saved silently.
+NOTHING_SAVED = "Скасовано — нічого не зберіг."
+
 GOAL_ASK_TEXT = (
     "Яку ціль для здоров'я хочеш поставити? Напиши своїми словами — наприклад «краще "
     "спати», «більше рухатися» чи «пити достатньо води»."

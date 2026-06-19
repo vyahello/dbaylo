@@ -16,6 +16,7 @@ from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 from dbaylo.bot import companion_flow, history_flow, lab_flow, navigator_flow, proactive_flow
 from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
+from dbaylo.bot.state_reset import CommandStateResetMiddleware
 from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 
@@ -34,6 +35,9 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     resolved_owner = owner_id if owner_id is not None else get_settings().owner_telegram_id
     dispatcher = Dispatcher()
     dispatcher.update.outer_middleware(OwnerOnlyMiddleware(resolved_owner))
+    # Runs before any router resolves a handler: a /command aborts an in-progress FSM
+    # dialog so it is never consumed as the dialog's text answer.
+    dispatcher.message.outer_middleware(CommandStateResetMiddleware())
     dispatcher.include_router(router)
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)

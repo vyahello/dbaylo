@@ -163,6 +163,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   resolves its proposed concern and retires its repeat-lab reminder (shown in the confirmation; the
   nightly backup is the safety net). An opt-in `🧹` footer purges orphaned PENDING (>1h) / DISCARDED
   uploads + their files. Callbacks carry ids only (well under 64 B); analytes are looked up by index.
+- **FSM hygiene** (`bot/state_reset.py`): a global `CommandStateResetMiddleware` (message-level
+  **outer** middleware, registered in `build_dispatcher` after the owner lock) aborts any in-progress
+  dialog when a `/command` arrives — it clears the FSM state **and** resyncs `raw_state` *before*
+  handler resolution, so a command is never consumed as a dialog's text answer. Paired with a
+  per-handler rule: **blank/whitespace input never creates a record** (goal · problem · medication ·
+  check-in answer with `locale.NOTHING_SAVED`). `python -m dbaylo.maintenance.cleanup_phantoms`
+  removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
@@ -232,6 +239,7 @@ venv/bin/dbaylo-scheduler --dry-run                            # list reminder j
 venv/bin/python -m dbaylo.companion.checkin --dry-run          # print the check-in prompt
 venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg      # extract only, no DB/Telegram
 venv/bin/python -m dbaylo.navigator.pipeline --dry-run парацетамол   # price a drug from a fixture
+venv/bin/python -m dbaylo.maintenance.cleanup_phantoms --dry-run     # list phantom rows, delete nothing
 ```
 
 After any model change: regenerate a migration and run `alembic check` (must report no drift).
