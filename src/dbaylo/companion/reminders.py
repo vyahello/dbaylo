@@ -13,8 +13,9 @@ is also here and always defers to a doctor for medication (rail #1 — never a d
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -22,6 +23,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo import locale
 from dbaylo.db.models import Reminder, User
 from dbaylo.triage.safety import assert_safe_output
+
+# "через 10 днів" / "через 2 тижні" / "через місяць" / "через рік" -> a future datetime.
+_RELATIVE_RE = re.compile(
+    r"через\s+(\d+)?\s*(дн|день|тижд|тижн|тиждень|місяц|міс|рок|рік|год)", re.IGNORECASE
+)
+
+
+def parse_relative_when(text: str, *, base: datetime) -> datetime | None:
+    """Parse a relative timeframe into a future datetime (months ~30 days, year 365)."""
+    match = _RELATIVE_RE.search(text.casefold())
+    if match is None:
+        return None
+    count = int(match.group(1)) if match.group(1) else 1
+    unit = match.group(2)
+    if unit.startswith(("дн", "день")):
+        days = count
+    elif unit.startswith(("тижд", "тижн", "тиждень")):
+        days = count * 7
+    elif unit.startswith(("місяц", "міс")):
+        days = count * 30
+    elif unit.startswith(("рок", "рік")):
+        days = count * 365
+    else:
+        return None
+    return base + timedelta(days=days)
+
 
 # Reminder type tokens (English, stored in Reminder.type).
 TYPE_CHECKIN = "checkin"
@@ -77,13 +104,25 @@ async def create_reminder(
     type: str,
     schedule: str,
     payload: str | None = None,
+    medication_id: int | None = None,
 ) -> Reminder:
     """Create a reminder row (validates the schedule string is parseable)."""
     parse_schedule(schedule)  # fail fast on a malformed schedule
-    reminder = Reminder(user_id=user.id, type=type, schedule=schedule, payload=payload)
+    reminder = Reminder(
+        user_id=user.id, type=type, schedule=schedule, payload=payload, medication_id=medication_id
+    )
     session.add(reminder)
     await session.flush()
     return reminder
+
+
+async def create_repeat_lab(
+    session: AsyncSession, *, user: User, run_at: datetime, label: str
+) -> Reminder:
+    """Create a one-off repeat-lab reminder for ``run_at`` (offered on lab confirm)."""
+    return await create_reminder(
+        session, user=user, type=TYPE_REPEAT_LAB, schedule=once(run_at), payload=label
+    )
 
 
 async def ensure_checkin_reminder(
@@ -110,10 +149,37 @@ async def active_reminders(session: AsyncSession) -> list[Reminder]:
     return list(rows.all())
 
 
+async def active_reminders_for_user(session: AsyncSession, *, user_id: int) -> list[Reminder]:
+    """A single user's active reminders (for the /reminders management list)."""
+    rows = await session.scalars(
+        select(Reminder)
+        .where(Reminder.user_id == user_id, Reminder.active.is_(True))
+        .order_by(Reminder.type, Reminder.id)
+    )
+    return list(rows.all())
+
+
 async def deactivate(session: AsyncSession, reminder: Reminder) -> None:
     """Soft-delete a reminder (e.g. a fired one-off) without losing the record."""
     reminder.active = False
     await session.flush()
+
+
+async def deactivate_medication(session: AsyncSession, medication_id: int) -> list[int]:
+    """Soft-delete every active reminder for a medication; return their ids to unschedule.
+
+    One medication maps to one reminder per dose time, so turning it off must retire
+    them all — no orphaned jobs left running.
+    """
+    rows = await session.scalars(
+        select(Reminder).where(Reminder.medication_id == medication_id, Reminder.active.is_(True))
+    )
+    ids: list[int] = []
+    for reminder in rows.all():
+        reminder.active = False
+        ids.append(reminder.id)
+    await session.flush()
+    return ids
 
 
 def render_reminder(reminder: Reminder) -> str:

@@ -27,6 +27,17 @@ class GoalStatus(StrEnum):
     ABANDONED = "abandoned"
 
 
+class ConditionStatus(StrEnum):
+    """Whether a health concern is currently active.
+
+    The daily check-in is scheduled iff at least one ACTIVE condition exists
+    (Tier 1.1 — conditional, never an unconditional daily ping).
+    """
+
+    ACTIVE = "active"
+    RESOLVED = "resolved"
+
+
 class ResultFlag(StrEnum):
     """Where a lab value sits relative to its reference range."""
 
@@ -132,6 +143,12 @@ class Condition(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column()
     notes: Mapped[str | None] = mapped_column(Text, default=None)
+    status: Mapped[ConditionStatus] = mapped_column(
+        SAEnum(ConditionStatus), default=ConditionStatus.ACTIVE
+    )
+    # When the check-in last asked "still relevant?" — so an active concern is
+    # periodically offered for closure instead of pinging forever (Tier 1.1 §B).
+    last_review_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     user: Mapped[User] = relationship(back_populates="conditions")
 
@@ -144,6 +161,11 @@ class Reminder(TimestampMixin, Base):
     type: Mapped[str] = mapped_column()
     schedule: Mapped[str] = mapped_column()
     payload: Mapped[str | None] = mapped_column(Text, default=None)
+    # Set for medication reminders: one Medication maps to one reminder per dose
+    # time, so turning a medication off deactivates every reminder that links here.
+    medication_id: Mapped[int | None] = mapped_column(
+        ForeignKey("medications.id", ondelete="CASCADE"), default=None
+    )
     # Reminder rows are the scheduler's source of truth (rebuilt on startup);
     # a soft-delete flag lets a fired one-off be retired without losing the record.
     # next_run is intentionally NOT stored — APScheduler computes it (a DB copy

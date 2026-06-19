@@ -17,17 +17,22 @@ import argparse
 import re
 import sys
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.companion import callbacks, concerns
 from dbaylo.companion.symptoms import detect_symptoms
 from dbaylo.db.models import CheckIn, User
 from dbaylo.safety import screen
 from dbaylo.triage.safety import assert_safe_output
 from dbaylo.triage.types import Symptom
+
+# A proactive message: text + optional inline buttons as (label, callback_data) pairs
+# (kept aiogram-free; the bot layer turns the pairs into a real keyboard).
+ProactiveMessage = tuple[str, list[tuple[str, str]] | None]
 
 _NUM = r"(\d+(?:[.,]\d+)?)"
 _TRAINING_HINTS = (
@@ -49,6 +54,20 @@ _TRAINING_HINTS = (
 def build_prompt() -> str:
     """The gentle evening check-in prompt (safety-checked)."""
     return assert_safe_output(locale.CHECKIN_PROMPT)
+
+
+async def checkin_messages(
+    session: AsyncSession, *, user_id: int, now: datetime
+) -> list[ProactiveMessage]:
+    """What the firing check-in sends: the prompt, then a "still relevant?" review
+    prompt (with a Вирішено button) for each active concern due for review."""
+    messages: list[ProactiveMessage] = [(build_prompt(), None)]
+    for condition in await concerns.due_for_review(session, user_id=user_id, now=now):
+        text = assert_safe_output(locale.CHECKIN_REVIEW_PROMPT.format(name=condition.name))
+        buttons = [(locale.BTN_PROBLEM_RESOLVED, callbacks.problem_resolve(condition.id))]
+        messages.append((text, buttons))
+        await concerns.mark_reviewed(session, condition.id, now)
+    return messages
 
 
 def _to_float(raw: str) -> float:

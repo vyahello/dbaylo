@@ -1,16 +1,15 @@
-"""APScheduler wiring — reminders rebuilt from the DB on every startup.
+"""APScheduler wiring — reminders rebuilt from the DB on startup, plus live add/remove.
 
-Reminder rows are the **source of truth**. :func:`build_scheduler` loads every
-active reminder and adds one job per row, so a restart reconstructs the exact same
-schedule (jobs are not persisted in APScheduler's own store — the DB is). ``next_run``
-is read from the built scheduler's triggers, never stored (a DB copy would go stale).
+Reminder rows are the **source of truth**. :class:`ReminderScheduler` loads every
+active reminder on ``start`` (one job per row) and also lets handlers ``schedule`` a
+newly-created reminder or ``unschedule`` one **without a restart** — the running
+process's jobs are kept in sync with the DB as the user adds/removes things.
 
-Job defaults use ``coalesce=True`` and a ``misfire_grace_time`` so a reminder whose
-moment passed while the process was down fires once on startup rather than piling up;
-a fired one-off (``date:``) reminder is then soft-deleted.
+``next_run`` is read from the triggers, never stored. The job store is in-memory, so a
+reminder whose moment passes **while the process is down is missed** (a cron job moves
+to its next occurrence; a one-off past the grace window is dropped) — not replayed.
 
-``python -m dbaylo.companion.scheduler --dry-run`` lists the jobs (id, type, trigger,
-next run) **without starting the scheduler or firing anything**.
+``python -m dbaylo.companion.scheduler --dry-run`` lists the jobs without firing.
 """
 
 from __future__ import annotations
@@ -18,19 +17,21 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Protocol
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import checkin, reminders
+from dbaylo.companion import checkin, concerns, reminders
 from dbaylo.companion.reminders import CronSpec, DateSpec, parse_schedule
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -38,8 +39,17 @@ from dbaylo.db.models import Reminder, User
 
 # A factory that yields an AsyncSession context manager (``get_session`` by default).
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
-# Delivers a rendered message to a Telegram user id.
-Sender = Callable[[int, str], Awaitable[None]]
+# Inline buttons as (label, callback_data) pairs — built into a keyboard by the bot.
+Buttons = Sequence[tuple[str, str]]
+
+
+class Sender(Protocol):
+    """Delivers a message (and optional inline buttons) to a Telegram user id."""
+
+    async def __call__(
+        self, telegram_id: int, text: str, *, buttons: Buttons | None = None
+    ) -> None: ...
+
 
 # How long after the check-in prompt to send the single (no-nag) follow-up.
 NUDGE_DELAY = timedelta(minutes=90)
@@ -62,10 +72,17 @@ def make_trigger(schedule: str, *, tz: ZoneInfo) -> CronTrigger | DateTrigger:
     return DateTrigger(run_date=spec.run_at, timezone=tz)
 
 
-async def _send(sender: Sender, session: AsyncSession, user_id: int, text: str) -> None:
+async def _send(
+    sender: Sender,
+    session: AsyncSession,
+    user_id: int,
+    text: str,
+    *,
+    buttons: Buttons | None = None,
+) -> None:
     user = await session.get(User, user_id)
     if user is not None and user.telegram_id is not None:
-        await sender(user.telegram_id, text)
+        await sender(user.telegram_id, text, buttons=buttons)
 
 
 async def _fire_reminder(
@@ -81,10 +98,13 @@ async def _fire_reminder(
         reminder = await session.get(Reminder, reminder_id)
         if reminder is None or not reminder.active:
             return
-        await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
 
         if reminder.type == reminders.TYPE_CHECKIN:
-            # Schedule exactly one gentle follow-up; it self-checks for a reply.
+            # The prompt + a "still relevant?" review for each due active concern.
+            for text, buttons in await checkin.checkin_messages(
+                session, user_id=reminder.user_id, now=datetime.now(tz)
+            ):
+                await _send(sender, session, reminder.user_id, text, buttons=buttons)
             scheduler.add_job(
                 _fire_nudge,
                 trigger=DateTrigger(run_date=datetime.now(tz) + NUDGE_DELAY, timezone=tz),
@@ -96,8 +116,10 @@ async def _fire_reminder(
                 },
             )
         elif reminder.type == reminders.TYPE_REPEAT_LAB:
-            # One-off: retire it without losing the record.
-            await reminders.deactivate(session, reminder)
+            await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
+            await reminders.deactivate(session, reminder)  # one-off: retire it
+        else:  # medication
+            await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
         await session.commit()
 
 
@@ -114,13 +136,37 @@ async def _fire_nudge(
             await _send(sender, session, user_id, locale.CHECKIN_NUDGE)
 
 
+def _add_job(
+    scheduler: AsyncIOScheduler,
+    reminder: Reminder,
+    *,
+    session_factory: SessionFactory,
+    sender: Sender,
+    tz: ZoneInfo,
+) -> None:
+    scheduler.add_job(
+        _fire_reminder,
+        trigger=make_trigger(reminder.schedule, tz=tz),
+        id=f"reminder:{reminder.id}",
+        name=reminder.type,
+        replace_existing=True,
+        kwargs={
+            "reminder_id": reminder.id,
+            "session_factory": session_factory,
+            "sender": sender,
+            "scheduler": scheduler,
+            "tz": tz,
+        },
+    )
+
+
 async def build_scheduler(
     *,
     session_factory: SessionFactory = get_session,
     sender: Sender,
     tz: ZoneInfo | None = None,
 ) -> AsyncIOScheduler:
-    """Build a scheduler with one job per active reminder (not started)."""
+    """Build a scheduler with one job per active reminder (not started). Dry-run/tests."""
     tz = tz or ZoneInfo(get_settings().timezone)
     scheduler = AsyncIOScheduler(
         timezone=tz, job_defaults={"coalesce": True, "misfire_grace_time": MISFIRE_GRACE_S}
@@ -128,19 +174,7 @@ async def build_scheduler(
     async with session_factory() as session:
         rows = await reminders.active_reminders(session)
     for reminder in rows:
-        scheduler.add_job(
-            _fire_reminder,
-            trigger=make_trigger(reminder.schedule, tz=tz),
-            id=f"reminder:{reminder.id}",
-            name=reminder.type,
-            kwargs={
-                "reminder_id": reminder.id,
-                "session_factory": session_factory,
-                "sender": sender,
-                "scheduler": scheduler,
-                "tz": tz,
-            },
-        )
+        _add_job(scheduler, reminder, session_factory=session_factory, sender=sender, tz=tz)
     return scheduler
 
 
@@ -165,7 +199,80 @@ def describe_jobs(scheduler: AsyncIOScheduler, *, now: datetime | None = None) -
     return infos
 
 
-async def _noop_sender(telegram_id: int, text: str) -> None:  # pragma: no cover - dry-run stub
+class ReminderScheduler:
+    """A running scheduler that stays in sync with the DB as reminders change.
+
+    Stored in ``dispatcher["reminder_scheduler"]`` so handlers can ``schedule`` a
+    reminder they just created or ``unschedule`` one they retired — live, no restart.
+    """
+
+    def __init__(
+        self,
+        *,
+        sender: Sender,
+        session_factory: SessionFactory = get_session,
+        tz: ZoneInfo | None = None,
+    ) -> None:
+        self._sender = sender
+        self._sf = session_factory
+        self._tz = tz or ZoneInfo(get_settings().timezone)
+        self._scheduler = AsyncIOScheduler(
+            timezone=self._tz,
+            job_defaults={"coalesce": True, "misfire_grace_time": MISFIRE_GRACE_S},
+        )
+
+    async def reconcile(self) -> None:
+        """Startup self-heal: a check-in reminder exists iff active concerns exist."""
+        async with self._sf() as session:
+            users = (await session.scalars(select(User))).all()
+            for user in users:
+                active = await concerns.count_active(session, user_id=user.id)
+                existing = await session.scalar(
+                    select(Reminder).where(
+                        Reminder.user_id == user.id,
+                        Reminder.type == reminders.TYPE_CHECKIN,
+                        Reminder.active.is_(True),
+                    )
+                )
+                if active > 0 and existing is None:
+                    await reminders.ensure_checkin_reminder(session, user=user)
+                elif active == 0 and existing is not None:
+                    await reminders.deactivate(session, existing)
+            await session.commit()
+
+    async def start(self) -> None:
+        await self.reconcile()
+        async with self._sf() as session:
+            rows = await reminders.active_reminders(session)
+        for reminder in rows:
+            self.schedule(reminder)
+        self._scheduler.start()
+
+    def schedule(self, reminder: Reminder) -> None:
+        _add_job(
+            self._scheduler, reminder, session_factory=self._sf, sender=self._sender, tz=self._tz
+        )
+
+    def unschedule(self, reminder_id: int) -> None:
+        job_id = f"reminder:{reminder_id}"
+        if self._scheduler.get_job(job_id) is not None:
+            self._scheduler.remove_job(job_id)
+
+    def unschedule_many(self, reminder_ids: Iterable[int]) -> None:
+        for reminder_id in reminder_ids:
+            self.unschedule(reminder_id)
+
+    def list_jobs(self) -> list[JobInfo]:
+        return describe_jobs(self._scheduler)
+
+    def shutdown(self) -> None:
+        if self._scheduler.running:
+            self._scheduler.shutdown(wait=False)
+
+
+async def _noop_sender(
+    telegram_id: int, text: str, *, buttons: Buttons | None = None
+) -> None:  # pragma: no cover - dry-run stub
     return None
 
 

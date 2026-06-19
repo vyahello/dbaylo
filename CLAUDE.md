@@ -131,11 +131,23 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   sleep/water/mood/training; symptoms route to triage. One follow-up only, never nags
   (`should_send_nudge`). `--dry-run` prints the prompt.
 - **Reminders + scheduler** (`companion/{reminders,scheduler}.py`): `Reminder` rows are the
-  **source of truth**; `schedule` is `cron:<expr>` or `date:<iso>`. `build_scheduler` rebuilds
-  one job per active row on startup (survives restart), `coalesce`/`misfire_grace_time` set;
-  fired one-off reminders are soft-deleted (`Reminder.active`). `next_run` is **not stored**
-  (read from the built scheduler). `--dry-run` lists jobs without firing. Medication reminder
+  **source of truth**; `schedule` is `cron:<expr>` or `date:<iso>`. The live `ReminderScheduler`
+  rebuilds one job per active row on startup *and* lets handlers `schedule`/`unschedule` a row
+  without a restart (stored in `dispatcher["reminder_scheduler"]`). `next_run` is **not stored**
+  (read from the scheduler). In-memory store: a reminder whose moment passes **while the process
+  is down is missed**, not replayed. `--dry-run` lists jobs without firing. Medication reminder
   text never carries a dose.
+- **Tier 1.1 — proactive behavior** (`companion/{concerns,medications,proactive,callbacks}.py`,
+  `bot/proactive_flow.py`): the check-in is **conditional** — a daily check-in is scheduled **iff**
+  ≥1 active `Condition` exists (`ConditionStatus`, migration 0004), never an unconditional ping.
+  `proactive.add_problem` schedules it on the first concern; resolving the last removes it
+  (`reconcile` self-heals on startup). The firing check-in also asks "still relevant?" for concerns
+  due for review (~7 days, `Condition.last_review_at`) with a Вирішено button. Commands: `/problem`,
+  `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
+  `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
+  (list + turn off, next_run from the scheduler). On lab confirm the bot **offers** a repeat-lab
+  reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
+  (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
@@ -185,9 +197,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 
 ```
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
-             labs/ (L2)  companion/ (L1 face)  navigator/ (L4: prices·ceiling·coverage·providers·guard)
-             llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
-migrations/  Alembic 0001..0003   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+             labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
+             companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
+                         concerns·medications·proactive·callbacks)
+migrations/  Alembic 0001..0004   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
@@ -214,5 +227,7 @@ Stage 1 (done): skeleton + safety core. Stage 2 (done): lab intake + Claude extr
 OCR-confirm loop + deterministic trends + charts + humanized summary. Stage 3 (done): goals,
 daily check-in, reminders (APScheduler, DB-as-source-of-truth), companion chat, the wellness
 guardrail. Stage 3.5 (done): the `safety.gate` choke-point. Stage 4 (done): price & НСЗУ
-navigator (med prices, МОЗ ceiling, НСЗУ coverage, transparent providers). **All roadmap layers
-shipped.**
+navigator (med prices, МОЗ ceiling, НСЗУ coverage, transparent providers). All roadmap layers
+shipped. **Tier 0 (done):** owner lock + off-box backups. **Tier 1.1 (done):** proactive behavior —
+conditional check-in (active concerns), medication & repeat-lab reminders, reminder management, live
+`ReminderScheduler`.

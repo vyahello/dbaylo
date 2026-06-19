@@ -70,6 +70,10 @@ HELP_TEXT = (
     "/checkin — швидкий щоденний чек-ін\n"
     "/goal — поставити ціль для здоров'я\n"
     "/goals — переглянути свої цілі\n"
+    "/problem — додати те, що турбує (щоденні чек-іни, поки актуально)\n"
+    "/problems — переглянути активні проблеми\n"
+    "/medication — додати нагадування про ліки\n"
+    "/reminders — переглянути й вимкнути нагадування\n"
     "/price — ціна на конкретні названі ліки\n"
     "/coverage — чи покриває ПМГ послугу\n\n"
     "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
@@ -270,6 +274,72 @@ CHECKIN_PROMPT = (
 CHECKIN_SAVED = "Дякую, що поділився(-лась) 💚 Занотував."
 # The single, gentle follow-up — sent once if no check-in arrived; never nags.
 CHECKIN_NUDGE = "Я тут, якщо захочеш розповісти, як минув день. Без поспіху 🌿"
+# Periodic "still relevant?" prompt for an active concern (Tier 1.1 §B), with a button.
+CHECKIN_REVIEW_PROMPT = (
+    "Чи ще турбує тебе «{name}»? Якщо вже вирішилося — познач, і я не нагадуватиму."
+)
+
+# --- Tier 1.1: problems (active concerns) ---------------------------------------
+
+PROBLEM_ASK_TEXT = (
+    "Що тебе турбує? Опиши проблему словами — наприклад «болить поперек» чи «високий тиск»."
+)
+PROBLEM_ADDED = (
+    "Записав. Поки це актуально, я раз на день м'яко питатиму, як справи — і нагадаю "
+    "перевірити, чи вже вирішилося. 🌿"
+)
+PROBLEM_LIST_HEADER = "Ось що зараз актуально:"
+PROBLEM_LIST_EMPTY = "Зараз немає активних проблем — і я нічим не турбуватиму. Додати: /problem"
+PROBLEM_RESOLVED = "Радий це чути! Познач було вирішено. 💚"
+PROBLEM_ASK_RENAME = "Введи нову назву для цієї проблеми:"
+PROBLEM_RENAMED = "Готово, оновив назву."
+BTN_PROBLEM_RESOLVED = "✅ Вирішено"
+BTN_PROBLEM_RENAME = "✏️ Перейменувати"
+# Draft name for a concern proposed from an out-of-range lab value (user can rename).
+PROBLEM_LAB_DRAFT = "{analyte} поза нормою"
+
+# --- Tier 1.1: lab-flag concern offer + repeat-lab offer ------------------------
+
+LAB_CONCERN_OFFER = (
+    "Деякі показники поза нормою. Відстежувати це як активну проблему (щоденні чек-іни)?"
+)
+BTN_LAB_CONCERN_YES = "Так, відстежувати"
+BTN_LAB_CONCERN_NO = "Ні, дякую"
+LAB_REPEAT_OFFER = "Нагадати повторити аналізи згодом?"
+BTN_REPEAT_1M = "Через місяць"
+BTN_REPEAT_3M = "Через 3 місяці"
+BTN_REPEAT_6M = "Через 6 місяців"
+BTN_REPEAT_OTHER = "Інший термін"
+BTN_REPEAT_NO = "Не треба"
+LAB_REPEAT_ASK_CUSTOM = (
+    "Через скільки нагадати? Напр.: «через 10 днів», «через 2 тижні», «через рік»."
+)
+LAB_REPEAT_BAD_CUSTOM = (
+    "Не зрозумів термін. Спробуй: «через 10 днів» / «через 2 тижні» / «через рік»."
+)
+LAB_REPEAT_SET = "Гаразд, нагадаю {when}. 🗓"
+LAB_REPEAT_LABEL = "повторні аналізи"
+
+# --- Tier 1.1: medications ------------------------------------------------------
+
+MED_ASK_NAME = "Назва ліків (як на упаковці / у призначенні лікаря)?"
+MED_ASK_TIMES = "О котрій годині приймати? Напр.: «08:00» або «08:00, 20:00»."
+MED_BAD_TIMES = "Не зрозумів час. Введи у форматі ГГ:ХХ, напр.: «08:00» або «08:00, 20:00»."
+MED_ADDED = (
+    "Додав ліки «{name}» з нагадуванням о {times}. Нагадуватиму без зазначення дози — "
+    "приймай за призначенням лікаря."
+)
+
+# --- Tier 1.1: reminders management ---------------------------------------------
+
+REMINDERS_HEADER = "Твої активні нагадування:"
+REMINDERS_EMPTY = "Активних нагадувань немає."
+REMINDER_ITEM_CHECKIN = "🌙 Щоденний чек-ін — {when}"
+REMINDER_ITEM_MEDICATION = "💊 {name} ({times}) — {when}"
+REMINDER_ITEM_REPEAT_LAB = "🧪 Повтор аналізів ({name}) — {when}"
+REMINDER_NEXT_UNKNOWN = "час не визначено"
+REMINDER_TURNED_OFF = "Вимкнув нагадування."
+BTN_REMINDER_OFF = "🗑 Вимкнути"
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 

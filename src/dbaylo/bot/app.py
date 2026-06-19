@@ -11,11 +11,12 @@ from __future__ import annotations
 import asyncio
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
-from dbaylo.bot import companion_flow, lab_flow, navigator_flow
+from dbaylo.bot import companion_flow, lab_flow, navigator_flow, proactive_flow
 from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
-from dbaylo.companion.scheduler import Sender, build_scheduler
+from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 
 
@@ -34,6 +35,7 @@ def build_dispatcher(owner_id: int | None = None) -> Dispatcher:
     dispatcher.include_router(router)
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)
+    dispatcher.include_router(proactive_flow.router)
     dispatcher.include_router(companion_flow.router)
     return dispatcher
 
@@ -46,11 +48,20 @@ def build_bot(token: str | None = None) -> Bot:
     return Bot(token=resolved)
 
 
-def make_sender(bot: Bot) -> Sender:
-    """A reminder sender that delivers a message to a Telegram user via ``bot``."""
+def _keyboard(buttons: Buttons) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=cd)] for label, cd in buttons
+        ]
+    )
 
-    async def sender(telegram_id: int, text: str) -> None:
-        await bot.send_message(telegram_id, text)
+
+def make_sender(bot: Bot) -> Sender:
+    """A reminder sender that delivers text (+ optional inline buttons) via ``bot``."""
+
+    async def sender(telegram_id: int, text: str, *, buttons: Buttons | None = None) -> None:
+        markup = _keyboard(buttons) if buttons else None
+        await bot.send_message(telegram_id, text, reply_markup=markup)
 
     return sender
 
@@ -58,14 +69,16 @@ def make_sender(bot: Bot) -> Sender:
 async def _run_polling() -> None:
     bot = build_bot()
     dispatcher = build_dispatcher()
-    # Reminders run inside the bot process (one service, shared event loop): build
-    # the scheduler from the Reminder rows and start it alongside long polling.
-    scheduler = await build_scheduler(sender=make_sender(bot))
-    scheduler.start()
+    # Reminders run inside the bot process (one service, shared event loop). The live
+    # scheduler is shared with handlers via dispatcher data so commands can schedule /
+    # unschedule reminders without a restart.
+    reminder_scheduler = ReminderScheduler(sender=make_sender(bot))
+    dispatcher["reminder_scheduler"] = reminder_scheduler
+    await reminder_scheduler.start()
     try:
         await dispatcher.start_polling(bot)
     finally:
-        scheduler.shutdown(wait=False)
+        reminder_scheduler.shutdown()
 
 
 def run() -> None:

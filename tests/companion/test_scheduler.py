@@ -32,7 +32,7 @@ class _Recorder:
     def __init__(self) -> None:
         self.sent: list[tuple[int, str]] = []
 
-    async def __call__(self, telegram_id: int, text: str) -> None:
+    async def __call__(self, telegram_id: int, text: str, *, buttons: object | None = None) -> None:
         self.sent.append((telegram_id, text))
 
 

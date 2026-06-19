@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.companion import callbacks, checkin, concerns
 from dbaylo.companion.checkin import (
     build_prompt,
     has_checkin_on,
@@ -28,6 +29,30 @@ async def _user(session: AsyncSession) -> User:
 
 def test_build_prompt_is_safe_and_nonempty() -> None:
     assert build_prompt().strip()
+
+
+async def test_checkin_messages_appends_due_concern_review(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    condition = await concerns.add_active(async_session, user=user, name="високий тиск")
+    t0 = datetime(2026, 1, 1)
+    await concerns.mark_reviewed(async_session, condition.id, t0)
+
+    # Not yet due: only the prompt (no buttons).
+    fresh = await checkin.checkin_messages(async_session, user_id=user.id, now=t0)
+    assert len(fresh) == 1 and fresh[0][1] is None
+
+    # Due after a week: prompt + a "still relevant?" review with a Вирішено button.
+    due = await checkin.checkin_messages(async_session, user_id=user.id, now=t0 + timedelta(days=8))
+    assert len(due) == 2
+    text, buttons = due[1]
+    assert "високий тиск" in text
+    assert buttons is not None and buttons[0][1] == callbacks.problem_resolve(condition.id)
+
+    # Sending it marks the concern reviewed, so it isn't asked again immediately.
+    again = await checkin.checkin_messages(
+        async_session, user_id=user.id, now=t0 + timedelta(days=8, minutes=1)
+    )
+    assert len(again) == 1
 
 
 def test_parse_extracts_fields() -> None:

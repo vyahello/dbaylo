@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 from collections.abc import Mapping
-from datetime import date
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.fsm.context import FSMContext
@@ -31,8 +32,11 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
+from dbaylo.companion import proactive, reminders
+from dbaylo.companion.scheduler import ReminderScheduler
+from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import LabReport, ReportStatus
+from dbaylo.db.models import LabReport, ReportStatus, ResultFlag
 from dbaylo.labs.extraction import ExtractionFailed, extract_with_escalation
 from dbaylo.labs.intake import (
     create_pending_report,
@@ -51,6 +55,13 @@ _CB_CONFIRM = "lab:confirm"
 _CB_EDIT = "lab:edit"
 _CB_CANCEL = "lab:cancel"
 
+# Post-confirm offers (repeat-lab reminder + propose an active concern).
+_CB_REPEAT = {"lab:rep:1m": 30, "lab:rep:3m": 90, "lab:rep:6m": 180}
+_CB_REPEAT_OTHER = "lab:rep:other"
+_CB_REPEAT_NO = "lab:rep:no"
+_CB_CONCERN_YES = "lab:con:yes"
+_CB_CONCERN_NO = "lab:con:no"
+
 
 class LabStates(StatesGroup):
     confirming = State()
@@ -58,6 +69,9 @@ class LabStates(StatesGroup):
     edit_value = State()
     edit_date = State()
     edit_lab = State()
+    repeat_offer = State()
+    repeat_custom = State()
+    concern_offer = State()
 
 
 # --- Pure helpers (unit-tested) -------------------------------------------------
@@ -311,11 +325,144 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     async with get_session() as session:
         summary = await compute_report_summary(session, user_id=user_id, analyte_keys=keys)
 
-    await state.clear()
     await callback.message.answer(locale.LAB_CONFIRMED)
     for name, png in summary.charts:
         await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
     await callback.message.answer(summary.text)
+    await callback.answer()
+
+    # Post-confirm: a DRAFT concern name only if something is out of range (the user
+    # renames it later via /problems), and the repeat-lab offer.
+    out_of_range = [
+        a
+        for a in report.results
+        if compute_flag(a.value, a.ref_low, a.ref_high) in (ResultFlag.LOW, ResultFlag.HIGH)
+    ]
+    draft_concern = (
+        locale.PROBLEM_LAB_DRAFT.format(analyte=out_of_range[0].analyte) if out_of_range else None
+    )
+    await state.set_state(LabStates.repeat_offer)
+    await state.update_data(
+        draft_concern=draft_concern, repeat_label=report.lab or locale.LAB_REPEAT_LABEL
+    )
+    await callback.message.answer(locale.LAB_REPEAT_OFFER, reply_markup=_repeat_keyboard())
+
+
+def _repeat_keyboard() -> InlineKeyboardMarkup:
+    keys = list(_CB_REPEAT)
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=locale.BTN_REPEAT_1M, callback_data=keys[0]),
+                InlineKeyboardButton(text=locale.BTN_REPEAT_3M, callback_data=keys[1]),
+                InlineKeyboardButton(text=locale.BTN_REPEAT_6M, callback_data=keys[2]),
+            ],
+            [
+                InlineKeyboardButton(text=locale.BTN_REPEAT_OTHER, callback_data=_CB_REPEAT_OTHER),
+                InlineKeyboardButton(text=locale.BTN_REPEAT_NO, callback_data=_CB_REPEAT_NO),
+            ],
+        ]
+    )
+
+
+def _concern_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_LAB_CONCERN_YES, callback_data=_CB_CONCERN_YES
+                ),
+                InlineKeyboardButton(text=locale.BTN_LAB_CONCERN_NO, callback_data=_CB_CONCERN_NO),
+            ]
+        ]
+    )
+
+
+def _now() -> datetime:
+    return datetime.now(ZoneInfo(get_settings().timezone))
+
+
+async def _create_repeat(
+    message: Message, state: FSMContext, run_at: datetime, scheduler: ReminderScheduler
+) -> None:
+    data = await state.get_data()
+    label = str(data.get("repeat_label") or locale.LAB_REPEAT_LABEL)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=message.chat.id)
+        await proactive.add_repeat_lab(
+            session, user=user, run_at=run_at, label=label, scheduler=scheduler
+        )
+        await session.commit()
+    await message.answer(locale.LAB_REPEAT_SET.format(when=run_at.date().isoformat()))
+
+
+async def _offer_concern_or_finish(message: Message, state: FSMContext) -> None:
+    """After the repeat-lab step, offer the lab-flag concern (if any) or finish."""
+    data = await state.get_data()
+    if data.get("draft_concern"):
+        await state.set_state(LabStates.concern_offer)
+        await message.answer(locale.LAB_CONCERN_OFFER, reply_markup=_concern_keyboard())
+    else:
+        await state.clear()
+
+
+@router.callback_query(LabStates.repeat_offer, F.data.in_(set(_CB_REPEAT)))
+async def on_repeat_pick(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    if isinstance(callback.message, Message) and callback.data is not None:
+        run_at = _now() + timedelta(days=_CB_REPEAT[callback.data])
+        await _create_repeat(callback.message, state, run_at, reminder_scheduler)
+        await _offer_concern_or_finish(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(LabStates.repeat_offer, F.data == _CB_REPEAT_NO)
+async def on_repeat_no(callback: CallbackQuery, state: FSMContext) -> None:
+    if isinstance(callback.message, Message):
+        await _offer_concern_or_finish(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(LabStates.repeat_offer, F.data == _CB_REPEAT_OTHER)
+async def on_repeat_other(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.set_state(LabStates.repeat_custom)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(locale.LAB_REPEAT_ASK_CUSTOM)
+    await callback.answer()
+
+
+@router.message(LabStates.repeat_custom, F.text)
+async def on_repeat_custom(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    run_at = reminders.parse_relative_when(message.text or "", base=_now())
+    if run_at is None:
+        await message.answer(locale.LAB_REPEAT_BAD_CUSTOM)  # stay in state
+        return
+    await _create_repeat(message, state, run_at, reminder_scheduler)
+    await _offer_concern_or_finish(message, state)
+
+
+@router.callback_query(LabStates.concern_offer, F.data == _CB_CONCERN_YES)
+async def on_concern_yes(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    data = await state.get_data()
+    name = str(data.get("draft_concern") or "").strip()
+    await state.clear()
+    if isinstance(callback.message, Message) and name:
+        async with get_session() as session:
+            user = await ensure_user(session, telegram_id=callback.message.chat.id)
+            await proactive.add_problem(session, user=user, name=name, scheduler=reminder_scheduler)
+            await session.commit()
+        await callback.message.answer(locale.PROBLEM_ADDED)
+    await callback.answer()
+
+
+@router.callback_query(LabStates.concern_offer, F.data == _CB_CONCERN_NO)
+async def on_concern_no(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     await callback.answer()
 
 
