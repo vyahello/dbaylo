@@ -6,7 +6,7 @@
 #
 # Config comes from the app .env (no secrets in the repo):
 #   BACKUP_RCLONE_REMOTE   where the archive goes. A LOCAL dir now (e.g.
-#                          "/home/cax/dbaylo-backups"), or a remote later (e.g.
+#                          "~/.dbaylo/backups"), or a remote later (e.g.
 #                          "b2:my-bucket/dbaylo") — rclone handles both, so switching
 #                          to off-box is just this one value.
 #   BACKUP_AGE_RECIPIENT   OPTIONAL age/SSH *public* key. Set it and the archive is

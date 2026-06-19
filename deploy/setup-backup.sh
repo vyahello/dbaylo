@@ -5,7 +5,7 @@
 # Prereqs (the script checks them):
 #   sudo apt install -y rclone sqlite3   (+ age, only if you encrypt)
 #   # add to ~/dbaylo/.env:
-#   #   BACKUP_RCLONE_REMOTE=/home/cax/dbaylo-backups   (local now; b2:bucket/dbaylo later)
+#   #   BACKUP_RCLONE_REMOTE=~/.dbaylo/backups   (local now; b2:bucket/dbaylo later)
 #   #   BACKUP_RETENTION_DAYS=14
 #   #   BACKUP_AGE_RECIPIENT=ssh-ed25519 AAAA...         (OPTIONAL: encrypt the archive)
 set -euo pipefail

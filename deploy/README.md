@@ -49,7 +49,7 @@ A nightly `systemd` timer snapshots the SQLite DB (`sqlite3 .backup` — consist
 bot runs) + the lab-files dir, bundles them, and stores the archive via **rclone**. The same
 script does **local now** and **off-site later** — only `BACKUP_RCLONE_REMOTE` changes:
 
-- **Local (now):** `BACKUP_RCLONE_REMOTE=/home/cax/dbaylo-backups`. Protects against an accidental
+- **Local (now):** `BACKUP_RCLONE_REMOTE=~/.dbaylo/backups`. Protects against an accidental
   delete, DB corruption, or a bad migration. ⚠️ **Not** disaster recovery — a dead disk loses both
   the data and the backup.
 - **Off-site (later):** `rclone config` a remote (e.g. Backblaze B2), set
@@ -61,7 +61,7 @@ One-time setup on the VPS:
 ```bash
 sudo apt install -y rclone sqlite3          # + age, only if you set BACKUP_AGE_RECIPIENT
 # add to ~/dbaylo/.env:
-#   BACKUP_RCLONE_REMOTE=/home/cax/dbaylo-backups
+#   BACKUP_RCLONE_REMOTE=~/.dbaylo/backups
 #   BACKUP_RETENTION_DAYS=14
 #   BACKUP_AGE_RECIPIENT=                    # leave empty for plain .tar.gz; set to encrypt
 bash deploy/setup-backup.sh                  # installs + enables dbaylo-backup.timer (03:30 nightly)

@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ARCHIVE="${1:?usage: restore.sh <archive.tar.age|.tar.gz> [target_dir]}"
-TARGET="${2:-$HOME/dbaylo-restore}"
+TARGET="${2:-$HOME/.dbaylo/restore}"
 IDENTITY="${BACKUP_AGE_IDENTITY:-$HOME/.ssh/id_ed25519}"
 
 mkdir -p "$TARGET"
