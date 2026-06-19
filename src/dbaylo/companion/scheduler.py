@@ -5,9 +5,12 @@ active reminder on ``start`` (one job per row) and also lets handlers ``schedule
 newly-created reminder or ``unschedule`` one **without a restart** — the running
 process's jobs are kept in sync with the DB as the user adds/removes things.
 
-``next_run`` is read from the triggers, never stored. The job store is in-memory, so a
-reminder whose moment passes **while the process is down is missed** (a cron job moves
-to its next occurrence; a one-off past the grace window is dropped) — not replayed.
+``next_run`` is read from the triggers, never stored. The job store is in-memory, but
+reminders are **durable across a restart**: each fire records ``Reminder.last_fired_at``,
+and on ``start`` a **catch-up** pass delivers any occurrence that came due since that
+anchor while the process was down (bounded by :data:`MAX_CATCHUP`, coalesced to one
+delivery per reminder) — so nothing is silently lost. An overdue one-off is delivered
+then retired; a future one is just scheduled.
 
 ``python -m dbaylo.companion.scheduler --dry-run`` lists the jobs without firing.
 """
@@ -54,6 +57,34 @@ class Sender(Protocol):
 # How long after the check-in prompt to send the single (no-nag) follow-up.
 NUDGE_DELAY = timedelta(minutes=90)
 MISFIRE_GRACE_S = 3600
+# On startup, deliver a missed occurrence only if it came due within this window — so a
+# long outage never replays a huge backlog, and very stale reminders are not resurrected.
+MAX_CATCHUP = timedelta(hours=12)
+
+
+def _aware(dt: datetime, tz: ZoneInfo) -> datetime:
+    """Coerce a (possibly naive, SQLite-stored) datetime to ``tz``."""
+    return dt.replace(tzinfo=tz) if dt.tzinfo is None else dt.astimezone(tz)
+
+
+def last_due_occurrence(
+    trigger: CronTrigger | DateTrigger, *, floor: datetime, now: datetime
+) -> datetime | None:
+    """The most recent time the trigger should have fired in ``(floor, now]``, else None.
+
+    Pure: drives the startup catch-up. For a one-off it is the run time if overdue; for a
+    cron it is the latest occurrence at/under ``now`` and strictly after ``floor`` (the
+    last-fired anchor), so a quick restart never re-fires the occurrence just delivered.
+    """
+    if isinstance(trigger, DateTrigger):
+        run = trigger.run_date
+        return run if floor < run <= now else None
+    last: datetime | None = None
+    candidate = trigger.get_next_fire_time(floor, floor)
+    while candidate is not None and candidate <= now:
+        last = candidate
+        candidate = trigger.get_next_fire_time(candidate, candidate)
+    return last
 
 
 def make_trigger(schedule: str, *, tz: ZoneInfo) -> CronTrigger | DateTrigger:
@@ -98,6 +129,10 @@ async def _fire_reminder(
         reminder = await session.get(Reminder, reminder_id)
         if reminder is None or not reminder.active:
             return
+
+        # Record the fire so the startup catch-up never re-delivers this occurrence
+        # after a quick restart.
+        reminder.last_fired_at = datetime.now(tz)
 
         if reminder.type == reminders.TYPE_CHECKIN:
             # The prompt + a "still relevant?" review for each due active concern.
@@ -242,11 +277,34 @@ class ReminderScheduler:
 
     async def start(self) -> None:
         await self.reconcile()
+        self._scheduler.start()
+        # Deliver anything that came due while we were down (durability), THEN schedule
+        # future occurrences. Catch-up runs first so an overdue one-off is retired and
+        # not also scheduled — no double-fire.
+        await self._catch_up_missed()
         async with self._sf() as session:
             rows = await reminders.active_reminders(session)
         for reminder in rows:
             self.schedule(reminder)
-        self._scheduler.start()
+
+    async def _catch_up_missed(self) -> None:
+        """For each active reminder, deliver one missed occurrence (if any) from downtime."""
+        now = datetime.now(self._tz)
+        async with self._sf() as session:
+            rows = await reminders.active_reminders(session)
+        for reminder in rows:
+            floor = now - MAX_CATCHUP
+            if reminder.last_fired_at is not None:
+                floor = max(floor, _aware(reminder.last_fired_at, self._tz))
+            trigger = make_trigger(reminder.schedule, tz=self._tz)
+            if last_due_occurrence(trigger, floor=floor, now=now) is not None:
+                await _fire_reminder(
+                    reminder.id,
+                    session_factory=self._sf,
+                    sender=self._sender,
+                    scheduler=self._scheduler,
+                    tz=self._tz,
+                )
 
     def schedule(self, reminder: Reminder) -> None:
         _add_job(

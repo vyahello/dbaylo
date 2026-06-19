@@ -16,11 +16,13 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.config import get_settings
 from dbaylo.db.models import Reminder, User
 from dbaylo.triage.safety import assert_safe_output
 
@@ -107,7 +109,12 @@ async def create_reminder(
     medication_id: int | None = None,
     report_id: int | None = None,
 ) -> Reminder:
-    """Create a reminder row (validates the schedule string is parseable)."""
+    """Create a reminder row (validates the schedule string is parseable).
+
+    ``last_fired_at`` is anchored at creation so the scheduler's startup catch-up never
+    delivers an occurrence from *before* the reminder existed (it only catches up missed
+    occurrences after this anchor).
+    """
     parse_schedule(schedule)  # fail fast on a malformed schedule
     reminder = Reminder(
         user_id=user.id,
@@ -116,6 +123,7 @@ async def create_reminder(
         payload=payload,
         medication_id=medication_id,
         report_id=report_id,
+        last_fired_at=datetime.now(ZoneInfo(get_settings().timezone)),
     )
     session.add(reminder)
     await session.flush()

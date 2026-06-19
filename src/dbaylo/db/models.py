@@ -208,6 +208,10 @@ class Reminder(TimestampMixin, Base):
     # next_run is intentionally NOT stored — APScheduler computes it (a DB copy
     # would go stale); read it from the built scheduler when displaying.
     active: Mapped[bool] = mapped_column(Boolean, default=True, server_default=true())
+    # When this reminder last fired (Stage 6 durability). On startup the scheduler
+    # delivers any occurrence that came due since this anchor while the process was
+    # down — so reminders are not lost across a restart. Updated on every fire.
+    last_fired_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), default=None)
 
     user: Mapped[User] = relationship(back_populates="reminders")
 

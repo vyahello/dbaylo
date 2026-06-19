@@ -152,9 +152,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **source of truth**; `schedule` is `cron:<expr>` or `date:<iso>`. The live `ReminderScheduler`
   rebuilds one job per active row on startup *and* lets handlers `schedule`/`unschedule` a row
   without a restart (stored in `dispatcher["reminder_scheduler"]`). `next_run` is **not stored**
-  (read from the scheduler). In-memory store: a reminder whose moment passes **while the process
-  is down is missed**, not replayed. `--dry-run` lists jobs without firing. Medication reminder
-  text never carries a dose.
+  (read from the scheduler). **Durable across a restart** (Stage 6): every fire records
+  `Reminder.last_fired_at` (migration 0008), and `start()` runs a **catch-up** that delivers any
+  occurrence due since that anchor while the process was down — bounded by `MAX_CATCHUP` (12h),
+  coalesced to one delivery per reminder (`last_due_occurrence`); an overdue one-off is delivered
+  then retired, a future one just scheduled. `create_reminder` anchors `last_fired_at` at creation
+  so a new reminder is never caught up for an occurrence before it existed. `--dry-run` lists jobs
+  without firing. Medication reminder text never carries a dose.
 - **Tier 1.1 — proactive behavior** (`companion/{concerns,medications,proactive,callbacks}.py`,
   `bot/proactive_flow.py`): the check-in is **conditional** — a daily check-in is scheduled **iff**
   ≥1 active `Condition` exists (`ConditionStatus`, migration 0004), never an unconditional ping.
@@ -265,7 +269,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history · intake)
-migrations/  Alembic 0001..0007   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0008   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands

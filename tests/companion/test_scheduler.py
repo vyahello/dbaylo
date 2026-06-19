@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo.companion import reminders, scheduler
 from dbaylo.companion.checkin import process_checkin
 from dbaylo.companion.reminders import daily_cron, once
-from dbaylo.db.models import User
+from dbaylo.db.models import Reminder, User
 
 TZ = ZoneInfo("Europe/Kyiv")
 
@@ -148,3 +148,76 @@ async def test_nudge_only_when_no_checkin(async_session: AsyncSession) -> None:
     recorder.sent.clear()
     await scheduler._fire_nudge(user_id=user.id, session_factory=factory, sender=recorder, tz=TZ)
     assert recorder.sent == []
+
+
+# --- Durability: startup catch-up of occurrences missed while down ---------------
+
+
+def test_last_due_occurrence_one_off() -> None:
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=TZ)
+    floor = now - timedelta(hours=12)
+    overdue = scheduler.make_trigger(once(datetime(2026, 6, 19, 11, 0)), tz=TZ)  # 1h ago
+    assert scheduler.last_due_occurrence(overdue, floor=floor, now=now) is not None
+    future = scheduler.make_trigger(once(datetime(2026, 6, 19, 13, 0)), tz=TZ)  # 1h ahead
+    assert scheduler.last_due_occurrence(future, floor=floor, now=now) is None
+    too_old = scheduler.make_trigger(once(datetime(2026, 6, 18, 0, 0)), tz=TZ)  # before floor
+    assert scheduler.last_due_occurrence(too_old, floor=floor, now=now) is None
+
+
+def test_last_due_occurrence_cron() -> None:
+    now = datetime(2026, 6, 19, 22, 0, tzinfo=TZ)
+    daily21 = scheduler.make_trigger(daily_cron(21), tz=TZ)
+    # Down across today's 21:00 -> that occurrence is the missed one.
+    due = scheduler.last_due_occurrence(daily21, floor=now - timedelta(hours=12), now=now)
+    assert due is not None and due.hour == 21
+    # Anchor strictly after the occurrence -> nothing missed (no re-fire after a quick restart).
+    after = datetime(2026, 6, 19, 21, 30, tzinfo=TZ)
+    assert scheduler.last_due_occurrence(daily21, floor=after, now=now) is None
+    # Before today's 21:00 -> the only candidate is in the future -> None.
+    early = datetime(2026, 6, 19, 20, 0, tzinfo=TZ)
+    assert (
+        scheduler.last_due_occurrence(daily21, floor=early - timedelta(hours=2), now=early) is None
+    )
+
+
+async def test_start_delivers_a_missed_one_off(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    recorder = _Recorder()
+    # A one-off that came due 5 minutes ago, never fired (process was down).
+    past = datetime.now(TZ) - timedelta(minutes=5)
+    async_session.add(
+        Reminder(
+            user_id=user.id, type=reminders.TYPE_REPEAT_LAB, schedule=once(past), payload="ТТГ"
+        )
+    )
+    await async_session.flush()
+
+    rs = scheduler.ReminderScheduler(
+        sender=recorder, session_factory=_factory(async_session), tz=TZ
+    )
+    await rs.start()
+    rs.shutdown()
+
+    assert len(recorder.sent) == 1  # delivered on startup, not lost
+    assert await reminders.active_reminders(async_session) == []  # one-off retired
+
+
+async def test_start_does_not_deliver_a_future_one_off(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    recorder = _Recorder()
+    future = datetime.now(TZ) + timedelta(days=30)
+    async_session.add(
+        Reminder(
+            user_id=user.id, type=reminders.TYPE_REPEAT_LAB, schedule=once(future), payload="ТТГ"
+        )
+    )
+    await async_session.flush()
+
+    rs = scheduler.ReminderScheduler(
+        sender=recorder, session_factory=_factory(async_session), tz=TZ
+    )
+    await rs.start()
+    rs.shutdown()
+
+    assert recorder.sent == []  # scheduled for later, not delivered now
+    assert len(await reminders.active_reminders(async_session)) == 1  # still active
