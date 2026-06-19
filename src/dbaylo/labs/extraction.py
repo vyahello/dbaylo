@@ -121,11 +121,18 @@ async def extract_with_escalation(
     models: Sequence[str] = _DEFAULT_MODELS,
     runner: Runner = run_claude,
 ) -> ExtractionOutcome:
-    """Try each model in order; return the first readable report, else the last failure."""
+    """Try each model in order; return the first readable report, else the last failure.
+
+    Escalating to the (slower) next model helps when a pass returned unreadable output —
+    but NOT after a timeout: the slower model would only time out too and double the wait.
+    So a timeout stops the escalation and fails fast.
+    """
     outcome: ExtractionOutcome = ExtractionFailed("no models tried")
     for model in models:
         outcome = await extract(file_path, model=model, runner=runner)
         if isinstance(outcome, ExtractedReport):
+            return outcome
+        if isinstance(outcome, ExtractionFailed) and "timeout" in outcome.reason:
             return outcome
     return outcome
 

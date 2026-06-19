@@ -193,3 +193,17 @@ async def test_escalation_falls_through_to_second_model(tmp_path) -> None:
     outcome = await extract_with_escalation(f, models=("sonnet", "opus"), runner=run)
     assert isinstance(outcome, ExtractedReport)
     assert calls == ["sonnet", "opus"]
+
+
+async def test_escalation_stops_on_timeout(tmp_path) -> None:
+    f = tmp_path / "lab.png"
+    f.write_bytes(b"x")
+    calls: list[str | None] = []
+
+    async def run(*args, model=None, **kwargs) -> ClaudeResult:
+        calls.append(model)
+        return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=None, error="timeout")
+
+    outcome = await extract_with_escalation(f, models=("sonnet", "opus"), runner=run)
+    assert isinstance(outcome, ExtractionFailed)
+    assert calls == ["sonnet"]  # a timeout fails fast; the slower opus is not tried
