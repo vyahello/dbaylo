@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo.config import Settings, get_settings
 from dbaylo.db.models import LabReport, LabResult, ReportStatus, User
 from dbaylo.labs.schema import ExtractedAnalyte
-from dbaylo.labs.trends import compute_flag
+from dbaylo.labs.trends import classify
 
 SUPPORTED_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".pdf"})
 
@@ -90,7 +90,7 @@ async def persist_confirmed(
             unit=a.unit,
             ref_low=a.ref_low,
             ref_high=a.ref_high,
-            flag=compute_flag(a.value, a.ref_low, a.ref_high),
+            flag=classify(a.value, a.value_text, a.ref_low, a.ref_high, a.ref_text),
         )
         session.add(result)
         results.append(result)

@@ -48,7 +48,7 @@ from dbaylo.labs.intake import (
 )
 from dbaylo.labs.pipeline import compute_report_summary
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import compute_flag, normalize_analyte
+from dbaylo.labs.trends import classify, compute_flag, normalize_analyte
 
 router = Router(name="labs")
 
@@ -101,7 +101,7 @@ def render_confirmation_text(report: ExtractedReport) -> str:
         "",
     ]
     for i, a in enumerate(report.results, 1):
-        flag = compute_flag(a.value, a.ref_low, a.ref_high)
+        flag = classify(a.value, a.value_text, a.ref_low, a.ref_high, a.ref_text)
         emoji = locale.FLAG_EMOJI.get(flag.value, "")
         ref = a.display_reference()
         line = f"{i}. {a.analyte} — {a.display_value()} ({locale.LAB_NORM_LABEL} {ref}) {emoji}"

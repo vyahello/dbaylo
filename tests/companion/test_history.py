@@ -28,6 +28,7 @@ from dbaylo.db.models import (
     ReportStatus,
     User,
 )
+from dbaylo.labs.trends import compute_flag
 
 TZ = ZoneInfo("Europe/Kyiv")
 
@@ -62,7 +63,14 @@ async def _report(
         status=status,
         source_file=source_file,
         results=[
-            LabResult(analyte=name, value=value, ref_low=low, ref_high=high)
+            # Store the flag like persist_confirmed does — history reads the stored flag.
+            LabResult(
+                analyte=name,
+                value=value,
+                ref_low=low,
+                ref_high=high,
+                flag=compute_flag(value, low, high),
+            )
             for name, value, low, high in results
         ],
     )

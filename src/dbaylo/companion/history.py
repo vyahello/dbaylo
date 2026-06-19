@@ -32,7 +32,7 @@ from dbaylo.db.models import (
 )
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.pipeline import load_series_points
-from dbaylo.labs.trends import build_series, compute_flag, compute_trend, normalize_analyte
+from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
 DEFAULT_LIMIT = 10
@@ -219,9 +219,10 @@ def _ref_text(low: float | None, high: float | None) -> str:
 def report_flags(results: list[LabResult]) -> str:
     emojis: list[str] = []
     for r in results:
-        flag = compute_flag(r.value, r.ref_low, r.ref_high)
-        emoji = locale.FLAG_EMOJI.get(flag.value, "")
-        if flag.name in ("LOW", "HIGH") and emoji and emoji not in emojis:
+        # The stored flag is the source of truth — computed at confirm time with the
+        # full extracted value (incl. qualitative text), which LabResult does not keep.
+        emoji = locale.FLAG_EMOJI.get(r.flag.value, "")
+        if r.flag.name in ("LOW", "HIGH") and emoji and emoji not in emojis:
             emojis.append(emoji)
     return " ".join(emojis)
 
@@ -243,8 +244,7 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
     lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt), ""]
     for i, r in enumerate(results, 1):
-        flag = compute_flag(r.value, r.ref_low, r.ref_high)
-        emoji = locale.FLAG_EMOJI.get(flag.value, "")
+        emoji = locale.FLAG_EMOJI.get(r.flag.value, "")  # stored (smart) flag
         value = f"{r.value:g}" if r.value is not None else "—"
         if r.unit:
             value = f"{value} {r.unit}"

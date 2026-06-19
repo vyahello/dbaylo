@@ -132,6 +132,53 @@ def compute_flag(value: float | None, ref_low: float | None, ref_high: float | N
     return ResultFlag.NORMAL
 
 
+# A qualitative reference lists its acceptable values; split on the usual separators.
+_QUAL_SPLIT = re.compile(r"\s*(?:,|;|/|\bабо\b|\bчи\b)\s*", re.IGNORECASE)
+_PARENS_RE = re.compile(r"\([^)]*\)")
+
+
+def _normalize_qual(text: str) -> str:
+    return _WS_RE.sub(" ", _PARENS_RE.sub(" ", text)).strip().casefold()
+
+
+def qualitative_match(value_text: str | None, ref_text: str | None) -> bool:
+    """True when a qualitative value clearly matches its qualitative reference.
+
+    Deliberately conservative: it only ever confirms "matches the reference" and never
+    infers a direction. A value must equal the whole reference or one of its listed
+    options — so a negation ("виявлені" vs "не виявлені") does NOT match, and an
+    abnormal qualitative result is never called normal.
+    """
+    if not value_text or not ref_text:
+        return False
+    value = _normalize_qual(value_text)
+    ref = _normalize_qual(ref_text)
+    if not value or not ref:
+        return False
+    if value == ref:
+        return True
+    return value in [option for option in _QUAL_SPLIT.split(ref) if option]
+
+
+def classify(
+    value: float | None,
+    value_text: str | None,
+    ref_low: float | None,
+    ref_high: float | None,
+    ref_text: str | None,
+) -> ResultFlag:
+    """Flag a result: numeric range when it can decide, else a qualitative match.
+
+    The numeric comparison wins; only when it yields UNKNOWN (a qualitative result, or
+    no range) do we try to match the qualitative value against its reference. A match is
+    NORMAL; anything else stays UNKNOWN. We never produce LOW/HIGH from free text.
+    """
+    numeric = compute_flag(value, ref_low, ref_high)
+    if numeric is not ResultFlag.UNKNOWN:
+        return numeric
+    return ResultFlag.NORMAL if qualitative_match(value_text, ref_text) else ResultFlag.UNKNOWN
+
+
 def _in_range(point: LabPoint) -> bool | None:
     """True/False if range membership is determinable, else None."""
     if point.value is None or (point.ref_low is None and point.ref_high is None):

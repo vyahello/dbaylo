@@ -13,10 +13,12 @@ from dbaylo.labs.trends import (
     TrendDirection,
     _distance_outside,
     build_series,
+    classify,
     compute_flag,
     compute_trend,
     normalize_analyte,
     polarity,
+    qualitative_match,
 )
 
 
@@ -49,6 +51,39 @@ def p(day: int, value: float | None, low=None, high=None, analyte="Глюкоз�
 )
 def test_compute_flag(value, low, high, expected) -> None:
     assert compute_flag(value, low, high) == expected
+
+
+# --- qualitative_match / classify (smarter ❔ for non-numeric results) -----------
+
+
+@pytest.mark.parametrize(
+    ("value_text", "ref_text", "matches"),
+    [
+        ("білувато-сіруватий", "білувато-сіруватий, сіруватий", True),  # one of the options
+        ("специфічний", "специфічний", True),  # exact
+        ("поодинокі", "поодинокі або не виявлені", True),  # "або"-separated option
+        ("слабко виражена", "відсутня або слабко виражена", True),
+        ("не виявлені", "не виявлені", True),
+        ("у великій кількості", "у великій кількості", True),
+        ("виявлені", "не виявлені", False),  # negation must NOT be called normal
+        ("ізольована", "відсутня", False),  # abnormal -> stays unknown
+        ("в невеликій кількості", "не виявлений", False),
+        ("каламутна", None, False),  # no reference to match against
+        (None, "не виявлені", False),
+    ],
+)
+def test_qualitative_match(value_text, ref_text, matches) -> None:
+    assert qualitative_match(value_text, ref_text) is matches
+
+
+def test_classify_prefers_numeric_then_qualitative() -> None:
+    # Numeric still wins.
+    assert classify(7.0, None, 3.9, 6.1, None) == ResultFlag.HIGH
+    assert classify(5.0, None, 3.9, 6.1, None) == ResultFlag.NORMAL
+    # Qualitative match -> NORMAL; mismatch / negation -> UNKNOWN (never LOW/HIGH).
+    assert classify(None, "поодинокі", None, None, "поодинокі або не виявлені") == ResultFlag.NORMAL
+    assert classify(None, "виявлені", None, None, "не виявлені") == ResultFlag.UNKNOWN
+    assert classify(None, "каламутна", None, None, None) == ResultFlag.UNKNOWN
 
 
 # --- normalize + alias ----------------------------------------------------------
