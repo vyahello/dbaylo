@@ -43,34 +43,39 @@ Configured under **Settings → Secrets and variables → Actions** — never ha
 `.env`, the SQLite DB, stored lab files, and `venv/` are git-ignored, so `git reset --hard`
 never touches them — your data and config survive every deploy.
 
-## Off-box backups (encrypted)
+## Backups
 
-A nightly `systemd` timer snapshots the SQLite DB + the lab-files dir, **age-encrypts** the
-bundle to your public key, and uploads it via **rclone** — so losing the VPS disk doesn't lose
-your history, and a compromised box can't decrypt the backups (the private key lives off-box).
+A nightly `systemd` timer snapshots the SQLite DB (`sqlite3 .backup` — consistent even while the
+bot runs) + the lab-files dir, bundles them, and stores the archive via **rclone**. The same
+script does **local now** and **off-site later** — only `BACKUP_RCLONE_REMOTE` changes:
+
+- **Local (now):** `BACKUP_RCLONE_REMOTE=/home/cax/dbaylo-backups`. Protects against an accidental
+  delete, DB corruption, or a bad migration. ⚠️ **Not** disaster recovery — a dead disk loses both
+  the data and the backup.
+- **Off-site (later):** `rclone config` a remote (e.g. Backblaze B2), set
+  `BACKUP_RCLONE_REMOTE=b2:your-bucket/dbaylo`, and set `BACKUP_AGE_RECIPIENT` to an age/SSH **public**
+  key whose private key lives **off** the VPS → encrypted, survives losing the box.
 
 One-time setup on the VPS:
 
 ```bash
-sudo apt install -y rclone age sqlite3
-rclone config                       # add a Backblaze B2 remote (e.g. named "b2")
+sudo apt install -y rclone sqlite3          # + age, only if you set BACKUP_AGE_RECIPIENT
 # add to ~/dbaylo/.env:
-#   BACKUP_AGE_RECIPIENT=ssh-ed25519 AAAA...      # your SSH/age PUBLIC key
-#   BACKUP_RCLONE_REMOTE=b2:your-bucket/dbaylo
+#   BACKUP_RCLONE_REMOTE=/home/cax/dbaylo-backups
 #   BACKUP_RETENTION_DAYS=14
-bash deploy/setup-backup.sh         # installs + enables dbaylo-backup.timer (03:30 nightly)
-sudo systemctl start dbaylo-backup.service   # run one now; check it landed in B2
-journalctl -u dbaylo-backup -n 30 --no-pager
+#   BACKUP_AGE_RECIPIENT=                    # leave empty for plain .tar.gz; set to encrypt
+bash deploy/setup-backup.sh                  # installs + enables dbaylo-backup.timer (03:30 nightly)
+bash deploy/backup.sh                        # run one now (no sudo); check the archive appears
 ```
 
 **Restore (and verify):**
 
 ```bash
-rclone copy b2:your-bucket/dbaylo/dbaylo-YYYYMMDD-HHMMSS.tar.age .
-bash deploy/restore.sh dbaylo-YYYYMMDD-HHMMSS.tar.age   # decrypts, extracts, integrity_check
+# (off-site: rclone copy the archive down first)
+bash deploy/restore.sh dbaylo-YYYYMMDD-HHMMSS.tar.gz   # or .tar.age (needs your private key)
 ```
 
-`restore.sh` restores to a scratch dir and runs `PRAGMA integrity_check` + a row count **without**
+`restore.sh` extracts to a scratch dir and runs `PRAGMA integrity_check` + a row count **without**
 touching live data; it prints the exact commands to swap the restored copy in (stop bot → copy →
 start). Test a restore after the first backup so you know it works **before** you need it.
 
