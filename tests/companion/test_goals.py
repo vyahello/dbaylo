@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo.companion.goals import list_goals, parse_goal, set_goal
 from dbaylo.db.models import Goal, User
 from dbaylo.locale import GOAL_ACCEPTED
+from dbaylo.safety import GateSource
 from dbaylo.wellness import Concern
 
 
@@ -64,6 +65,22 @@ async def test_disordered_goal_text_is_supported_not_persisted(async_session: As
     result = await set_goal(async_session, user=user, text="хочу нічого не їсти цілими днями")
     assert not result.saved
     assert result.concern == Concern.SUPPORT
+    count = await async_session.scalar(select(func.count()).select_from(Goal))
+    assert count == 0
+
+
+async def test_goal_naming_a_red_flag_symptom_routes_to_triage(
+    async_session: AsyncSession,
+) -> None:
+    """A goal that mentions a red-flag symptom is a triage escalation, not stored."""
+    user = await _user(async_session)
+    result = await set_goal(
+        async_session, user=user, text="хочу схуднути, бо в мене температура і озноб"
+    )
+    assert not result.saved
+    assert result.source == GateSource.TRIAGE
+    assert result.concern is None  # medical escalation, not a wellness concern
+    assert "медичну" in result.message or "швидку" in result.message
     count = await async_session.scalar(select(func.count()).select_from(Goal))
     assert count == 0
 

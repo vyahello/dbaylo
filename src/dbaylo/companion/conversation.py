@@ -19,12 +19,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dbaylo import locale
-from dbaylo.companion.symptoms import triage_for_text
 from dbaylo.labs.extraction import Runner
 from dbaylo.llm import ClaudeUnavailable, run_claude
+from dbaylo.safety import screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
-from dbaylo.wellness import Concern
-from dbaylo.wellness import evaluate as guardrail_evaluate
 
 # Internal (English) persona for the companion LLM. Encodes the numeric boundary
 # and the no-fabricated-sources rule explicitly (an LLM told to "cite a source"
@@ -67,24 +65,13 @@ async def generate_reply(
     runner: Runner = run_claude,
     model: str | None = None,
 ) -> CompanionReply:
-    """Produce a companion reply, routing through the safety cores first."""
-    # 1. Symptoms -> deterministic triage (never the LLM).
-    outcome = triage_for_text(text)
-    if outcome is not None:
-        return CompanionReply(
-            text=assert_safe_output(f"{outcome.message}\n\n{outcome.disclaimer}"),
-            source="triage",
-        )
+    """Produce a companion reply, routing through the safety gate first."""
+    # 1–2. Symptoms -> triage, else the wellness guardrail (the canonical order).
+    decision = screen(text)
+    if decision.short_circuited:
+        return CompanionReply(text=decision.message, source=decision.source.value)
 
-    # 2. Disordered patterns / unsafe goals -> deterministic guardrail.
-    verdict = guardrail_evaluate(text=text)
-    if verdict.concern != Concern.OK:
-        return CompanionReply(
-            text=f"{verdict.message}\n\n{verdict.disclaimer}",
-            source="guardrail",
-        )
-
-    # 3. Otherwise -> the companion LLM, with a safe deterministic fallback.
+    # 3. Cleared -> the companion LLM, with a safe deterministic fallback.
     fallback = CompanionReply(
         text=_finalize(assert_safe_output(locale.COMPANION_FALLBACK)), source="fallback"
     )

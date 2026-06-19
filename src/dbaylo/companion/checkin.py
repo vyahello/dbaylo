@@ -23,8 +23,9 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion.symptoms import detect_symptoms, triage_for_text
+from dbaylo.companion.symptoms import detect_symptoms
 from dbaylo.db.models import CheckIn, User
+from dbaylo.safety import screen
 from dbaylo.triage.safety import assert_safe_output
 from dbaylo.triage.types import Symptom
 
@@ -108,10 +109,12 @@ class CheckInResult:
 async def process_checkin(
     session: AsyncSession, *, user: User, text: str, check_date: date | None = None
 ) -> CheckInResult:
-    """Persist a check-in and, if symptoms were mentioned, append triage guidance.
+    """Persist a check-in and append deterministic guidance if the gate escalates.
 
-    The triage message is produced entirely by the deterministic engine; the
-    companion never asks the LLM to decide escalation.
+    The reply runs through :func:`dbaylo.safety.gate.screen` — so a check-in that
+    mentions a red-flag symptom (triage) *or* a disordered-eating signal (wellness
+    guardrail) is surfaced, with triage winning when both appear. The escalation is
+    produced entirely by the deterministic cores; the LLM is never consulted here.
     """
     parsed = parse_checkin(text)
     row = CheckIn(
@@ -126,12 +129,12 @@ async def process_checkin(
     session.add(row)
     await session.flush()
 
-    outcome = triage_for_text(text)
-    if outcome is None:
+    decision = screen(text)
+    if decision.cleared:
         return CheckInResult(message=locale.CHECKIN_SAVED, escalated=False)
 
-    message = f"{locale.CHECKIN_SAVED}\n\n{outcome.message}\n\n{outcome.disclaimer}"
-    return CheckInResult(message=assert_safe_output(message), escalated=True)
+    message = assert_safe_output(f"{locale.CHECKIN_SAVED}\n\n{decision.message}")
+    return CheckInResult(message=message, escalated=True)
 
 
 async def has_checkin_on(session: AsyncSession, *, user_id: int, day: date) -> bool:

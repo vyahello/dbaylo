@@ -7,6 +7,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dbaylo import locale
 from dbaylo.companion.checkin import (
     build_prompt,
     has_checkin_on,
@@ -68,6 +69,33 @@ async def test_process_routes_symptoms_to_triage(async_session: AsyncSession) ->
     row = await async_session.scalar(select(CheckIn))
     assert row is not None and row.symptoms is not None
     assert "fever" in row.symptoms
+
+
+async def test_disordered_checkin_now_escalates(async_session: AsyncSession) -> None:
+    """Behavior change (Stage 3.5): a check-in now also runs the guardrail leg.
+
+    Previously the check-in had only a triage leg; routing it through the gate
+    closes the rail #6 gap (disordered-pattern signals in check-in text). No
+    regression — there was no guardrail outcome here to change.
+    """
+    user = await _user(async_session)
+    result = await process_checkin(async_session, user=user, text="я нічого не їм цілими днями")
+    assert result.escalated
+    assert locale.CHECKIN_SAVED in result.message
+    # The wellness SUPPORT message, not a triage one.
+    assert "фахівц" in result.message
+
+
+async def test_symptom_outranks_disordered_in_checkin(async_session: AsyncSession) -> None:
+    """Precedence: when both appear, triage (the medical red flag) wins."""
+    user = await _user(async_session)
+    result = await process_checkin(
+        async_session, user=user, text="температура й озноб, і нічого не їм"
+    )
+    assert result.escalated
+    # Triage guidance is surfaced; the guardrail leg never ran.
+    assert "медичну" in result.message or "швидку" in result.message
+    assert "фахівц" not in result.message
 
 
 async def test_single_no_nag_logic(async_session: AsyncSession) -> None:

@@ -1,9 +1,13 @@
-"""Symptom routing: deterministic free-text -> Symptom -> triage."""
+"""Symptom detection: deterministic free-text -> Symptom tokens.
+
+The symptom -> triage *escalation* now lives in ``dbaylo.safety.gate`` (see
+``tests/safety/test_gate.py``); this module only covers the keyword detection.
+"""
 
 from __future__ import annotations
 
-from dbaylo.companion.symptoms import detect_symptoms, triage_for_text
-from dbaylo.triage.types import Action, Symptom
+from dbaylo.companion.symptoms import detect_symptoms
+from dbaylo.triage.types import Symptom
 
 
 def test_detects_multiple_symptom_tokens() -> None:
@@ -19,16 +23,6 @@ def test_first_time_blood_adds_rule_bearing_token() -> None:
     found = detect_symptoms("вперше помітив кров у сечі")
     assert Symptom.BLOOD_IN_URINE in found
     assert Symptom.BLOOD_IN_URINE_FIRST_TIME in found
-
-
-def test_triage_for_text_escalates() -> None:
-    outcome = triage_for_text("температура, озноб і біль у боці")
-    assert outcome is not None
-    assert outcome.action == Action.EMERGENCY
-
-
-def test_triage_for_text_none_without_symptoms() -> None:
-    assert triage_for_text("хочу більше гуляти на свіжому повітрі") is None
 
 
 def test_purging_language_is_not_a_vomiting_symptom() -> None:

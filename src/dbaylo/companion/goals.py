@@ -20,8 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.db.models import Goal, GoalStatus, User
-from dbaylo.wellness import Concern, GoalSpec, GuardrailOutcome
-from dbaylo.wellness import evaluate as guardrail_evaluate
+from dbaylo.safety import GateSource, screen
+from dbaylo.wellness import Concern, GoalSpec
 
 _WEIGHT_LOSS_HINTS = (
     "схуд",
@@ -83,30 +83,43 @@ def parse_goal(text: str) -> GoalSpec:
 
 @dataclass(frozen=True)
 class GoalResult:
-    """What ``set_goal`` returns: the user-facing message and whether it was saved."""
+    """What ``set_goal`` returns: the message, whether it saved, and what decided it.
+
+    ``concern`` is the wellness verdict (OK / REDIRECT / SUPPORT). It is ``None`` when
+    a medical red flag short-circuited the goal — that path is a *triage* escalation,
+    not a wellness concern, and ``source`` is :data:`GateSource.TRIAGE`.
+    """
 
     message: str
     saved: bool
-    concern: Concern
+    source: GateSource
+    concern: Concern | None
 
 
 async def set_goal(session: AsyncSession, *, user: User, text: str) -> GoalResult:
-    """Validate a goal through the guardrail; persist only on an OK verdict."""
-    spec = parse_goal(text)
-    outcome: GuardrailOutcome = guardrail_evaluate(goal=spec, text=text)
+    """Validate a goal through the safety gate; persist only when it clears.
 
-    if not outcome.accepted:
-        # Redirect / support — do not store; the guardrail message guides the user.
+    The gate runs the full canonical order, so a goal that names a red-flag symptom
+    routes to triage (and is not stored), while an aggressive/disordered goal is
+    redirected by the wellness guardrail (also not stored). Only a cleared goal
+    persists.
+    """
+    spec = parse_goal(text)
+    decision = screen(text, goal=spec)
+
+    if decision.short_circuited:
+        # Triage or guardrail short-circuit — do not store; surface the guidance.
+        concern = decision.guardrail.concern if decision.guardrail is not None else None
         return GoalResult(
-            message=f"{outcome.message}\n\n{outcome.disclaimer}",
-            saved=False,
-            concern=outcome.concern,
+            message=decision.message, saved=False, source=decision.source, concern=concern
         )
 
     goal = Goal(user_id=user.id, type=spec.kind, target=text, status=GoalStatus.ACTIVE)
     session.add(goal)
     await session.flush()
-    return GoalResult(message=locale.GOAL_ACCEPTED, saved=True, concern=Concern.OK)
+    return GoalResult(
+        message=locale.GOAL_ACCEPTED, saved=True, source=decision.source, concern=Concern.OK
+    )
 
 
 async def list_goals(session: AsyncSession, *, user: User) -> str:

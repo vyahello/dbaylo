@@ -129,24 +129,33 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   fired one-off reminders are soft-deleted (`Reminder.active`). `next_run` is **not stored**
   (read from the built scheduler). `--dry-run` lists jobs without firing. Medication reminder
   text never carries a dose.
-- **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Routing is
-  symptoms→triage, then guardrail, then the LLM — only the last calls the model. Every reply
+- **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
   forbids fabricated sources/statistics and encodes the numeric boundary.
+- **Safety gate** (`safety/gate.py`, Stage 3.5): the **single sanctioned path from user text to
+  the LLM**. `screen(text, *, goal=None) -> GateDecision` encodes the one canonical order —
+  symptoms→triage, else wellness guardrail, else cleared→LLM (precedence: a symptom outranks a
+  disordered-eating signal; the chain short-circuits on the most acute match). All four entry
+  points (conversation, free-text, check-in, goals) route through it; nothing re-implements the
+  order inline. Pure orchestration — no LLM/DB/rules. An import-graph test
+  (`tests/safety/test_gate_is_choke_point.py`) fails if a future handler reaches `llm/client`
+  without the gate or imports an escalation entry point (`triage.evaluate`, `wellness.evaluate`)
+  directly. `companion/symptoms.py` now only *detects* tokens (`detect_symptoms`); the triage call
+  lives in the gate.
 
 ## Layout
 
 ```
-src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  labs/ (L2)
-             companion/ (L1 face: goals·checkin·reminders·scheduler·conversation·symptoms)
+src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
+             labs/ (L2)  companion/ (L1 face: goals·checkin·reminders·scheduler·conversation·symptoms)
              llm/ (claude subprocess)  db/  bot/  web/  locale.py  config.py
-migrations/  Alembic 0001..0003   tests/  triage/, labs/trends, wellness/ carry the highest bar
+migrations/  Alembic 0001..0003   tests/  triage/, labs/trends, wellness/, safety/ carry the highest bar
 ```
 
 ## Dev commands
 
 ```bash
-venv/bin/python -m pytest --cov   # tests + coverage (gate >= 90% on triage + labs.trends + wellness)
+venv/bin/python -m pytest --cov   # tests + coverage (gate >= 90% on triage·labs.trends·wellness·safety)
 venv/bin/ruff check src tests     # lint        venv/bin/ruff format src tests
 venv/bin/mypy                     # strict type check
 venv/bin/alembic upgrade head     # apply migrations to the DB

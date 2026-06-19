@@ -51,8 +51,8 @@ addopts = "-q"
 [tool.coverage.run]
 branch = true
 # The deterministic safety cores carry the highest bar: triage, the trend engine,
-# and the L1 wellness guardrail.
-source = ["dbaylo.triage", "dbaylo.labs.trends", "dbaylo.wellness"]
+# the L1 wellness guardrail, and the safety gate that composes them.
+source = ["dbaylo.triage", "dbaylo.labs.trends", "dbaylo.wellness", "dbaylo.safety"]
 
 [tool.coverage.report]
 show_missing = true

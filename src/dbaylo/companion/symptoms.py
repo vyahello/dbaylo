@@ -1,9 +1,10 @@
-"""Deterministic free-text -> Symptom routing (companion -> triage handoff).
+"""Deterministic free-text -> Symptom *detection* (the companion's keyword pass).
 
-The companion detects symptom *tokens* from Ukrainian free text and hands a
-:class:`SymptomReport` to the deterministic triage engine. The LLM never makes the
-escalation call — this keyword pass and ``triage.evaluate`` do, exactly as the
-discovery's rail demands.
+This module only turns Ukrainian free text into a set of :class:`Symptom` tokens;
+it does **not** call the triage engine. The symptom -> triage escalation lives in
+:mod:`dbaylo.safety.gate`, the single sanctioned choke-point. ``detect_symptoms``
+stays here because the check-in flow also uses it to *record* the symptom column
+(not to escalate).
 
 The keyword map (``locale.SYMPTOM_KEYWORDS``) is limited and extensible, and is
 kept disjoint from the wellness purging signals so triage's earlier pass cannot
@@ -13,8 +14,7 @@ mask a purging signal (see ``locale`` for the note).
 from __future__ import annotations
 
 from dbaylo import locale
-from dbaylo.triage import evaluate
-from dbaylo.triage.types import Symptom, SymptomReport, TriageOutcome
+from dbaylo.triage.types import Symptom
 
 
 def detect_symptoms(text: str) -> frozenset[Symptom]:
@@ -32,16 +32,3 @@ def detect_symptoms(text: str) -> frozenset[Symptom]:
         found.add(Symptom.BLOOD_IN_URINE_FIRST_TIME)
 
     return frozenset(found)
-
-
-def triage_for_text(text: str) -> TriageOutcome | None:
-    """Route free text to triage; ``None`` when no symptom token is detected.
-
-    When something is detected, the returned outcome is produced entirely by the
-    deterministic engine — the companion surfaces it verbatim and does not call
-    the LLM for that turn.
-    """
-    symptoms = detect_symptoms(text)
-    if not symptoms:
-        return None
-    return evaluate(SymptomReport(symptoms))
