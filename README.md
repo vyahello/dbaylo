@@ -117,7 +117,7 @@ httpx. Lean deps; config is hand-rolled with python-dotenv. Every user-facing st
 
 Push to `main` → CI runs `ruff` + `mypy` + `pytest`, and on green **rsyncs to the VPS and restarts
 the bot**. See [`deploy/README.md`](deploy/README.md) for the one-time VPS setup, the required
-GitHub secrets, and the optional webhook + TLS (Let's Encrypt) path for `dbaylo.duckdns.org`.
+GitHub secrets, and the optional webhook + TLS (Let's Encrypt) path for your own domain.
 
 ## License
 

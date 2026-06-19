@@ -14,8 +14,8 @@ attention) but never prescribes or diagnoses.
 - **Bot (display name):** Дбайло — coined from "дбати" (to care / look after): "the one who
   cares for you." Warm, distinctly Ukrainian, on-brand with Комунальний Дворецький, and with
   zero medical overclaim (deliberately NOT "Лікар/Доктор").
-- **Repo:** `dbaylo` — transliteration, mirroring the `dvoretskyi` (Communal Butler) convention.
-- **Domain:** `dbaylo.duckdns.org` — mirroring `dvoretskyi.duckdns.org` on the Hetzner VPS.
+- **Repo:** `dbaylo` — transliteration of the bot's name.
+- **Domain:** a domain you control (kept out of the repo; configured via env/secrets).
 - **Telegram handle:** register whatever is free, e.g. `@DbayloBot` / `@dbaylo_bot`.
 - Alternatives considered: **Здоровань** (strength/health buddy), **Опора** (reliable support),
   **Пульс** (monitoring feel).
@@ -125,7 +125,7 @@ Trends are computed from the LabResult series at query time — never stored as 
 - Claude vision via `claude` binary subprocess (Claude Code OAuth — **not** the Anthropic SDK)
 - Pillow only if image prep is needed
 - Lean deps, English-only code
-- Deploy: Hetzner VPS, `dbaylo.duckdns.org`, webhook pattern (same as Communal Butler)
+- Deploy: a VPS (host/domain kept out of the repo — see `deploy/`), webhook pattern
 
 ## Verified data sources
 - **Med prices:** Tabletki.ua, Apteki.ua, Doc.ua/apteka, mypharmacy.com.ua

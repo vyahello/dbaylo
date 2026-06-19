@@ -52,6 +52,6 @@ Done. For CI auto-deploy, allow the deploy user to restart without a password:
   echo '${RUN_USER} ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart dbaylo-bot.service' \\
     | sudo tee /etc/sudoers.d/dbaylo
 
-The webhook (dbaylo-web) needs HTTPS — set up nginx + certbot for dbaylo.duckdns.org,
+The webhook (dbaylo-web) needs HTTPS — set up nginx + certbot for a domain you control,
 then create a dbaylo-web.service and set WEBHOOK_BASE_URL in .env. See deploy/README.md.
 NOTE

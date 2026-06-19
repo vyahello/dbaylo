@@ -10,7 +10,7 @@ On the VPS, as the deploy user:
 ```bash
 sudo apt update && sudo apt install -y python3.12 python3.12-venv git rsync
 mkdir -p ~/dbaylo && cd ~/dbaylo          # this is your VPS_APP_DIR
-git clone https://github.com/vyahello/dbaylo.git .   # or let CI rsync the first push
+git clone <your-repo-url> .                # or let CI rsync the first push
 cp .env.example .env && nano .env          # fill BOT_TOKEN (at least)
 bash deploy/setup-vps.sh                    # venv + migrate + install & enable the systemd unit
 ```
@@ -42,13 +42,13 @@ from rsync and protected from `--delete`).
 ## Webhook + TLS (optional, later)
 
 The bot runs fine via **long polling** with no public URL or certificate. To switch to
-the webhook (`dbaylo.duckdns.org` is live but currently has no cert):
+the webhook, point a domain you control at the VPS, then:
 
 ```bash
 sudo apt install -y nginx certbot python3-certbot-nginx
-sudo certbot --nginx -d dbaylo.duckdns.org     # issue + auto-renew the cert
+sudo certbot --nginx -d your-domain.example    # issue + auto-renew the cert
 ```
 
-Point nginx at `127.0.0.1:8000` (the `dbaylo-web` bind), set `WEBHOOK_BASE_URL=https://dbaylo.duckdns.org`
+Point nginx at `127.0.0.1:8000` (the `dbaylo-web` bind), set `WEBHOOK_BASE_URL=https://your-domain.example`
 in `.env`, add a `dbaylo-web.service` (uvicorn via `venv/bin/dbaylo-web`), and disable
 `dbaylo-bot` (don't run both). Telegram requires HTTPS for webhooks, so the cert is mandatory there.
