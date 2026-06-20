@@ -50,6 +50,26 @@ def test_disclaimer_set_off_as_single_italic_ps() -> None:
     assert out.rstrip().endswith("</i>")
 
 
+def test_inline_bold_and_italic_markers_become_tags() -> None:
+    text = (
+        f"{locale.INTERPRET_SECTION_ATTENTION}\n"
+        "• *АЛТ 63 Од/л* — підвищений. _не гостро, але варто перевірити_\n\n"
+        f"{DISCLAIMER}"
+    )
+    out = render_interpretation_html(text)
+    assert "<b>АЛТ 63 Од/л</b>" in out
+    assert "<i>не гостро, але варто перевірити</i>" in out
+    assert "*" not in out.split(locale.INTERPRET_DIVIDER)[0]  # markers consumed in the body
+
+
+def test_markers_around_a_dangerous_char_stay_safe() -> None:
+    # A bold span containing '<' must still be escaped (tag injected around &lt;, never a real <).
+    text = f"{locale.INTERPRET_SECTION_OVERALL}\n• *Лейкоцити < 5* — норма\n\n{DISCLAIMER}"
+    out = render_interpretation_html(text)
+    assert "<b>Лейкоцити &lt; 5</b>" in out
+    assert "< 5" not in out
+
+
 def test_body_is_html_escaped_so_a_stray_angle_bracket_cannot_break_parsing() -> None:
     # A real lab value can read "< 5"; HTML mode must see it escaped, never as a tag.
     text = f"{locale.INTERPRET_SECTION_OVERALL}\n• Лейкоцити < 5 & в нормі.\n\n{DISCLAIMER}"

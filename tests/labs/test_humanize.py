@@ -130,6 +130,13 @@ async def test_interpret_falls_back_on_forbidden_phrase() -> None:
     assert contains_forbidden_reassurance(out) is None
 
 
+async def test_interpret_guard_sees_through_markup() -> None:
+    # A forbidden phrase must not slip past by hiding a *bold* marker inside it.
+    out = await interpret(_report(), _summaries(), runner=_runner("Усе *добре*, не хвилюйся!"))
+    assert "добре" not in out  # tripped the guard despite the marker -> deterministic fallback
+    assert contains_forbidden_reassurance(out) is None
+
+
 async def test_interpret_falls_back_when_claude_unavailable() -> None:
     async def boom(*args, **kwargs):
         raise ClaudeUnavailable("no binary")

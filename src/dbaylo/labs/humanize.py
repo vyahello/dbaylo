@@ -30,6 +30,13 @@ HUMANIZE_PERSONA = (
 )
 
 
+def strip_markup(text: str) -> str:
+    """Drop the light *bold*/_italic_ markers, leaving clean prose. Used by the safety guard
+    (so a forbidden phrase can't hide behind a marker) and by the plain ``/history`` rendering;
+    the Telegram renderer (``bot.formatting``) is what turns the markers into real bold/italic."""
+    return text.replace("*", "").replace("_", "")
+
+
 def _movement_phrase(summary: TrendSummary) -> str:
     return locale.TREND_PHRASES.get(summary.direction.name, "")
 
@@ -94,23 +101,29 @@ INTERPRET_PERSONA = (
     "apart — a name in two panels, e.g. Глюкоза/Лейкоцити, is two different things). For each: "
     "what it MAY indicate ('може свідчити про…', cautious, never a definite diagnosis); HOW "
     "concerning it is (likely minor / worth watching / worth prompt attention); and what it can "
-    "lead to if left unaddressed. Group related flags (e.g. білірубін + АЛТ → печінка; "
-    "холестерин + ЛПНЩ → ліпіди) so the user sees the picture, not 14 isolated facts.\n"
+    "lead to if left unaddressed. Group related flags under a short *bold sub-heading* per system "
+    "on its own line (e.g. *Печінка та жовч*: білірубін + АЛТ; *Ліпіди*: холестерин + ЛПНЩ) so the "
+    "user sees the picture, not 14 isolated facts.\n"
     f"  · '{locale.INTERPRET_SECTION_HELP}': concrete, practical lifestyle & nutrition guidance "
-    "tailored to the flagged items — name SPECIFIC foods to favour and to limit, plus sleep, "
-    "movement, hydration, alcohol, stress. QUALITATIVE only: NO calorie/macro/fasting numbers and "
-    "NO medication/supplement dose.\n"
+    "tailored to the flagged items, under the same *bold sub-headings* — name SPECIFIC foods to "
+    "favour and to limit, plus sleep, movement, hydration, alcohol, stress. QUALITATIVE only: NO "
+    "calorie/macro/fasting numbers and NO medication/supplement dose.\n"
     f"  · '{locale.INTERPRET_SECTION_DOCTOR}': whether and how soon to see a doctor (and the "
     "specialty if obvious — e.g. гастроентеролог/терапевт), and what to ask or recheck.\n"
-    "Use '• ' at the start of each bullet line. "
+    "Use '• ' at the start of each bullet line. Write in warm, PLAIN language an ordinary person "
+    "understands — short sentences; explain any term in plain words or in parentheses.\n"
+    "FORMATTING (light, to guide the eye — a few per section, never on every word): wrap a key "
+    "term in single *asterisks* for bold — the analyte with its value (e.g. *АЛТ 63 Од/л*), small "
+    "sub-headings above, and the bottom-line verdict; wrap a gentle caveat or the 'how serious' "
+    "note in _underscores_ for italic (e.g. _не гостро, але варто з'ясувати причину_). Do NOT mark "
+    "up the four section headers. Use NO other markup (no **double**, no #, no ---, no backticks, "
+    "no < > / HTML tags).\n"
     "Be concrete and genuinely useful, but careful. NEVER: a definitive diagnosis; a medication, "
     "supplement, or any dose; calorie/macro/fasting numbers; fabricated studies, sources, or "
     "statistics. NEVER tell the user not to worry or that they can skip a doctor, and do not use "
     "the phrases 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', "
     "'нічого страшного' — describe the data instead. Do NOT add your own disclaimer or any "
-    "'я не лікар' / 'це не медичний висновок' line — that is appended automatically. PLAIN TEXT "
-    "ONLY — no markdown at all (no **, *, _, #, ---, backticks, < or > tags); the headers are "
-    "styled for you. Telegram shows your text verbatim."
+    "'я не лікар' / 'це не медичний висновок' line — that is appended automatically."
 )
 
 
@@ -204,11 +217,14 @@ async def interpret(
         return _finalize(fallback)
     if not result.ok or not result.text.strip():
         return _finalize(fallback)
+    body = result.text.strip()
     try:
-        safe_body = assert_safe_output(result.text.strip())
+        # Guard the VISIBLE text: strip the *bold*/_italic_ markers first so a forbidden phrase
+        # can't slip past by hiding a marker inside it (e.g. "все *добре*").
+        assert_safe_output(strip_markup(body))
     except ValueError:
         return _finalize(fallback)
-    return _finalize(safe_body)
+    return _finalize(body)
 
 
 async def humanize(

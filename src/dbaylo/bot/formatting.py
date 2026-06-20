@@ -12,6 +12,7 @@ plain; it never produces a broken send.
 from __future__ import annotations
 
 import html
+import re
 
 from aiogram.types import InlineKeyboardMarkup, Message
 
@@ -39,14 +40,26 @@ _SECTIONS: dict[str, tuple[str, str]] = {
     ),
 }
 
-# Leading/trailing chrome a header line may carry (numbering, colon, dash, bullet).
-_HEADER_CHROME = " \t:：.—–-•·"
+# Leading/trailing chrome a header line may carry (numbering, colon, dash, bullet, our markers).
+_HEADER_CHROME = " \t:：.—–-•·*_"
+
+# Light inline markup the interpretation model may emit: *bold* and _italic_, for the analyte+value,
+# small sub-headings, and gentle caveats. We convert these to HTML tags AFTER escaping the text, so
+# the only angle brackets in the final string are the ones we inject — a stray '<' in lab data can
+# never break Telegram's parser. Non-greedy and single-line, so an unbalanced marker stays literal.
+_BOLD_RE = re.compile(r"\*([^*\n]+)\*")
+_ITALIC_RE = re.compile(r"_([^_\n]+)_")
 
 
 def _escape(text: str) -> str:
     # quote=False: this is message *body* text, never an attribute, so apostrophes/quotes
     # (e.g. "об'єднує") must pass through literally — &#x27; would render verbatim in Telegram.
     return html.escape(text, quote=False)
+
+
+def _inline_markup(escaped: str) -> str:
+    """Convert *bold* / _italic_ markers to HTML tags. Run on already-escaped text."""
+    return _ITALIC_RE.sub(r"<i>\1</i>", _BOLD_RE.sub(r"<b>\1</b>", escaped))
 
 
 def _match_header(line: str) -> tuple[str, str] | None:
@@ -57,8 +70,8 @@ def _match_header(line: str) -> tuple[str, str] | None:
 def render_interpretation_html(text: str) -> str:
     """Render the plain ``interpret()`` output (body + trailing ``DISCLAIMER``) as Telegram HTML.
 
-    Section headers become bold + emoji; the disclaimer is set off as an italic P.S. under a
-    divider (a single disclaimer — the model is told not to add its own).
+    Section headers become bold + emoji; inline *bold*/_italic_ markers become tags; the disclaimer
+    is set off as an italic P.S. under a divider (a single disclaimer — the model adds none).
     """
     body = text
     if body.endswith(DISCLAIMER):
@@ -71,21 +84,24 @@ def render_interpretation_html(text: str) -> str:
             emoji, display = match
             rendered.append(f"{emoji} <b>{_escape(display)}</b>")
         else:
-            rendered.append(_escape(line))
+            rendered.append(_inline_markup(_escape(line)))
 
     out = "\n".join(rendered).rstrip()
     ps = f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(DISCLAIMER)}</i>"
     return f"{out}\n\n{ps}"
 
 
-# A line that begins a section: a panel header ("▸ …") in the confirm/results view, or a bold
-# header ("… <b>Загалом</b>") in the interpretation. We split BETWEEN sections, never mid-section,
-# so a header is never orphaned from its rows in a separate message.
+# A line that begins a section: a panel header ("▸ …") in the confirm/results view, or one of the
+# interpretation's emoji headers ("🩺 <b>Загалом</b>", …). We split BETWEEN sections, never mid-
+# section, so a header is never orphaned from its rows in a separate message. (Inline *bold* in a
+# body line is NOT a section start — only these markers are.)
 _PANEL_PREFIX = locale.LAB_SECTION_HEADER.split("{", 1)[0].strip()
+_SECTION_EMOJIS = tuple({emoji for emoji, _ in _SECTIONS.values()})
 
 
 def _is_section_start(line: str) -> bool:
-    return line.lstrip().startswith(_PANEL_PREFIX) or "<b>" in line
+    stripped = line.lstrip()
+    return stripped.startswith(_PANEL_PREFIX) or stripped.startswith(_SECTION_EMOJIS)
 
 
 def _section_blocks(text: str) -> list[str]:

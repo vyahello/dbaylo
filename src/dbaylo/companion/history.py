@@ -32,6 +32,7 @@ from dbaylo.db.models import (
     ReportStatus,
 )
 from dbaylo.labs.charts import render_trend_chart
+from dbaylo.labs.humanize import strip_markup
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
@@ -274,7 +275,9 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
                 f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
             )
     if report.summary:  # the saved expert interpretation (already safe + has the disclaimer)
-        lines += ["", report.summary]
+        # The summary carries *bold*/_italic_ markers for the rich confirm-time render; /history
+        # shows it as a plain block, so strip the markers (no raw '*'/'_' shown to the user).
+        lines += ["", strip_markup(report.summary)]
     return assert_safe_output("\n".join(lines))
 
 
