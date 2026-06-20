@@ -66,8 +66,13 @@ class Settings:
     claude_extract_concurrency: int = 2
     # The expert interpretation (Stage 5) writes a full multi-section reading of every flagged
     # analyte — for a big panel that is far more than a chat turn, so it gets its own, larger
-    # timeout. Too small and the LLM reading times out and silently degrades to the bare list.
+    # timeout (per SECTION). Too small and a section times out and degrades to a deterministic line.
     claude_interpret_timeout_s: int = 600
+    # The four interpretation sections (Загалом / Варто звернути увагу / Що допоможе / Коли до
+    # лікаря) are generated as concurrent `claude` calls. Each uses ~470 MB, so cap how many run
+    # at once — 3 fits a small (~4 GB) VPS (~1.4 GB) and cuts the wait by ~40%; raise it on a
+    # bigger box (4 = all sections at once ≈ slowest single section).
+    claude_interpret_concurrency: int = 3
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -89,6 +94,7 @@ class Settings:
             claude_extract_timeout_s=int(_get("CLAUDE_EXTRACT_TIMEOUT_S", "600")),
             claude_extract_concurrency=int(_get("CLAUDE_EXTRACT_CONCURRENCY", "2")),
             claude_interpret_timeout_s=int(_get("CLAUDE_INTERPRET_TIMEOUT_S", "600")),
+            claude_interpret_concurrency=int(_get("CLAUDE_INTERPRET_CONCURRENCY", "3")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

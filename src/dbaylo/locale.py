@@ -249,6 +249,14 @@ LAB_INTERPRET_FLAGGED_ITEM = "• {analyte}: {value}"
 LAB_INTERPRET_ASK_DOCTOR = (
     "Найкраще обговорити повну картину з лікарем — він зможе оцінити її разом із твоєю історією."
 )
+# Per-section deterministic fragments — used when ONE parallel section fails (the rest stay LLM).
+LAB_INTERPRET_OVERALL_ATTENTION = (
+    "Частина показників — поза межами норми. Деталі нижче, у розділі «Варто звернути увагу»."
+)
+LAB_INTERPRET_HELP_GENERIC = (
+    "Загальні орієнтири: збалансоване харчування, достатньо води, повноцінний сон і регулярний "
+    "рух. Конкретні зміни варто обговорити з лікарем."
+)
 # Shown the moment the user confirms a report — the expert interpretation runs an LLM and can
 # take a while, so we acknowledge immediately instead of leaving a silent gap.
 LAB_INTERPRET_WORKING = "Готую розбір показників і рекомендації — це може зайняти трохи часу… ⏳"

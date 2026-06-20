@@ -10,6 +10,10 @@ disclaimer is always appended.
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass
+
 from dbaylo import locale
 from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
@@ -190,6 +194,188 @@ def deterministic_interpretation(report: ExtractedReport) -> str:
     return "\n".join(lines).strip()
 
 
+# --- Stage 5 (parallel): one focused call per section, run concurrently --------------
+# A full reading of an 85-row panel in a single call generates thousands of tokens serially
+# (~5–6 min). Splitting it into the four sections — each a smaller, focused call — and running
+# them concurrently roughly halves the wait, and a hiccup in one section no longer costs the
+# whole reading (that section falls back to a deterministic line; the rest stay LLM).
+
+# Shared base persona; each section appends its own task. It produces ONLY that section's body
+# (no header — we add the canonical one) so the four assemble into the same shape as before.
+_SECTION_BASE_PERSONA = (
+    "You are Дбайло, a careful, honest health companion — NOT a doctor, but you give an "
+    "expert-level reading of the user's OWN lab report. You are given a table of results with the "
+    "lab's own ATTENTION marks, grouped by panel. Reply EXCLUSIVELY in natural, correct Ukrainian, "
+    "and output ONLY the body for the ONE section described at the end — no header line, no other "
+    "section, no preamble, no sign-off. Write in warm, PLAIN language an ordinary person "
+    "understands: short sentences; explain any term in parentheses; use '• ' for bullet lines. "
+    "FORMATTING (light, a few per section): wrap a key term in single *asterisks* for bold (an "
+    "analyte with its value, e.g. *АЛТ 63 Од/л*; a small sub-heading; the verdict) and a gentle "
+    "caveat in _underscores_ for italic. No other markup (no **double**, #, ---, backticks, < >). "
+    "Keep panels apart — a name in two panels (Глюкоза/Лейкоцити) is two different things. "
+    "NEVER: a definitive diagnosis; a medication, supplement, or any dose; calorie/macro/fasting "
+    "numbers; fabricated studies/sources/statistics. NEVER tell the user not to worry or that they "
+    "can skip a doctor; do not use 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', "
+    "'не хвилюйся', 'нічого страшного'. Do NOT add a disclaimer or 'я не лікар' line.\n"
+    "THE SECTION TO WRITE — "
+)
+
+
+@dataclass(frozen=True)
+class _Section:
+    header: str
+    instruction: str
+    fallback: Callable[[ExtractedReport], str]
+
+
+def _overall_fallback(report: ExtractedReport) -> str:
+    if report.conclusion:
+        return report.conclusion
+    return (
+        locale.LAB_INTERPRET_OVERALL_ATTENTION
+        if report.flagged_results()
+        else locale.LAB_INTERPRET_ALL_NORMAL
+    )
+
+
+def _attention_fallback(report: ExtractedReport) -> str:
+    flagged = report.flagged_results()
+    if not flagged:
+        return locale.LAB_INTERPRET_ALL_NORMAL
+    return "\n".join(
+        locale.LAB_INTERPRET_FLAGGED_ITEM.format(analyte=a.analyte, value=a.display_value())
+        for a in flagged
+    )
+
+
+_SECTION_SPECS: tuple[_Section, ...] = (
+    _Section(
+        locale.INTERPRET_SECTION_OVERALL,
+        "the big picture in two or three lines, in DATA terms, and plainly whether it looks "
+        "broadly reassuring or warrants attention. If the report mixes panels (blood vs urine), "
+        "note each briefly. If nothing is marked ATTENTION, say the results are within range; "
+        "reflect any printed conclusion.",
+        _overall_fallback,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_ATTENTION,
+        "ONLY the rows marked ATTENTION, grouped under a short *bold sub-heading* per system (e.g. "
+        "*Печінка та жовч*: білірубін + АЛТ; *Ліпіди*: холестерин + ЛПНЩ). For each: what it MAY "
+        "indicate ('може свідчити про…', cautious, never a definite diagnosis); HOW concerning it "
+        "is (minor / worth watching / worth prompt attention); and what it can lead to if left "
+        "unaddressed. If NO row is marked ATTENTION, write one short line that the values are "
+        "within range.",
+        _attention_fallback,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_HELP,
+        "practical lifestyle & nutrition guidance for the flagged items, under the same *bold "
+        "sub-headings* — name SPECIFIC foods to favour and to limit, plus sleep, movement, "
+        "hydration, alcohol, stress. QUALITATIVE only: NO calorie/macro/fasting numbers and NO "
+        "medication/supplement dose. If nothing is flagged, give a brief general healthy-living "
+        "orientation.",
+        lambda _report: locale.LAB_INTERPRET_HELP_GENERIC,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_DOCTOR,
+        "whether and how soon to see a doctor (and the specialty if obvious — e.g. "
+        "гастроентеролог/терапевт), and what to ask or recheck. If nothing is flagged, a brief "
+        "routine note.",
+        lambda _report: locale.LAB_INTERPRET_ASK_DOCTOR,
+    ),
+)
+
+
+async def _run_guarded(
+    table: str, persona: str, *, runner: Runner, model: str | None
+) -> str | None:
+    """One interpretation call with a single retry; ``None`` if it can't produce safe text.
+
+    Retries a transient failure (a one-off ``ok=False``) or a generation that trips the safety
+    guard; does NOT retry a real timeout (that would only time out again).
+    """
+    for _attempt in range(2):
+        try:
+            result = await runner(
+                table,
+                append_system_prompt=persona,
+                model=model,
+                timeout_s=get_settings().claude_interpret_timeout_s,
+            )
+        except ClaudeUnavailable:
+            return None
+        if not result.ok or not result.text.strip():
+            if result.error == "timeout":
+                return None
+            continue
+        body = result.text.strip()
+        try:
+            # Guard the VISIBLE text: strip *bold*/_italic_ markers so a forbidden phrase can't
+            # slip past by hiding a marker inside it (e.g. "все *добре*").
+            assert_safe_output(strip_markup(body))
+        except ValueError:
+            continue
+        return body
+    return None
+
+
+async def _interpret_section(
+    table: str,
+    spec: _Section,
+    report: ExtractedReport,
+    *,
+    runner: Runner,
+    model: str | None,
+    sem: asyncio.Semaphore,
+) -> tuple[str, bool]:
+    """Return ``(header + body, from_llm)`` for one section; a failed section uses its
+    deterministic fallback so the rest of the reading still stands."""
+    async with sem:  # cap concurrent `claude` processes (memory-bound)
+        body = await _run_guarded(
+            table, _SECTION_BASE_PERSONA + spec.instruction, runner=runner, model=model
+        )
+    if body is None:
+        return f"{spec.header}\n{spec.fallback(report)}", False
+    return f"{spec.header}\n{body}", True
+
+
+async def _interpret_parallel(
+    report: ExtractedReport,
+    summaries: list[TrendSummary],
+    fallback: str,
+    *,
+    runner: Runner,
+    model: str | None,
+) -> str:
+    table = _interpret_table(report, summaries)
+    sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
+    sections = await asyncio.gather(
+        *(
+            _interpret_section(table, spec, report, runner=runner, model=model, sem=sem)
+            for spec in _SECTION_SPECS
+        )
+    )
+    if not any(from_llm for _, from_llm in sections):
+        # Every section failed — the LLM is effectively down; one clean fallback beats four stubs.
+        return _finalize(fallback)
+    return _finalize("\n\n".join(text for text, _ in sections))
+
+
+async def _interpret_single(
+    report: ExtractedReport,
+    summaries: list[TrendSummary],
+    fallback: str,
+    *,
+    runner: Runner,
+    model: str | None,
+) -> str:
+    """Single-call reading (whole document at once) — used for a narrative report, where the
+    four-section split does not apply."""
+    table = _interpret_table(report, summaries)
+    body = await _run_guarded(table, INTERPRET_PERSONA, runner=runner, model=model)
+    return _finalize(body if body is not None else fallback)
+
+
 async def interpret(
     report: ExtractedReport,
     summaries: list[TrendSummary],
@@ -199,41 +385,14 @@ async def interpret(
 ) -> str:
     """An expert-level Ukrainian reading of a confirmed report, guaranteed safe.
 
-    The model interprets the values (using the lab's own flags) + the deterministic trends and
-    gives practical guidance; every output passes ``assert_safe_output`` and gets the disclaimer.
-    The full reading is the WHOLE point — the bare deterministic list is a poor substitute — so a
-    transient hiccup (a one-off ``ok=False`` from API overload / an interrupted call, or a single
-    generation that trips the guard) is **retried once** before degrading. A genuine *timeout* is
-    NOT retried (it would only time out again and double the wait), and an unavailable binary
-    falls back at once.
+    A tabular report's four sections are generated as concurrent, focused calls (faster, and a
+    hiccup costs only one section); a narrative document is read in a single call. Every section
+    passes ``assert_safe_output`` (with a deterministic fallback) and the disclaimer is appended.
     """
     fallback = assert_safe_output(deterministic_interpretation(report))
-    table = _interpret_table(report, summaries)
-    for _attempt in range(2):  # one retry: the rich reading matters more than failing fast
-        try:
-            result = await runner(
-                table,
-                append_system_prompt=INTERPRET_PERSONA,
-                model=model,
-                # A full reading of a big panel takes far longer than a chat turn; without its own
-                # timeout the call hits the 180s default and silently degrades to the bare list.
-                timeout_s=get_settings().claude_interpret_timeout_s,
-            )
-        except ClaudeUnavailable:
-            return _finalize(fallback)
-        if not result.ok or not result.text.strip():
-            if result.error == "timeout":  # a real timeout — retrying just doubles the wait
-                return _finalize(fallback)
-            continue  # transient failure (overload / interrupted) — try once more
-        body = result.text.strip()
-        try:
-            # Guard the VISIBLE text: strip the *bold*/_italic_ markers first so a forbidden phrase
-            # can't slip past by hiding a marker inside it (e.g. "все *добре*").
-            assert_safe_output(strip_markup(body))
-        except ValueError:
-            continue  # this generation tripped the guard — a fresh one usually passes
-        return _finalize(body)
-    return _finalize(fallback)
+    if report.is_narrative:
+        return await _interpret_single(report, summaries, fallback, runner=runner, model=model)
+    return await _interpret_parallel(report, summaries, fallback, runner=runner, model=model)
 
 
 async def humanize(

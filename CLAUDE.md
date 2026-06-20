@@ -137,9 +137,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (**specific foods to favour/avoid**), and whether/how soon to see which doctor. Every output passes
   `assert_safe_output` (so no dose / restrictive-diet numbers / "skip the doctor" — and normalcy is
   phrased "у межах норми", never the forbidden "все добре") + disclaimer, with a deterministic
-  fallback. The summary is stored on `LabReport`. **A full reading of a big panel exceeds a chat turn,
-  so it has its own `CLAUDE_INTERPRET_TIMEOUT_S` (600s) — too short and the LLM reading silently
-  degrades to the bare flagged list.** Rows are fed **grouped by panel** (`ExtractedAnalyte.section`
+  fallback. The summary is stored on `LabReport`. **The four sections are generated as concurrent,
+  focused `claude` calls** (`_interpret_parallel`, cap `CLAUDE_INTERPRET_CONCURRENCY`=3, per-section
+  `CLAUDE_INTERPRET_TIMEOUT_S`=600) — ~40% faster than one serial call, and a hiccup costs only ONE
+  section (it uses a deterministic fragment; the rest stay LLM). `_run_guarded` **retries once** on a
+  transient `ok=False` or a guard-trip (a real timeout is not retried); only if EVERY section fails
+  does it return the unified deterministic fallback. A **narrative** report keeps the single-call
+  path (`_interpret_single`). Output carries light `*bold*`/`_italic_` markup → real `<b>`/`<i>` via
+  `bot.formatting` (converted AFTER HTML-escaping; the guard reads the marker-stripped text so a
+  forbidden phrase can't hide behind one; `/history` shows it stripped). Rows are fed **grouped by
+  panel** (`ExtractedAnalyte.section`
   / `LabResult.section`, migration 0009): a combined blood+urine report keeps its groups apart in the
   confirm view, `/history`, and the interpretation, so a name in two panels (Глюкоза, Лейкоцити) is
   never confused.

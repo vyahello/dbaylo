@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from datetime import date
 
-from dbaylo.labs.humanize import deterministic_summary, humanize, interpret
+from dbaylo import locale
+from dbaylo.labs.humanize import _run_guarded, deterministic_summary, humanize, interpret
 from dbaylo.labs.trends import LabPoint, compute_trend
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable
 from dbaylo.triage.safety import DISCLAIMER, contains_dose_directive, contains_forbidden_reassurance
@@ -137,9 +138,9 @@ async def test_interpret_guard_sees_through_markup() -> None:
     assert contains_forbidden_reassurance(out) is None
 
 
-async def test_interpret_retries_once_on_a_transient_failure() -> None:
+async def test_run_guarded_retries_once_on_a_transient_failure() -> None:
     calls: list[int] = []
-    good = "Загалом показники в межах норми. Варто обговорити з лікарем за потреби."
+    good = "Загалом показники в межах норми."
 
     async def flaky(*args, **kwargs) -> ClaudeResult:
         calls.append(1)
@@ -147,20 +148,45 @@ async def test_interpret_retries_once_on_a_transient_failure() -> None:
             return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=1, error="overloaded")
         return ClaudeResult(ok=True, text=good, raw_stdout=good, exit_code=0)
 
-    out = await interpret(_report(), _summaries(), runner=flaky)
-    assert good in out and len(calls) == 2  # retried, then delivered the real reading
+    body = await _run_guarded("table", "persona", runner=flaky, model=None)
+    assert body == good and len(calls) == 2  # retried, then succeeded
 
 
-async def test_interpret_does_not_retry_a_timeout() -> None:
+async def test_run_guarded_does_not_retry_a_timeout() -> None:
     calls: list[int] = []
 
     async def timed_out(*args, **kwargs) -> ClaudeResult:
         calls.append(1)
         return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=None, error="timeout")
 
-    out = await interpret(_report(conclusion="Нормозооспермія"), _summaries(), runner=timed_out)
-    assert "Нормозооспермія" in out  # deterministic fallback
+    assert await _run_guarded("table", "persona", runner=timed_out, model=None) is None
     assert len(calls) == 1  # a real timeout is NOT retried (it would just time out again)
+
+
+async def test_interpret_tabular_assembles_all_four_sections() -> None:
+    out = await interpret(_report(flagged=True), _summaries(), runner=_runner("Текст розділу."))
+    for header in (
+        locale.INTERPRET_SECTION_OVERALL,
+        locale.INTERPRET_SECTION_ATTENTION,
+        locale.INTERPRET_SECTION_HELP,
+        locale.INTERPRET_SECTION_DOCTOR,
+    ):
+        assert header in out
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_interpret_one_failed_section_falls_back_but_keeps_the_rest() -> None:
+    # The HELP section's call always fails; the other three succeed. The reading must still stand,
+    # with only the help section using its deterministic fragment.
+    async def run(*args, **kwargs) -> ClaudeResult:
+        persona = kwargs.get("append_system_prompt", "")
+        if "lifestyle & nutrition" in persona:  # the "Що допоможе" section
+            return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=1, error="boom")
+        return ClaudeResult(ok=True, text="Текст від моделі.", raw_stdout="x", exit_code=0)
+
+    out = await interpret(_report(flagged=True), _summaries(), runner=run)
+    assert "Текст від моделі." in out  # the LLM sections survived
+    assert locale.LAB_INTERPRET_HELP_GENERIC in out  # the failed section used its fallback
 
 
 async def test_interpret_falls_back_when_claude_unavailable() -> None:
