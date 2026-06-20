@@ -7,6 +7,7 @@ once the user has confirmed the extracted values.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from datetime import date
 from pathlib import Path
@@ -50,17 +51,46 @@ def save_original_file(
 
 
 async def create_pending_report(
-    session: AsyncSession, *, user: User, file_path: Path, raw_ocr: str | None = None
+    session: AsyncSession,
+    *,
+    user: User,
+    file_path: Path,
+    raw_ocr: str | None = None,
+    content_hash: str | None = None,
 ) -> LabReport:
     """Create a PENDING LabReport linked to the stored original file."""
     report = LabReport(
         user_id=user.id,
         source_file=str(file_path),
+        content_hash=content_hash,
         raw_ocr=raw_ocr,
         status=ReportStatus.PENDING,
     )
     session.add(report)
     await session.flush()
+    return report
+
+
+def file_hash(data: bytes) -> str:
+    """SHA-256 of the uploaded bytes — the duplicate-detection key."""
+    return hashlib.sha256(data).hexdigest()
+
+
+async def find_confirmed_by_hash(
+    session: AsyncSession, *, user_id: int, content_hash: str
+) -> LabReport | None:
+    """A user's already-CONFIRMED report with the same file bytes, if any. Only confirmed
+    reports count as a duplicate — a discarded/deleted upload should not block re-uploading."""
+    report: LabReport | None = await session.scalar(
+        select(LabReport)
+        .where(
+            LabReport.user_id == user_id,
+            LabReport.content_hash == content_hash,
+            LabReport.status == ReportStatus.CONFIRMED,
+        )
+        .order_by(LabReport.id)
+        .limit(1)
+    )
     return report
 
 

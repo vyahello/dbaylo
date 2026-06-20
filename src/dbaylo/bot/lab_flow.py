@@ -37,7 +37,7 @@ from sqlalchemy import select
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
-from dbaylo.companion import history, proactive, reminders
+from dbaylo.companion import callbacks, history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -46,6 +46,8 @@ from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.intake import (
     create_pending_report,
     ensure_user,
+    file_hash,
+    find_confirmed_by_hash,
     is_supported,
     persist_confirmed,
     save_original_file,
@@ -236,15 +238,31 @@ async def on_photo(message: Message, state: FSMContext) -> None:
 
 async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, suffix: str) -> None:
     assert message.from_user is not None and message.bot is not None
-    await message.answer(locale.LAB_RECEIVED)
 
     buffer = BytesIO()
     await message.bot.download(file_id, destination=buffer)
+    data = buffer.getvalue()
+    content_hash = file_hash(data)
 
     async with get_session() as session:
         user = await ensure_user(session, message.from_user.id, message.from_user.full_name)
-        path = save_original_file(buffer.getvalue(), user_id=user.id, suffix=suffix)
-        report = await create_pending_report(session, user=user, file_path=path)
+        # Same bytes already confirmed before? Don't re-extract (slow) or duplicate the report —
+        # point the user at the saved one instead.
+        duplicate = await find_confirmed_by_hash(
+            session, user_id=user.id, content_hash=content_hash
+        )
+        if duplicate is not None:
+            when = duplicate.report_date.isoformat() if duplicate.report_date else "?"
+            await message.answer(
+                locale.LAB_DUPLICATE.format(date=when),
+                reply_markup=_saved_report_keyboard(duplicate.id),
+            )
+            return
+        await message.answer(locale.LAB_RECEIVED)
+        path = save_original_file(data, user_id=user.id, suffix=suffix)
+        report = await create_pending_report(
+            session, user=user, file_path=path, content_hash=content_hash
+        )
         report_id = report.id
 
     # Hard ceiling so an upload can never hang the way it once did (a stuck `claude`
@@ -451,6 +469,19 @@ def _charts_keyboard(report_id: int) -> InlineKeyboardMarkup:
             [
                 InlineKeyboardButton(
                     text=locale.BTN_SHOW_CHARTS, callback_data=_rid_cb(_CB_CHARTS, report_id)
+                )
+            ]
+        ]
+    )
+
+
+def _saved_report_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    """A button to open the already-saved report (reuses the /history results view)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_VIEW_SAVED, callback_data=callbacks.history_results(report_id)
                 )
             ]
         ]

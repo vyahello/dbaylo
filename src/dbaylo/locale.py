@@ -174,6 +174,9 @@ LAB_RECEIVED = (
     "Отримав файл. Зчитую результати… ⏳ Великий багатосторінковий звіт може читатися "
     "кілька хвилин — зачекай, будь ласка."
 )
+# Shown when the exact same file (same bytes) was already confirmed — no re-extraction, no copy.
+LAB_DUPLICATE = "Цей файл я вже додавав ({date}) — не дублюю. Ось збережений аналіз:"
+BTN_VIEW_SAVED = "📊 Показати збережений"
 LAB_EXTRACTION_FAILED = (
     "Не вдалося розпізнати результати. Надішли, будь ласка, чіткіше фото або PDF, "
     "або введи значення вручну."

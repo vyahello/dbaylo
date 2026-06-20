@@ -109,6 +109,9 @@ class LabReport(TimestampMixin, Base):
     lab: Mapped[str | None] = mapped_column(default=None)
     # Original file is always kept and linked (safety rail #2: OCR never trusted silently).
     source_file: Mapped[str | None] = mapped_column(default=None)
+    # SHA-256 of the uploaded bytes, so re-uploading the exact same file is detected and not
+    # re-extracted (no duplicate report / degenerate same-day "trend"). Nullable for old rows.
+    content_hash: Mapped[str | None] = mapped_column(default=None, index=True)
     raw_ocr: Mapped[str | None] = mapped_column(Text, default=None)
     # Stage 5: the lab's own overall conclusion (e.g. "Нормозооспермія") and Дбайло's
     # generated expert summary, persisted so /history can show them without re-calling the LLM.

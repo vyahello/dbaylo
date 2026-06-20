@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from pathlib import Path
 
 import dbaylo.labs.pipeline as pipeline_mod
 from dbaylo.config import Settings
@@ -10,6 +11,8 @@ from dbaylo.db.models import ReportStatus, ResultFlag
 from dbaylo.labs.intake import (
     create_pending_report,
     ensure_user,
+    file_hash,
+    find_confirmed_by_hash,
     persist_confirmed,
     save_original_file,
 )
@@ -23,6 +26,55 @@ from dbaylo.labs.schema import ExtractedAnalyte
 
 def _analyte(name, value, low, high, unit="ммоль/л"):
     return ExtractedAnalyte(analyte=name, value=value, unit=unit, ref_low=low, ref_high=high)
+
+
+def test_file_hash_is_stable_and_distinguishing() -> None:
+    assert file_hash(b"same bytes") == file_hash(b"same bytes")
+    assert file_hash(b"a") != file_hash(b"b")
+    assert len(file_hash(b"x")) == 64  # sha256 hex digest
+
+
+async def test_find_confirmed_by_hash_only_matches_a_confirmed_dup(async_session) -> None:
+    user = await ensure_user(async_session, 1)
+    confirmed_hash = file_hash(b"the-pdf")
+    rep = await create_pending_report(
+        async_session, user=user, file_path=Path("/tmp/a.pdf"), content_hash=confirmed_hash
+    )
+    await persist_confirmed(
+        async_session,
+        report=rep,
+        analytes=[_analyte("Глюкоза", 5.0, 3.9, 6.1)],
+        report_date=date(2026, 1, 1),
+        lab="Synevo",
+    )
+    found = await find_confirmed_by_hash(
+        async_session, user_id=user.id, content_hash=confirmed_hash
+    )
+    assert found is not None and found.id == rep.id
+
+    # a different file -> not a duplicate
+    assert (
+        await find_confirmed_by_hash(
+            async_session, user_id=user.id, content_hash=file_hash(b"other")
+        )
+        is None
+    )
+
+    # a PENDING (un-confirmed) upload with a hash must NOT count as a duplicate
+    pend_hash = file_hash(b"pending-only")
+    await create_pending_report(
+        async_session, user=user, file_path=Path("/tmp/b.pdf"), content_hash=pend_hash
+    )
+    assert (
+        await find_confirmed_by_hash(async_session, user_id=user.id, content_hash=pend_hash) is None
+    )
+
+    # another user's confirmed report with the same bytes is not THIS user's duplicate
+    other = await ensure_user(async_session, 2)
+    assert (
+        await find_confirmed_by_hash(async_session, user_id=other.id, content_hash=confirmed_hash)
+        is None
+    )
 
 
 async def test_ensure_user_get_or_create(async_session) -> None:

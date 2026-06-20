@@ -116,6 +116,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 - **Confirmation** (`bot/lab_flow.py`): extracted values (incl. report date & lab — a wrong date
   corrupts the series) are shown in Ukrainian and editable. **Nothing is written to the DB until
   the user confirms** (rail #2); pending values live in FSM state. The original file is always kept.
+  **Duplicate guard** (migration 0010): the upload is SHA-256'd (`intake.file_hash` →
+  `LabReport.content_hash`); if the same bytes were already CONFIRMED for this user
+  (`find_confirmed_by_hash`), the bot skips extraction entirely and offers the saved report instead
+  (a discarded/deleted upload does not block re-uploading).
   Row marker: **⚠️** if flagged (the lab's indicator or numerically out of range), else **✅**
   (`is_out_of_range`); the lab `conclusion` is shown. Post-confirm offers are **stateless** (carry
   `report_id`) so they survive a restart / menu-tap state reset. **Charts are opt-in**: the analysis
@@ -296,7 +300,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history · intake)
-migrations/  Alembic 0001..0008   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0010   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
