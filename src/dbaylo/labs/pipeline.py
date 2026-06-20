@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.db.models import LabReport, LabResult, ReportStatus
 from dbaylo.labs.charts import render_trend_chart
-from dbaylo.labs.extraction import ExtractionFailed, extract_with_escalation
+from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.humanize import humanize, interpret
 from dbaylo.labs.schema import ExtractedReport
 from dbaylo.labs.trends import LabPoint, TrendSummary, build_series, compute_flag, compute_trend
@@ -111,7 +111,7 @@ def _report_to_dict(report: ExtractedReport) -> dict[str, object]:
 
 async def _dry_run(path: str, model: str | None) -> int:
     models = (model,) if model else ("sonnet", "opus")
-    outcome = await extract_with_escalation(path, models=models)
+    outcome = await extract_document(path, models=models)
     if isinstance(outcome, ExtractionFailed):
         print(json.dumps({"error": outcome.reason}, ensure_ascii=False, indent=2))
         return 1

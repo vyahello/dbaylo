@@ -57,8 +57,13 @@ class Settings:
     claude_timeout_s: int = 180
     # Extraction reads whole documents by vision — a big multi-page panel (e.g. an
     # 8-page Synevo report with ~80 analytes) legitimately needs much longer than a chat
-    # turn, so lab extraction gets its own, larger timeout.
+    # turn, so lab extraction gets its own, larger timeout. With paged extraction this is
+    # the per-PAGE ceiling (a single page is fast and stays well under it).
     claude_extract_timeout_s: int = 600
+    # A multi-page PDF is split and its pages extracted concurrently. Each `claude` process
+    # uses ~470 MB, so this caps how many run at once — default 2 fits a small (~4 GB) VPS;
+    # raise it on a bigger box for more parallelism (closer to slowest-single-page latency).
+    claude_extract_concurrency: int = 2
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -78,6 +83,7 @@ class Settings:
             claude_model=_get("CLAUDE_MODEL", "sonnet"),
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
             claude_extract_timeout_s=int(_get("CLAUDE_EXTRACT_TIMEOUT_S", "600")),
+            claude_extract_concurrency=int(_get("CLAUDE_EXTRACT_CONCURRENCY", "2")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

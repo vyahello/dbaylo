@@ -41,7 +41,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport, ReportStatus, ResultFlag
-from dbaylo.labs.extraction import ExtractionFailed, extract_with_escalation
+from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.intake import (
     create_pending_report,
     ensure_user,
@@ -234,12 +234,12 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         report_id = report.id
 
     # Hard ceiling so an upload can never hang the way it once did (a stuck `claude`
-    # subprocess). `extract_with_escalation` tries up to two models (a timeout stops the
-    # escalation), so budget both passes plus slack. Any timeout / unexpected error
-    # becomes a clean "couldn't read it".
-    budget = 2 * get_settings().claude_extract_timeout_s + 60
+    # subprocess). `extract_document` pages a multi-page PDF (each page bounded by the
+    # per-page timeout, run a few at a time) or does a single pass; this generous outer
+    # budget is the final net. Any timeout / unexpected error becomes a clean "couldn't read".
+    budget = 4 * get_settings().claude_extract_timeout_s + 60
     try:
-        outcome = await asyncio.wait_for(extract_with_escalation(str(path)), timeout=budget)
+        outcome = await asyncio.wait_for(extract_document(str(path)), timeout=budget)
     except Exception:  # noqa: BLE001 — never leave the user hanging on a bad upload
         outcome = ExtractionFailed("extraction timed out or errored")
     if isinstance(outcome, ExtractionFailed):

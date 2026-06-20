@@ -26,6 +26,9 @@ dependencies = [
     # Async HTTP client for the L4 navigator's on-demand fetches (Stage 4). Promoted
     # from dev (it was already present for FastAPI's TestClient); avoids adding aiohttp.
     "httpx>=0.27",
+    # Pure-Python PDF page splitting so a big multi-page panel is extracted page-by-page,
+    # concurrently (no system libraries, unlike pikepdf/qpdf).
+    "pypdf>=4,<6",
 ]
 
 [project.optional-dependencies]

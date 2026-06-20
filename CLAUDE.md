@@ -105,7 +105,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   per row (`out_of_range`, the boxed/highlighted "зона уваги" — OCR of the lab's verdict, not ours)
   and the report's overall `conclusion` (Stage 5). **Argv note:** `run_claude` ends its argv with a
   `--` terminator — `--add-dir`/`--allowedTools` are variadic and otherwise swallow the prompt (this
-  silently broke every extraction once; `tests/test_llm_client.py` locks it).
+  silently broke every extraction once; `tests/test_llm_client.py` locks it). **Paged extraction**
+  (`labs/pdf_split.py` + `extract_paged`/`extract_document`, the bot's entry): a multi-page PDF is
+  split into `CLAUDE_EXTRACT_CONCURRENCY` (default 2) **contiguous chunks** — NOT one-per-page,
+  because each `claude` start-up is costly — and the few chunks run in parallel, then `merge_reports`
+  (pure) reassembles rows in order (exact dupes dropped) + first-seen metadata + joined narratives.
+  A chunk failure is tolerated (some rows beat none); each chunk stays well under the per-page
+  timeout. Measured ~38% faster on an 8-page panel (290s→179s); more RAM ⇒ raise concurrency ⇒
+  closer to single-chunk latency. Single-page PDFs / images keep the one-call path.
 - **Confirmation** (`bot/lab_flow.py`): extracted values (incl. report date & lab — a wrong date
   corrupts the series) are shown in Ukrainian and editable. **Nothing is written to the DB until
   the user confirms** (rail #2); pending values live in FSM state. The original file is always kept.

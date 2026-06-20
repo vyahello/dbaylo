@@ -12,6 +12,7 @@ for forms that fail. ``haiku`` is intentionally never used for messy scans.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Awaitable, Callable, Sequence
@@ -20,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from dbaylo.config import get_settings
+from dbaylo.labs.pdf_split import is_multipage_pdf, split_into_chunks
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable, run_claude
 
@@ -137,6 +139,97 @@ async def extract_with_escalation(
         if isinstance(outcome, ExtractionFailed) and "timeout" in outcome.reason:
             return outcome
     return outcome
+
+
+# --- Paged extraction (split a multi-page PDF, read pages concurrently, merge) ---
+
+
+def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
+    """Merge per-page reports into one: rows in page order (exact duplicates dropped),
+    metadata from the first page that prints it, narratives concatenated.
+
+    Pure function — the page splits are independent, so this is where a coherent whole is
+    reassembled. Keeping it pure makes the merge fully unit-testable.
+    """
+    results: list[ExtractedAnalyte] = []
+    seen: set[tuple[str, float | None, str | None, str | None]] = set()
+    report_date: date | None = None
+    lab: str | None = None
+    report_type: str | None = None
+    conclusion: str | None = None
+    narratives: list[str] = []
+    for report in reports:
+        for analyte in report.results:
+            key = (
+                analyte.analyte.strip().casefold(),
+                analyte.value,
+                analyte.value_text,
+                analyte.unit,
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            results.append(analyte)
+        report_date = report_date or report.report_date
+        lab = lab or report.lab
+        report_type = report_type or report.report_type
+        conclusion = conclusion or report.conclusion
+        if report.narrative:
+            narratives.append(report.narrative)
+    return ExtractedReport(
+        results=results,
+        report_date=report_date,
+        lab=lab,
+        report_type=report_type,
+        conclusion=conclusion,
+        narrative="\n\n".join(narratives) or None,
+    )
+
+
+async def extract_paged(
+    file_path: str | Path,
+    *,
+    models: Sequence[str] = _DEFAULT_MODELS,
+    runner: Runner = run_claude,
+    concurrency: int | None = None,
+) -> ExtractionOutcome:
+    """Split a PDF into ``concurrency`` contiguous chunks, extract them in parallel, and merge.
+
+    Chunking by the concurrency budget (not one-per-page) is deliberate: each ``claude`` call has
+    a heavy fixed start-up cost, so a few multi-page calls run at once beat dozens of tiny serial
+    ones. ``CLAUDE_EXTRACT_CONCURRENCY`` caps it because each process is memory-hungry. A chunk
+    failure is tolerated — as long as some chunk is readable its rows are kept; only an all-chunks
+    failure surfaces as :class:`ExtractionFailed`.
+    """
+    limit = concurrency if concurrency is not None else get_settings().claude_extract_concurrency
+    with split_into_chunks(file_path, max(1, limit)) as chunks:
+        outcomes = await asyncio.gather(
+            *(extract_with_escalation(str(chunk), models=models, runner=runner) for chunk in chunks)
+        )
+
+    reports = [o for o in outcomes if isinstance(o, ExtractedReport)]
+    if not reports:
+        first_failure = next((o for o in outcomes if isinstance(o, ExtractionFailed)), None)
+        return first_failure or ExtractionFailed("no chunk could be read")
+    merged = merge_reports(reports)
+    if not merged.is_usable:
+        return ExtractionFailed("could not read a table or a narrative from the document")
+    return merged
+
+
+async def extract_document(
+    file_path: str | Path,
+    *,
+    models: Sequence[str] = _DEFAULT_MODELS,
+    runner: Runner = run_claude,
+) -> ExtractionOutcome:
+    """The entry point the bot uses: page a multi-page PDF, else a single extraction pass.
+
+    Routing here (not in the handler) keeps the bot oblivious to how a document is read.
+    """
+    if is_multipage_pdf(file_path):
+        return await extract_paged(file_path, models=models, runner=runner)
+    return await extract_with_escalation(file_path, models=models, runner=runner)
 
 
 # --- Defensive parsing ----------------------------------------------------------
