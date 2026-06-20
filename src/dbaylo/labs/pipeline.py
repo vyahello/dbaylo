@@ -30,10 +30,11 @@ from dbaylo.labs.trends import LabPoint, TrendSummary, build_series, compute_fla
 
 @dataclass
 class ReportSummary:
-    """What the bot sends back after a confirmed report: text + per-analyte charts."""
+    """What the bot sends back after a confirmed report: the expert text + how many analytes
+    have a real trend worth charting (the charts themselves are rendered on demand)."""
 
     text: str
-    charts: list[tuple[str, bytes]]  # (analyte display name, PNG bytes)
+    chart_count: int  # analytes with measurements on >=2 distinct dates (drives the 📈 button)
 
 
 async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoint]:
@@ -87,14 +88,33 @@ async def compute_report_summary(
     ]
     summaries.sort(key=lambda s: s.analyte.casefold())
 
-    charts: list[tuple[str, bytes]] = []
-    for summary in summaries:
-        if summary.n_points >= 2:
-            png = render_trend_chart(series[summary.key], title=summary.analyte)
-            charts.append((summary.analyte, png))
+    # Only analytes measured on >=2 DISTINCT dates have a real trend worth a chart — a same-day
+    # re-upload (two points on one date) is not a trend. Charts are rendered on demand (the 📈
+    # button), so the analysis is never buried under a flood of images.
+    chart_count = sum(1 for s in summaries if _has_trend(series[s.key]))
 
     text = await interpret(report, summaries) if report is not None else await humanize(summaries)
-    return ReportSummary(text=text, charts=charts)
+    return ReportSummary(text=text, chart_count=chart_count)
+
+
+def _has_trend(points: list[LabPoint]) -> bool:
+    """A real trend needs measurements on at least two different dates."""
+    return len({p.taken_on for p in points}) >= 2
+
+
+async def render_report_charts(
+    session: AsyncSession, *, user_id: int, analyte_keys: set[str]
+) -> list[tuple[str, bytes]]:
+    """Render trend charts (PNG) for the report's analytes that have a real trend. Deterministic,
+    no LLM — built on demand when the user taps 📈, so a confirm never dumps a wall of images."""
+    series = build_series(await load_series_points(session, user_id))
+    charts: list[tuple[str, bytes]] = []
+    for key in sorted(analyte_keys):
+        points = series.get(key)
+        if points and _has_trend(points):
+            summary = compute_trend(points)
+            charts.append((summary.analyte, render_trend_chart(points, title=summary.analyte)))
+    return charts
 
 
 # --- Dry-run CLI ----------------------------------------------------------------

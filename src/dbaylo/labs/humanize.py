@@ -217,6 +217,9 @@ _SECTION_BASE_PERSONA = (
     "numbers; fabricated studies/sources/statistics. NEVER tell the user not to worry or that they "
     "can skip a doctor; do not use 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', "
     "'не хвилюйся', 'нічого страшного'. Do NOT add a disclaimer or 'я не лікар' line.\n"
+    "FOCUS: discuss ONLY the analytes marked ATTENTION (out of range). Do NOT describe or list "
+    "in-range analytes one by one — refer to normal results only as a brief aggregate (e.g. "
+    "'решта показників — у межах норми'), and only where it helps the reader.\n"
     "THE SECTION TO WRITE — "
 )
 
@@ -251,10 +254,11 @@ def _attention_fallback(report: ExtractedReport) -> str:
 _SECTION_SPECS: tuple[_Section, ...] = (
     _Section(
         locale.INTERPRET_SECTION_OVERALL,
-        "the big picture in two or three lines, in DATA terms, and plainly whether it looks "
-        "broadly reassuring or warrants attention. If the report mixes panels (blood vs urine), "
-        "note each briefly. If nothing is marked ATTENTION, say the results are within range; "
-        "reflect any printed conclusion.",
+        "the big picture in two or three lines, focused on what WARRANTS ATTENTION — which "
+        "systems/panels the flagged values point to, and plainly how serious it looks. Mention "
+        "normal results ONLY as a brief aggregate ('решта показників — у межах норми'), never "
+        "analyte by analyte. If NOTHING is marked ATTENTION, say briefly the results are within "
+        "range and reflect any printed conclusion.",
         _overall_fallback,
     ),
     _Section(

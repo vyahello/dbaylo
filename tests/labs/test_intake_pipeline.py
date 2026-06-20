@@ -13,7 +13,11 @@ from dbaylo.labs.intake import (
     persist_confirmed,
     save_original_file,
 )
-from dbaylo.labs.pipeline import compute_report_summary, load_series_points
+from dbaylo.labs.pipeline import (
+    compute_report_summary,
+    load_series_points,
+    render_report_charts,
+)
 from dbaylo.labs.schema import ExtractedAnalyte
 
 
@@ -78,7 +82,7 @@ async def test_load_series_points_only_confirmed_dated(async_session) -> None:
     assert {p.analyte for p in points} == {"Глюкоза"}
 
 
-async def test_compute_report_summary_builds_charts(async_session, monkeypatch) -> None:
+async def test_compute_report_summary_counts_real_trends(async_session, monkeypatch) -> None:
     async def fake_humanize(summaries, **kwargs):
         return "Підсумок українською."
 
@@ -86,10 +90,30 @@ async def test_compute_report_summary_builds_charts(async_session, monkeypatch) 
 
     user = await ensure_user(async_session, 1)
     await _confirm(async_session, user, 1, 7.0)
-    await _confirm(async_session, user, 10, 5.4)
+    await _confirm(async_session, user, 10, 5.4)  # a second, DIFFERENT date -> a real trend
 
     summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={"глюкоза"})
     assert summary.text == "Підсумок українською."
-    assert len(summary.charts) == 1  # one analyte with >= 2 points
-    assert summary.charts[0][0] == "Глюкоза"
-    assert summary.charts[0][1].startswith(b"\x89PNG")
+    assert summary.chart_count == 1  # one analyte measured on two distinct dates
+
+    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    assert len(charts) == 1
+    assert charts[0][0] == "Глюкоза"
+    assert charts[0][1].startswith(b"\x89PNG")
+
+
+async def test_same_day_reupload_is_not_a_trend(async_session, monkeypatch) -> None:
+    # Two measurements on the SAME date (re-uploading the same file) is not a trend -> no chart.
+    async def fake_humanize(summaries, **kwargs):
+        return "Підсумок."
+
+    monkeypatch.setattr(pipeline_mod, "humanize", fake_humanize)
+
+    user = await ensure_user(async_session, 1)
+    await _confirm(async_session, user, 5, 7.0)
+    await _confirm(async_session, user, 5, 7.0)  # same day again
+
+    summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    assert summary.chart_count == 0
+    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    assert charts == []

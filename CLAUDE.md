@@ -118,7 +118,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   the user confirms** (rail #2); pending values live in FSM state. The original file is always kept.
   Row marker: **⚠️** if flagged (the lab's indicator or numerically out of range), else **✅**
   (`is_out_of_range`); the lab `conclusion` is shown. Post-confirm offers are **stateless** (carry
-  `report_id`) so they survive a restart / menu-tap state reset.
+  `report_id`) so they survive a restart / menu-tap state reset. **Charts are opt-in**: the analysis
+  is sent first, then a 📈 button appears **only** when an analyte has a real trend (measurements on
+  ≥2 distinct dates — a same-day re-upload is not a trend); tapping it renders the charts on demand
+  (`pipeline.render_report_charts`, deterministic) instead of dumping an image per analyte.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes

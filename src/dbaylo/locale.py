@@ -366,6 +366,13 @@ LAB_CONCERN_OFFER = (
 )
 BTN_LAB_CONCERN_YES = "Так, відстежувати"
 BTN_LAB_CONCERN_NO = "Ні, дякую"
+# Charts are opt-in (shown only when there is a real multi-date trend); {n} is how many.
+LAB_CHARTS_OFFER = "📈 Є динаміка за {n} показник(ами) у часі. Показати графіки?"
+BTN_SHOW_CHARTS = "📈 Показати графіки"
+LAB_CHARTS_EMPTY = (
+    "Поки немає динаміки для графіків — потрібно ще принаймні два виміри в різні дати."
+)
+
 LAB_REPEAT_OFFER = "Нагадати повторити аналізи згодом?"
 BTN_REPEAT_1M = "Через місяць"
 BTN_REPEAT_3M = "Через 3 місяці"

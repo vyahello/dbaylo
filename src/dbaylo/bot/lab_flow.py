@@ -32,6 +32,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from sqlalchemy import select
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
@@ -40,7 +41,7 @@ from dbaylo.companion import history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import LabReport, ReportStatus, ResultFlag
+from dbaylo.db.models import LabReport, LabResult, ReportStatus, ResultFlag
 from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.intake import (
     create_pending_report,
@@ -49,7 +50,7 @@ from dbaylo.labs.intake import (
     persist_confirmed,
     save_original_file,
 )
-from dbaylo.labs.pipeline import compute_report_summary
+from dbaylo.labs.pipeline import compute_report_summary, render_report_charts
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import compute_flag, is_out_of_range, normalize_analyte
 
@@ -69,6 +70,7 @@ _CB_REPEAT_OTHER = "lab:rep:oth"
 _CB_REPEAT_NO = "lab:rep:no"
 _CB_CONCERN_YES = "lab:con:y"
 _CB_CONCERN_NO = "lab:con:n"
+_CB_CHARTS = "lab:chart"
 
 
 def _rid_cb(prefix: str, report_id: int) -> str:
@@ -425,16 +427,34 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             stored.summary = summary.text
             await session.commit()
 
-    for name, png in summary.charts:
-        await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
+    # The analysis comes FIRST (the valuable part), never buried under a wall of charts.
     await answer_chunked(
         callback.message, render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
     )
+    # Charts are opt-in: offer a button only when there is a real trend to show (>=2 dates), so a
+    # confirm never dumps dozens of flat same-day images. The button carries the report_id.
+    if summary.chart_count > 0:
+        await callback.message.answer(
+            locale.LAB_CHARTS_OFFER.format(n=summary.chart_count),
+            reply_markup=_charts_keyboard(report_id),
+        )
 
     # The report is saved; the pending FSM data is no longer needed. The repeat/concern
     # offers are stateless (they carry report_id), so they survive a state reset.
     await state.clear()
     await callback.message.answer(locale.LAB_REPEAT_OFFER, reply_markup=_repeat_keyboard(report_id))
+
+
+def _charts_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_SHOW_CHARTS, callback_data=_rid_cb(_CB_CHARTS, report_id)
+                )
+            ]
+        ]
+    )
 
 
 def _repeat_keyboard(report_id: int) -> InlineKeyboardMarkup:
@@ -611,6 +631,32 @@ async def on_concern(callback: CallbackQuery, reminder_scheduler: ReminderSchedu
                 )
                 await session.commit()
             await callback.message.answer(locale.PROBLEM_ADDED)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(_CB_CHARTS + ":"))
+async def on_show_charts(callback: CallbackQuery) -> None:
+    """Render the report's trend charts on demand (analytes with a real, multi-date trend)."""
+    report_id = _parse_rid(_CB_CHARTS, callback.data)
+    owner = callback.from_user.id if callback.from_user else None
+    if report_id is None or owner is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await clear_inline_keyboard(callback)  # one-shot — consume the 📈 button
+    async with get_session() as session:
+        stored = await session.get(LabReport, report_id)
+        if stored is None:
+            await callback.answer()
+            return
+        names = (
+            await session.scalars(select(LabResult.analyte).where(LabResult.report_id == report_id))
+        ).all()
+        keys = {normalize_analyte(n) for n in names}
+        charts = await render_report_charts(session, user_id=stored.user_id, analyte_keys=keys)
+    for name, png in charts:
+        await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
+    if not charts:  # defensive: the data changed since the offer was made
+        await callback.message.answer(locale.LAB_CHARTS_EMPTY)
     await callback.answer()
 
 
