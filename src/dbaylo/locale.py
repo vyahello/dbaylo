@@ -183,6 +183,8 @@ LAB_UNSUPPORTED_FILE = (
 )
 LAB_CONFIRM_PROMPT = "Усе правильно?"
 LAB_NORM_LABEL = "норма"
+# Header before each panel's rows (combined reports: blood vs urine stay visually apart).
+LAB_SECTION_HEADER = "▸ {section}"
 LAB_DATE_LABEL = "Дата"
 LAB_LAB_LABEL = "Лабораторія"
 LAB_DATE_UNKNOWN = "невідома"

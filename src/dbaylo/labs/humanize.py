@@ -11,6 +11,7 @@ disclaimer is always appended.
 from __future__ import annotations
 
 from dbaylo import locale
+from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
 from dbaylo.labs.schema import ExtractedReport
 from dbaylo.labs.trends import TrendSummary, is_out_of_range
@@ -85,17 +86,22 @@ INTERPRET_PERSONA = (
     "Reply EXCLUSIVELY in natural, correct Ukrainian, in FOUR sections in this order. Start each "
     "section with its header on its OWN line, copied EXACTLY as written here, with nothing else on "
     "that line — no numbering, no colon, no extra words:\n"
-    f"  · '{locale.INTERPRET_SECTION_OVERALL}': one or two lines in DATA terms. If nothing is "
-    "marked ATTENTION, say the results are within range; if the lab printed a conclusion, "
-    "reflect it.\n"
-    f"  · '{locale.INTERPRET_SECTION_ATTENTION}': ONLY the rows marked ATTENTION. For each, "
-    "briefly what it MAY indicate ('може свідчити про…', cautious, never a definite diagnosis) "
-    "and, gently, what it can lead to if left unaddressed.\n"
-    f"  · '{locale.INTERPRET_SECTION_HELP}': concrete but QUALITATIVE lifestyle & nutrition "
-    "guidance for the flagged items (foods to favour or limit, sleep, movement, hydration, "
-    "stress). NO numbers for calories, macros, fasting, and NO medication/supplement dose.\n"
-    f"  · '{locale.INTERPRET_SECTION_DOCTOR}': when it is worth seeing a doctor (and the "
-    "specialty if obvious).\n"
+    f"  · '{locale.INTERPRET_SECTION_OVERALL}': two or three lines in DATA terms — the big picture "
+    "and, plainly, whether it looks broadly reassuring or warrants attention. If the report mixes "
+    "panels (e.g. blood vs urine — they are grouped in the input), note each briefly. If nothing "
+    "is marked ATTENTION, say the results are within range; reflect any printed conclusion.\n"
+    f"  · '{locale.INTERPRET_SECTION_ATTENTION}': ONLY the rows marked ATTENTION (keep panels "
+    "apart — a name in two panels, e.g. Глюкоза/Лейкоцити, is two different things). For each: "
+    "what it MAY indicate ('може свідчити про…', cautious, never a definite diagnosis); HOW "
+    "concerning it is (likely minor / worth watching / worth prompt attention); and what it can "
+    "lead to if left unaddressed. Group related flags (e.g. білірубін + АЛТ → печінка; "
+    "холестерин + ЛПНЩ → ліпіди) so the user sees the picture, not 14 isolated facts.\n"
+    f"  · '{locale.INTERPRET_SECTION_HELP}': concrete, practical lifestyle & nutrition guidance "
+    "tailored to the flagged items — name SPECIFIC foods to favour and to limit, plus sleep, "
+    "movement, hydration, alcohol, stress. QUALITATIVE only: NO calorie/macro/fasting numbers and "
+    "NO medication/supplement dose.\n"
+    f"  · '{locale.INTERPRET_SECTION_DOCTOR}': whether and how soon to see a doctor (and the "
+    "specialty if obvious — e.g. гастроентеролог/терапевт), and what to ask or recheck.\n"
     "Use '• ' at the start of each bullet line. "
     "Be concrete and genuinely useful, but careful. NEVER: a definitive diagnosis; a medication, "
     "supplement, or any dose; calorie/macro/fasting numbers; fabricated studies, sources, or "
@@ -120,8 +126,13 @@ def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> 
     lines = []
     if report.conclusion:
         lines.append(f"Lab's overall conclusion: {report.conclusion}")
-    lines.append("Results (analyte | value | reference | lab mark):")
+    lines.append("Results, grouped by panel (analyte | value | reference | lab mark):")
+    prev_section: object = object()
     for a in report.results:
+        if a.section != prev_section:
+            prev_section = a.section
+            # Header so the model keeps panels apart (e.g. blood vs urine Глюкоза/Лейкоцити).
+            lines.append(f"# Panel: {a.section or 'без секції'}")
         mark = (
             "ATTENTION" if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range) else "ok"
         )
@@ -182,7 +193,12 @@ async def interpret(
     fallback = assert_safe_output(deterministic_interpretation(report))
     try:
         result = await runner(
-            _interpret_table(report, summaries), append_system_prompt=INTERPRET_PERSONA, model=model
+            _interpret_table(report, summaries),
+            append_system_prompt=INTERPRET_PERSONA,
+            model=model,
+            # A full reading of a big panel takes far longer than a chat turn; without its own
+            # timeout the call hits the 180s default and silently degrades to the bare list.
+            timeout_s=get_settings().claude_interpret_timeout_s,
         )
     except ClaudeUnavailable:
         return _finalize(fallback)

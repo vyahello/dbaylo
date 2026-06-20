@@ -64,6 +64,10 @@ class Settings:
     # uses ~470 MB, so this caps how many run at once — default 2 fits a small (~4 GB) VPS;
     # raise it on a bigger box for more parallelism (closer to slowest-single-page latency).
     claude_extract_concurrency: int = 2
+    # The expert interpretation (Stage 5) writes a full multi-section reading of every flagged
+    # analyte — for a big panel that is far more than a chat turn, so it gets its own, larger
+    # timeout. Too small and the LLM reading times out and silently degrades to the bare list.
+    claude_interpret_timeout_s: int = 600
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -84,6 +88,7 @@ class Settings:
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
             claude_extract_timeout_s=int(_get("CLAUDE_EXTRACT_TIMEOUT_S", "600")),
             claude_extract_concurrency=int(_get("CLAUDE_EXTRACT_CONCURRENCY", "2")),
+            claude_interpret_timeout_s=int(_get("CLAUDE_INTERPRET_TIMEOUT_S", "600")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

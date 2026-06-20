@@ -26,6 +26,10 @@ class ExtractedAnalyte:
     # or a value outside the printed reference), read visually by the model. ``None`` =
     # no reference to judge by. This is OCR of the lab's verdict, not our interpretation.
     out_of_range: bool | None = None
+    # The panel / section the row is printed under (e.g. "Загальний аналіз крові",
+    # "Загальний аналіз сечі"), so a combined report's groups stay separated and a name that
+    # appears in two panels (Глюкоза, Лейкоцити) is never confused. ``None`` if ungrouped.
+    section: str | None = None
 
     def display_value(self) -> str:
         """Best human rendering of the value (numeric or qualitative)."""

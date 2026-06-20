@@ -48,6 +48,12 @@ EXTRACTION_PERSONA = (
     "                                    // 'Висновок'); NOT an analyte row\n"
     '  "results": [                      // analyte rows for a TABULAR report; [] for narrative\n'
     "    {\n"
+    '      "section": string | null,     // the PANEL the row is printed under, so a combined\n'
+    "                                    // report keeps its groups apart and a name in two\n"
+    "                                    // panels is never confused. Use the heading as printed,\n"
+    "                                    // else infer one of: 'Загальний аналіз крові',\n"
+    "                                    // 'Біохімічний аналіз крові', 'Загальний аналіз сечі',\n"
+    "                                    // 'Мікроскопія осаду сечі' (blood vs urine MUST differ)\n"
     '      "analyte": string,            // name exactly as printed (Ukrainian)\n'
     '      "value": number | null,       // dot decimal; convert "3,5" -> 3.5\n'
     '      "value_text": string | null,  // qualitative result e.g. "не виявлено"\n'
@@ -152,7 +158,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     reassembled. Keeping it pure makes the merge fully unit-testable.
     """
     results: list[ExtractedAnalyte] = []
-    seen: set[tuple[str, float | None, str | None, str | None]] = set()
+    seen: set[tuple[str | None, str, float | None, str | None, str | None]] = set()
     report_date: date | None = None
     lab: str | None = None
     report_type: str | None = None
@@ -161,6 +167,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     for report in reports:
         for analyte in report.results:
             key = (
+                analyte.section,
                 analyte.analyte.strip().casefold(),
                 analyte.value,
                 analyte.value_text,
@@ -316,6 +323,7 @@ def _coerce_analyte(item: object) -> ExtractedAnalyte | None:
         ref_high=_coerce_float(item.get("ref_high")),
         ref_text=_coerce_str(item.get("ref_text")),
         out_of_range=_coerce_bool(item.get("out_of_range")),
+        section=_coerce_str(item.get("section")),
     )
 
 

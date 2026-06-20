@@ -93,6 +93,9 @@ class LabStates(StatesGroup):
 
 # --- Pure helpers (unit-tested) -------------------------------------------------
 
+# Sentinel so the first section (even a `None` one) is detected as a change.
+_NO_SECTION: object = object()
+
 
 def _confirm_emoji(a: ExtractedAnalyte) -> str:
     """⚠️ if the lab flags the row (or it's out of range), ✅ if it has a value, else ❔."""
@@ -127,7 +130,16 @@ def render_confirmation_text(report: ExtractedReport) -> str:
     if report.conclusion:
         lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
     lines.append("")
+    # Group rows under their panel header (blood vs urine stay apart); the row number is still
+    # global and contiguous, so editing by number is unaffected.
+    prev_section: object = _NO_SECTION
     for i, a in enumerate(report.results, 1):
+        if a.section != prev_section:
+            prev_section = a.section
+            if a.section:
+                if lines[-1] != "":
+                    lines.append("")
+                lines.append(locale.LAB_SECTION_HEADER.format(section=a.section))
         ref = a.display_reference()
         line = (
             f"{i}. {a.analyte} — {a.display_value()} "

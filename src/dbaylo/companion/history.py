@@ -206,6 +206,9 @@ async def known_labs(session: AsyncSession, *, user_id: int) -> tuple[str, ...]:
 
 # --- Rendering (deterministic) --------------------------------------------------
 
+# Sentinel so the first section (even a `None` one) registers as a change.
+_NO_SECTION: object = object()
+
 
 def _ref_text(low: float | None, high: float | None) -> str:
     if low is not None and high is not None:
@@ -254,7 +257,14 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
         if report.conclusion:
             lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
         lines.append("")
+        prev_section: object = _NO_SECTION
         for i, r in enumerate(results, 1):
+            if r.section != prev_section:
+                prev_section = r.section
+                if r.section:
+                    if lines[-1] != "":
+                        lines.append("")
+                    lines.append(locale.LAB_SECTION_HEADER.format(section=r.section))
             emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
             value = f"{r.value:g}" if r.value is not None else "—"
             if r.unit:

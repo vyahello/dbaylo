@@ -57,6 +57,23 @@ def test_render_handles_unknown_date_and_lab() -> None:
     assert "невідома" in text
 
 
+def test_render_groups_rows_by_panel_section() -> None:
+    # A combined report: same name (Глюкоза, Лейкоцити) in two panels must stay apart.
+    report = ExtractedReport(
+        results=[
+            ExtractedAnalyte("Глюкоза", value=5.3, unit="ммоль/л", section="Аналіз крові"),
+            ExtractedAnalyte("Лейкоцити", value=7.3, unit="10⁹/л", section="Аналіз крові"),
+            ExtractedAnalyte("Глюкоза", value_text="не виявлена", section="Аналіз сечі"),
+            ExtractedAnalyte("Лейкоцити", value_text="15-50", section="Аналіз сечі"),
+        ]
+    )
+    text = render_confirmation_text(report)
+    assert "▸ Аналіз крові" in text and "▸ Аналіз сечі" in text
+    # Headers come before their rows; numbering stays global and contiguous (edit-by-number).
+    assert text.index("▸ Аналіз крові") < text.index("▸ Аналіз сечі")
+    assert "1. Глюкоза" in text and "3. Глюкоза" in text  # both panels' Глюкоза present, numbered
+
+
 def test_render_confirmation_narrative_document() -> None:
     report = ExtractedReport(
         report_type="МРТ головного мозку",

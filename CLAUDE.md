@@ -132,10 +132,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker.
 - **Humanize / interpret** (`labs/humanize.py`): `humanize()` writes the trend summary; **Stage 5
   `interpret()`** gives an expert-level reading of a confirmed report — overall verdict (in DATA
-  terms), per-flag "що може означати / до чого призведе", QUALITATIVE lifestyle+nutrition advice,
-  and when to see a doctor. Every output passes `assert_safe_output` (so no dose / restrictive-diet
-  numbers / "skip the doctor" — and normalcy is phrased "у межах норми", never the forbidden
-  "все добре") + disclaimer, with a deterministic fallback. The summary is stored on `LabReport`.
+  terms) **incl. how serious it looks**, per-flag "що може означати / до чого призведе" **+ a concern
+  level**, grouped by system (e.g. білірубін+АЛТ → печінка), QUALITATIVE lifestyle+nutrition advice
+  (**specific foods to favour/avoid**), and whether/how soon to see which doctor. Every output passes
+  `assert_safe_output` (so no dose / restrictive-diet numbers / "skip the doctor" — and normalcy is
+  phrased "у межах норми", never the forbidden "все добре") + disclaimer, with a deterministic
+  fallback. The summary is stored on `LabReport`. **A full reading of a big panel exceeds a chat turn,
+  so it has its own `CLAUDE_INTERPRET_TIMEOUT_S` (600s) — too short and the LLM reading silently
+  degrades to the bare flagged list.** Rows are fed **grouped by panel** (`ExtractedAnalyte.section`
+  / `LabResult.section`, migration 0009): a combined blood+urine report keeps its groups apart in the
+  confirm view, `/history`, and the interpretation, so a name in two panels (Глюкоза, Лейкоцити) is
+  never confused.
 
 ## L1 — companion (Stage 3)
 

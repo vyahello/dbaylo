@@ -145,6 +145,9 @@ class LabResult(Base):
     # Stage 5: the lab's own out-of-range indicator (or a numeric value outside its
     # reference). Drives the ⚠️/✅ marker (a flag-free row is shown as ✅, "ok").
     flagged: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    # The panel this row belongs to (e.g. "Загальний аналіз крові" / "Загальний аналіз сечі"),
+    # so a combined report renders its groups apart and a name in two panels is never confused.
+    section: Mapped[str | None] = mapped_column(default=None)
 
     report: Mapped[LabReport] = relationship(back_populates="results")
 

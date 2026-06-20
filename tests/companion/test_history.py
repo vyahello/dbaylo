@@ -224,6 +224,26 @@ async def test_render_report_line_flags_and_results(async_session: AsyncSession)
     assert "норма" in body
 
 
+async def test_render_report_results_groups_by_panel(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = LabReport(
+        user_id=user.id,
+        report_date=date(2026, 5, 12),
+        lab="Synevo",
+        status=ReportStatus.CONFIRMED,
+        results=[
+            LabResult(analyte="Глюкоза", value=5.3, section="Аналіз крові"),
+            LabResult(analyte="Лейкоцити", value=7.3, section="Аналіз крові"),
+            LabResult(analyte="Глюкоза", value=None, section="Аналіз сечі"),
+        ],
+    )
+    async_session.add(report)
+    await async_session.flush()
+    body = history.render_report_results(report, history.ordered_results(report))
+    assert "▸ Аналіз крові" in body and "▸ Аналіз сечі" in body
+    assert body.index("▸ Аналіз крові") < body.index("▸ Аналіз сечі")
+
+
 async def test_render_report_line_no_date(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     report = await _report(async_session, user_id=user.id, on=None, lab=None)
