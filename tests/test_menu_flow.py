@@ -10,11 +10,17 @@ from __future__ import annotations
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardMarkup, Message
 
 from dbaylo import locale
 from dbaylo.bot import menu_flow
-from dbaylo.bot.keyboards import cancel_keyboard, main_menu_keyboard, section_keyboard
+from dbaylo.bot.keyboards import (
+    cancel_keyboard,
+    clear_inline_keyboard,
+    main_menu_keyboard,
+    section_keyboard,
+)
 from dbaylo.companion import callbacks
 
 
@@ -28,6 +34,7 @@ def _callback(data: str | None = None) -> AsyncMock:
     callback.from_user = SimpleNamespace(id=4242)
     callback.message = AsyncMock(spec=Message)  # spec => passes isinstance(_, Message)
     callback.message.answer = AsyncMock()  # spec doesn't mark .answer awaitable; do it here
+    callback.message.edit_reply_markup = AsyncMock()  # one-shot handlers clear the keyboard
     return callback
 
 
@@ -66,6 +73,26 @@ def test_menu_labels_set_is_the_keyboard_labels() -> None:
 
 def test_cancel_keyboard_carries_the_shared_cancel_callback() -> None:
     assert _cb_datas(cancel_keyboard()) == [callbacks.CANCEL_DIALOG]
+
+
+async def test_clear_inline_keyboard_removes_the_buttons() -> None:
+    callback = _callback()
+    await clear_inline_keyboard(callback)
+    callback.message.edit_reply_markup.assert_awaited_once_with(reply_markup=None)
+
+
+async def test_clear_inline_keyboard_swallows_telegram_errors() -> None:
+    callback = _callback()
+    callback.message.edit_reply_markup = AsyncMock(
+        side_effect=TelegramBadRequest(method=SimpleNamespace(), message="message can't be edited")
+    )
+    await clear_inline_keyboard(callback)  # a stale/uneditable message must not raise
+
+
+async def test_clear_inline_keyboard_noop_without_a_message() -> None:
+    callback = AsyncMock()
+    callback.message = None
+    await clear_inline_keyboard(callback)  # nothing to clear, must not crash
 
 
 def test_section_keyboard_one_button_per_row() -> None:

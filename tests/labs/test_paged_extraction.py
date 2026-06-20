@@ -81,16 +81,24 @@ def test_split_into_chunks_distributes_pages_and_cleans_up(tmp_path: Path) -> No
 
 def test_merge_concats_rows_and_takes_first_metadata() -> None:
     p1 = ExtractedReport(
-        results=[ExtractedAnalyte("Глюкоза", value=5.0)], report_date=date(2026, 6, 1), lab="Synevo"
+        results=[ExtractedAnalyte("Глюкоза", value=5.0)], report_date=date(2026, 6, 1), lab="Синево"
     )
     p2 = ExtractedReport(
-        results=[ExtractedAnalyte("Гемоглобін", value=140.0)], lab="OtherLab", conclusion="OK"
+        results=[ExtractedAnalyte("Гемоглобін", value=140.0)], lab="Синево, Львів", conclusion="OK"
     )
     merged = merge_reports([p1, p2])
     assert [a.analyte for a in merged.results] == ["Глюкоза", "Гемоглобін"]
-    assert merged.report_date == date(2026, 6, 1)
-    assert merged.lab == "Synevo"  # first non-null wins
+    assert merged.report_date == date(2026, 6, 1)  # first non-null
+    assert merged.lab == "Синево, Львів"  # most complete lab name across chunks wins
     assert merged.conclusion == "OK"  # picked up from the chunk that printed it
+
+
+def test_merge_keeps_the_brand_over_a_bare_facility_line() -> None:
+    chunks = [
+        ExtractedReport(results=[ExtractedAnalyte("A", value=1.0)], lab="Лабораторія Львів"),
+        ExtractedReport(results=[ExtractedAnalyte("B", value=2.0)], lab="Синево (Synevo), Львів"),
+    ]
+    assert merge_reports(chunks).lab == "Синево (Synevo), Львів"
 
 
 def test_merge_drops_exact_duplicate_rows() -> None:

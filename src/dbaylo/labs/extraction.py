@@ -35,7 +35,9 @@ EXTRACTION_PERSONA = (
     "Return JSON ONLY — no prose, no markdown, no code fences — matching this shape:\n"
     "{\n"
     '  "report_date": "YYYY-MM-DD" | null,\n'
-    '  "lab": string | null,             // lab or facility / clinic name\n'
+    '  "lab": string | null,             // the lab BRAND / network (logo or letterhead),\n'
+    "                                    // e.g. 'Синево', 'ДІЛА', 'Інвітро', plus the city if\n"
+    "                                    // shown — 'Синево, Львів'. Not a bare 'Лабораторія X'\n"
     '  "kind": "tabular" | "narrative",  // "tabular" = an analyte results table;\n'
     '                                    // "narrative" = a descriptive medical document\n'
     "                                    // (МРТ/КТ/УЗД/висновок/виписка/опис) with no table\n"
@@ -178,7 +180,10 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
             seen.add(key)
             results.append(analyte)
         report_date = report_date or report.report_date
-        lab = lab or report.lab
+        # Chunks can disagree on the lab (one page shows the brand "Синево", another only the
+        # facility line "Лабораторія Львів"): keep the most complete name, not just the first.
+        if report.lab and (lab is None or len(report.lab) > len(lab)):
+            lab = report.lab
         report_type = report_type or report.report_type
         conclusion = conclusion or report.conclusion
         if report.narrative:

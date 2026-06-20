@@ -17,7 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot.keyboards import cancel_keyboard
+from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
 from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -144,6 +144,7 @@ async def on_problem_resolve(
     if condition_id is None or tg is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # this problem is resolved — consume its buttons
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         await proactive.resolve_problem(
@@ -297,6 +298,7 @@ async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderS
     if reminder_id is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # this reminder is off — consume its button
     async with get_session() as session:
         reminder = await session.get(Reminder, reminder_id)
         if reminder is not None:
@@ -315,6 +317,7 @@ async def on_medication_off(callback: CallbackQuery, reminder_scheduler: Reminde
     if medication_id is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # this medication is off — consume its button
     async with get_session() as session:
         await proactive.turn_off_medication(
             session, medication_id=medication_id, scheduler=reminder_scheduler

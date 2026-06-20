@@ -35,7 +35,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
-from dbaylo.bot.keyboards import cancel_keyboard
+from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
 from dbaylo.companion import history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
@@ -280,6 +280,7 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
 
 @router.callback_query(F.data == _CB_CANCEL)
 async def on_cancel(callback: CallbackQuery, state: FSMContext) -> None:
+    await clear_inline_keyboard(callback)  # consume the confirm/edit/cancel buttons
     data = await state.get_data()
     report_id = data.get("report_id")
     if isinstance(report_id, int):
@@ -294,6 +295,7 @@ async def on_cancel(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == _CB_EDIT)
 async def on_edit(callback: CallbackQuery, state: FSMContext) -> None:
+    await clear_inline_keyboard(callback)  # leaving edit mode — the old confirm buttons go
     data = await state.get_data()
     report = _pending_report(data)
     await state.set_state(LabStates.edit_pick)
@@ -383,6 +385,9 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     if not isinstance(callback.message, Message):
         await callback.answer()
         return
+    # Consume the confirm/edit/cancel buttons up front: confirmation runs a slow LLM, and the
+    # buttons must not stay tappable (no editing/cancelling a report that is already being saved).
+    await clear_inline_keyboard(callback)
 
     async with get_session() as session:
         db_report = await session.get(LabReport, report_id)
@@ -531,6 +536,7 @@ async def on_repeat(
     if not isinstance(callback.message, Message) or owner is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # the repeat offer is one-shot
 
     if (report_id := _parse_rid(_CB_REPEAT_OTHER, data)) is not None:
         await state.set_state(LabStates.repeat_custom)
@@ -590,6 +596,7 @@ async def on_concern(callback: CallbackQuery, reminder_scheduler: ReminderSchedu
     if not isinstance(callback.message, Message) or owner is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # the concern offer is one-shot
     if (report_id := _parse_rid(_CB_CONCERN_YES, data)) is not None:
         name = await _draft_concern_name(owner, report_id)
         if name is not None:
@@ -611,6 +618,7 @@ async def on_concern(callback: CallbackQuery, reminder_scheduler: ReminderSchedu
 async def on_lab_stale(callback: CallbackQuery) -> None:
     """Fallback: any lab button whose flow already ended (state lost / already actioned)
     still gets an acknowledgement instead of silently hanging."""
+    await clear_inline_keyboard(callback)
     if isinstance(callback.message, Message):
         await callback.message.answer(locale.LAB_OFFER_EXPIRED)
     await callback.answer()

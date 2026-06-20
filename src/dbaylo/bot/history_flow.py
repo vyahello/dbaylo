@@ -34,6 +34,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked
+from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.companion import callbacks, history
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -318,6 +319,7 @@ async def on_history_delete_ok(
     if report_id is None or tg is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # consume the confirm buttons (no re-tap / cancel after)
     deleted = False
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
@@ -333,6 +335,7 @@ async def on_history_delete_ok(
 
 @router.callback_query(F.data.startswith(callbacks.HIST_DELETE_NO + ":"))
 async def on_history_delete_no(callback: CallbackQuery) -> None:
+    await clear_inline_keyboard(callback)  # consume the confirm buttons
     if isinstance(callback.message, Message):
         await callback.message.answer(locale.HIST_DELETE_CANCELLED)
     await callback.answer()
@@ -344,6 +347,7 @@ async def on_history_clean(callback: CallbackQuery) -> None:
     if tg is None:
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # one-shot purge — consume the 🧹 button
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         removed = await history.cleanup_orphans(session, user_id=user.id, now=datetime.now())

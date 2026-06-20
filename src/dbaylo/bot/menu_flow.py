@@ -24,7 +24,7 @@ from aiogram.types import CallbackQuery, Message
 
 from dbaylo import locale
 from dbaylo.bot import companion_flow, history_flow, navigator_flow, proactive_flow
-from dbaylo.bot.keyboards import section_keyboard
+from dbaylo.bot.keyboards import clear_inline_keyboard, section_keyboard
 from dbaylo.companion import callbacks
 from dbaylo.companion.scheduler import ReminderScheduler
 
@@ -182,6 +182,7 @@ async def cb_coverage(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == callbacks.CANCEL_DIALOG)
 async def cb_cancel_dialog(callback: CallbackQuery, state: FSMContext) -> None:
+    await clear_inline_keyboard(callback)  # consume the [Скасувати] so it can't fire twice
     await state.clear()
     if isinstance(callback.message, Message):
         await callback.message.answer(locale.DIALOG_CANCELLED)

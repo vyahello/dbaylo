@@ -7,15 +7,34 @@ can build the persistent reply keyboard — without import cycles between the fl
 
 from __future__ import annotations
 
+import contextlib
+
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import (
+    CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     KeyboardButton,
+    Message,
     ReplyKeyboardMarkup,
 )
 
 from dbaylo import locale
 from dbaylo.companion import callbacks
+
+
+async def clear_inline_keyboard(callback: CallbackQuery) -> None:
+    """Remove the inline keyboard from the message a ONE-SHOT callback fired on.
+
+    Terminal actions (confirm, delete, cancel, an offer choice, turn-off) must not leave their
+    buttons tappable: otherwise a user can delete *and* then cancel the same message, or fire an
+    offer twice, getting contradictory or duplicated replies. Best-effort — a stale/uneditable
+    message just raises ``TelegramBadRequest``, which we ignore.
+    """
+    if isinstance(callback.message, Message):
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_reply_markup(reply_markup=None)
+
 
 # Persistent reply keyboard: two-per-row main actions; check-in + help share the last row.
 _MENU_ROWS = (
