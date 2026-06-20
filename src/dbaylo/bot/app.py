@@ -12,8 +12,9 @@ import asyncio
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.base import BaseStorage
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
+from dbaylo import locale
 from dbaylo.bot import (
     companion_flow,
     history_flow,
@@ -84,6 +85,17 @@ def _keyboard(buttons: Buttons) -> InlineKeyboardMarkup:
     )
 
 
+async def apply_bot_commands(bot: Bot) -> None:
+    """Populate Telegram's native "/" command menu from ``locale.BOT_COMMANDS``.
+
+    Without this the "/" menu is empty and every command is invisible unless the user
+    reads /help. Telegram also shows these as the default chat Menu button, so the whole
+    command palette is one tap away — nothing has to be typed from memory.
+    """
+    commands = [BotCommand(command=name, description=desc) for name, desc in locale.BOT_COMMANDS]
+    await bot.set_my_commands(commands)
+
+
 def make_sender(bot: Bot) -> Sender:
     """A reminder sender that delivers text (+ optional inline buttons) via ``bot``."""
 
@@ -103,6 +115,8 @@ async def _run_polling() -> None:
     reminder_scheduler = ReminderScheduler(sender=make_sender(bot))
     dispatcher["reminder_scheduler"] = reminder_scheduler
     await reminder_scheduler.start()
+    # Register the "/" command menu so every command is discoverable without typing.
+    await apply_bot_commands(bot)
     try:
         await dispatcher.start_polling(bot)
     finally:

@@ -17,12 +17,12 @@ from aiogram.types import (
 from dbaylo import locale
 from dbaylo.companion import callbacks
 
-# Persistent reply keyboard: two-per-row main actions, help on its own row.
+# Persistent reply keyboard: two-per-row main actions; check-in + help share the last row.
 _MENU_ROWS = (
     (locale.MENU_LABS, locale.MENU_GOALS),
     (locale.MENU_PROBLEMS, locale.MENU_MEDS),
     (locale.MENU_REMINDERS, locale.MENU_PRICES),
-    (locale.MENU_HELP,),
+    (locale.MENU_CHECKIN, locale.MENU_HELP),
 )
 
 

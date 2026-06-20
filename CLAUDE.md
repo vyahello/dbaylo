@@ -194,7 +194,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
 - **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
   new domain logic. A persistent `ReplyKeyboardMarkup` (📊 Аналізи · 🎯 Цілі · ⚕️ Проблеми · 💊 Ліки ·
-  🔔 Нагадування · 💰 Ціни/НСЗУ · ❓ Довідка) is shown from `/start`. Each label opens a section screen
+  🔔 Нагадування · 💰 Ціни/НСЗУ · 📝 Чек-ін · ❓ Довідка) is shown from `/start`; the native "/" command
+  menu is populated on startup (`app.apply_bot_commands` from `locale.BOT_COMMANDS`, `set_my_commands`)
+  so **no command must be typed from memory** — a parity test (`tests/test_bot_commands.py`) fails if any
+  `Command(...)` handler lacks a "/" menu entry. Each label opens a section screen
   (message + inline actions) that **delegates to reused helpers** — the commands are now aliases over
   the same `open_*` / `start_*_dialog` helpers (`companion_flow` · `proactive_flow` · `history_flow` ·
   `navigator_flow`). Menu labels are matched by **exact equality** (`F.text == locale.MENU_*`,

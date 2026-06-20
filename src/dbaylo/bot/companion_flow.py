@@ -103,10 +103,16 @@ async def cmd_goals(message: Message) -> None:
 # --- Daily check-in -------------------------------------------------------------
 
 
-@router.message(Command("checkin"))
-async def cmd_checkin(message: Message, state: FSMContext) -> None:
+async def start_checkin_dialog(message: Message, state: FSMContext) -> None:
+    """Begin a check-in: ask the prompt and wait for the answer. Reused by /checkin and
+    the menu's 📝 Чек-ін button so both share one entry point."""
     await state.set_state(CheckinStates.waiting_for_answer)
     await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+
+
+@router.message(Command("checkin"))
+async def cmd_checkin(message: Message, state: FSMContext) -> None:
+    await start_checkin_dialog(message, state)
 
 
 @router.message(CheckinStates.waiting_for_answer, F.text)

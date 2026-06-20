@@ -661,10 +661,40 @@ MENU_PROBLEMS = "⚕️ Проблеми"
 MENU_MEDS = "💊 Ліки"
 MENU_REMINDERS = "🔔 Нагадування"
 MENU_PRICES = "💰 Ціни/НСЗУ"
+MENU_CHECKIN = "📝 Чек-ін"
 MENU_HELP = "❓ Довідка"
 
 MENU_LABELS: frozenset[str] = frozenset(
-    {MENU_LABS, MENU_GOALS, MENU_PROBLEMS, MENU_MEDS, MENU_REMINDERS, MENU_PRICES, MENU_HELP}
+    {
+        MENU_LABS,
+        MENU_GOALS,
+        MENU_PROBLEMS,
+        MENU_MEDS,
+        MENU_REMINDERS,
+        MENU_PRICES,
+        MENU_CHECKIN,
+        MENU_HELP,
+    }
+)
+
+# Native Telegram "/" command menu (set via set_my_commands on startup). Each pair is
+# (command, short Ukrainian description). This is the single source of truth for the command
+# palette; a parity test asserts every registered command handler has an entry here, so the
+# "/" menu can never silently drift out of sync with the handlers. Order = display order.
+BOT_COMMANDS: tuple[tuple[str, str], ...] = (
+    ("start", "Головне меню і знайомство"),
+    ("checkin", "Швидкий щоденний чек-ін"),
+    ("history", "Збережені аналізи: файли, результати"),
+    ("trend", "Динаміка показника, напр. /trend глюкоза"),
+    ("goals", "Мої цілі для здоров'я"),
+    ("goal", "Поставити нову ціль"),
+    ("problems", "Активні проблеми, що турбують"),
+    ("problem", "Додати те, що турбує"),
+    ("medication", "Нагадування про ліки"),
+    ("reminders", "Переглянути й вимкнути нагадування"),
+    ("price", "Ціна на названі ліки"),
+    ("coverage", "Чи покриває ПМГ послугу"),
+    ("help", "Що я вмію"),
 )
 
 # Section-screen intros (each shown with its inline action buttons).

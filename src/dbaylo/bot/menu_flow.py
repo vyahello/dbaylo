@@ -97,6 +97,11 @@ async def menu_prices(message: Message) -> None:
     )
 
 
+@router.message(StateFilter(None), F.text == locale.MENU_CHECKIN)
+async def menu_checkin(message: Message, state: FSMContext) -> None:
+    await companion_flow.start_checkin_dialog(message, state)
+
+
 @router.message(StateFilter(None), F.text == locale.MENU_HELP)
 async def menu_help(message: Message) -> None:
     await message.answer(locale.HELP_TEXT)

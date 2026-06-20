@@ -44,10 +44,11 @@ def test_main_menu_keyboard_layout() -> None:
         locale.MENU_MEDS,
         locale.MENU_REMINDERS,
         locale.MENU_PRICES,
+        locale.MENU_CHECKIN,
         locale.MENU_HELP,
     ]
     assert kb.is_persistent and kb.resize_keyboard
-    assert len(kb.keyboard) == 4 and len(kb.keyboard[-1]) == 1  # two-per-row, help alone
+    assert len(kb.keyboard) == 4 and len(kb.keyboard[-1]) == 2  # two-per-row, checkin+help last
 
 
 def test_menu_labels_set_is_the_keyboard_labels() -> None:
@@ -58,6 +59,7 @@ def test_menu_labels_set_is_the_keyboard_labels() -> None:
         locale.MENU_MEDS,
         locale.MENU_REMINDERS,
         locale.MENU_PRICES,
+        locale.MENU_CHECKIN,
         locale.MENU_HELP,
     } == locale.MENU_LABELS
 
@@ -94,6 +96,19 @@ async def test_menu_prices_offers_price_and_coverage() -> None:
     await menu_flow.menu_prices(message)
     _, kwargs = message.answer.call_args
     assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_PRICE, callbacks.MENU_COVERAGE]
+
+
+async def test_menu_checkin_starts_the_checkin_dialog(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, state):
+        seen["args"] = (message, state)
+
+    monkeypatch.setattr(menu_flow.companion_flow, "start_checkin_dialog", fake)
+    message = AsyncMock()
+    state = object()
+    await menu_flow.menu_checkin(message, state)
+    assert seen["args"] == (message, state)
 
 
 async def test_menu_reminders_delegates_to_open_reminders(monkeypatch) -> None:
