@@ -429,11 +429,42 @@ HIST_REPORT_UPLOADED = "   (завантажено {uploaded})"
 HIST_MORE = "Показано останні {n}. Уточни: /history synevo · /history 2026-05 · /history травень"
 HIST_FILE_GONE = "Файл недоступний — можливо, його переміщено або видалено з диска."
 HIST_RESULTS_HEADER = "{date} · {lab}:"
+
+# Master-detail list: one tappable button per report; a card with actions on open.
+HIST_LIST_HEADER = "🗂 Твої аналізи ({n}). Обери, щоб переглянути:"
+HIST_PAGE_LABEL = "{page}/{pages}"
+HIST_BTN_REPORT = "📅 {date} · {lab} · {count}{flags}"
+HIST_BTN_REPORT_DOC = "📄 {date} · {lab} · {report_type}"
+HIST_FLAGS_SUFFIX = " ⚠️{n}"  # appended to the button when {n} values are out of range
+HIST_CARD = "📅 {date} · {lab}\n{count} показників · {status}"
+HIST_CARD_DOC = "📄 {date} · {lab}\n{report_type}"
+HIST_CARD_FLAGGED = "⚠️ {n} поза нормою"
+HIST_CARD_NORMAL = "✅ усі в межах норми"
 BTN_HIST_FILE = "📄 Файл"
-BTN_HIST_RESULTS = "📊 Результати"
+BTN_HIST_RESULTS = "📊 Показники"
+BTN_HIST_RESULTS_ALL = "📋 Усі показники"
+BTN_HIST_DYNAMICS = "📈 Динаміка проблемних"
 BTN_HIST_INTERPRET = "🔬 Розбір"
 BTN_HIST_DELETE = "🗑 Видалити"
-BTN_HIST_TREND = "📈 Динаміка"
+BTN_HIST_BACK = "◀ Назад"
+BTN_HIST_PREV = "◀"
+BTN_HIST_NEXT = "▶"
+
+# Problems-first results (only the out-of-range rows; normal ones aggregated).
+HIST_PROBLEMS_HEADER = "⚠️ Поза нормою ({n}):"
+HIST_PROBLEMS_NORMAL_AGG = "✅ Решта {n} — у межах норми."
+HIST_NO_PROBLEMS = "✅ Усі показники — в межах норми."
+HIST_DYNAMICS_EMPTY = (
+    "Поки немає динаміки проблемних показників — потрібен ще один аналіз в інший день. "
+    "Щоб подивитися інший показник: /trend <назва>."
+)
+# Cached analysis actions.
+BTN_INTERP_REFRESH = "🔄 Оновити розбір"
+BTN_INTERP_DELETE = "🗑 Видалити розбір"
+HIST_INTERP_DELETED = "Розбір видалено. Натисни «🔬 Розбір», щоб зробити новий."
+
+# Plain-text P.S. disclaimer block, appended to every health-content view for consistency.
+HIST_PS_BLOCK = f"{INTERPRET_DIVIDER}\n{INTERPRET_PS_PREFIX} {DISCLAIMER}"
 
 # Delete (two-step; shows what is being removed + any Tier 1.1 coupling).
 HIST_DELETE_CONFIRM = (

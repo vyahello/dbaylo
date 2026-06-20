@@ -201,13 +201,20 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
 - **Tier 1.2 — history & retrieval** (`companion/history.py`, `bot/history_flow.py`, migration
-  0005): browse stored labs. `/history` (alias `/reports`) lists **confirmed** reports recent-first
-  (cap 10, `+1` sentinel for a "уточни" hint), with per-report `[📄 Файл][📊 Результати][🔬 Розбір]`
-  `[🗑 Видалити]` (🔬 **re-generates the expert reading** from the stored rows via
-  `history.reconstruct_report` → `interpret` — the recovery path when an analysis was interrupted
-  by a restart, since the duplicate-guard now blocks a re-upload);
-  optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
-  Ukrainian month, `останній`). `/trend <analyte>` and a per-result `📈` button reuse the
+  0005): browse stored labs as a **master-detail UI** (progressive disclosure, not a wall). `/history`
+  (alias `/reports`) sends ONE message — a paginated list (`_list_view`, 8/page, `◀ ▶`) of **one
+  button per confirmed report** (`📅 date · lab · N⚠️k`). Tapping a report **edits the message in
+  place** into its **card** (`render_card`) with `[🔬 Розбір][📊 Показники] [📈 Динаміка][📄 Файл]
+  [🗑 Видалити][◀ Назад]`; Назад/pager edit back (no message spam). **🔬 Розбір is CACHED** — shows
+  `report.summary` instantly if present, else generates once via `reconstruct_report`→`interpret`
+  and stores it; `[🔄 Оновити][🗑 Видалити розбір]` regenerate / clear it. **📊 Показники is
+  problems-first** (`render_problems`): the lab conclusion + ONLY the out-of-range rows (grouped by
+  panel) + an aggregate `✅ Решта N — у межах норми`, with `[📋 Усі показники]` (opt-in full table)
+  and `[📈 Динаміка]`. **📈 Динаміка** charts ONLY the flagged analytes that have a real multi-date
+  trend (`flagged_keys` → `render_report_charts`) — no 85-chart flood; other indicators via
+  `/trend <name>`. Every health view ends with the **P.S. disclaimer** (`_ps` / `locale.HIST_PS_BLOCK`).
+  Optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
+  Ukrainian month, `останній`). `/trend <analyte>` reuses the
   deterministic trend engine (chart when ≥2 points). **All retrieval is no-LLM** — listing,
   rendering, parsing are pure. The NL search is the one seam: a free-text turn is routed to history
   only when `is_history_query` (intent **and** a concrete token); the handler calls

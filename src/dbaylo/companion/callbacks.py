@@ -20,7 +20,15 @@ HIST_DELETE_OK = "hist_delok"
 HIST_DELETE_NO = "hist_delno"
 HIST_TREND = "hist_trend"
 HIST_CLEAN = "hist_clean"
-HIST_INTERPRET = "hist_interp"  # (re)generate the expert reading for a confirmed report
+HIST_INTERPRET = "hist_interp"  # show (or generate) the expert reading for a confirmed report
+# Master-detail navigation + focused views (the UX redesign).
+HIST_PAGE = "hist_page"  # paginate the report list (edit-in-place)
+HIST_OPEN = "hist_open"  # open a report's card (carries the page to return to)
+HIST_BACK = "hist_back"  # back to the list at a given page
+HIST_RESULTS_ALL = "hist_resall"  # the FULL results table (opt-in from the problems view)
+HIST_DYNAMICS = "hist_dyn"  # trend charts for the flagged analytes only
+HIST_INTERP_REFRESH = "hist_iref"  # regenerate a cached analysis
+HIST_INTERP_DEL = "hist_idel"  # delete a saved analysis
 
 
 def _make(prefix: str, ident: int) -> str:
@@ -113,6 +121,66 @@ def history_interpret(report_id: int) -> str:
 
 def parse_history_interpret(data: str) -> int | None:
     return _parse(HIST_INTERPRET, data)
+
+
+def history_results_all(report_id: int) -> str:
+    return _make(HIST_RESULTS_ALL, report_id)
+
+
+def parse_history_results_all(data: str) -> int | None:
+    return _parse(HIST_RESULTS_ALL, data)
+
+
+def history_dynamics(report_id: int) -> str:
+    return _make(HIST_DYNAMICS, report_id)
+
+
+def parse_history_dynamics(data: str) -> int | None:
+    return _parse(HIST_DYNAMICS, data)
+
+
+def history_interpret_refresh(report_id: int) -> str:
+    return _make(HIST_INTERP_REFRESH, report_id)
+
+
+def parse_history_interpret_refresh(data: str) -> int | None:
+    return _parse(HIST_INTERP_REFRESH, data)
+
+
+def history_interpret_del(report_id: int) -> str:
+    return _make(HIST_INTERP_DEL, report_id)
+
+
+def parse_history_interpret_del(data: str) -> int | None:
+    return _parse(HIST_INTERP_DEL, data)
+
+
+def history_page(page: int) -> str:
+    return _make(HIST_PAGE, page)
+
+
+def parse_history_page(data: str) -> int | None:
+    return _parse(HIST_PAGE, data)
+
+
+def history_back(page: int) -> str:
+    return _make(HIST_BACK, page)
+
+
+def parse_history_back(data: str) -> int | None:
+    return _parse(HIST_BACK, data)
+
+
+def history_open(report_id: int, page: int) -> str:
+    return f"{HIST_OPEN}{_SEP}{report_id}{_SEP}{page}"
+
+
+def parse_history_open(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, page = rest.partition(_SEP)
+    if head == HIST_OPEN and rid.isdigit() and page.isdigit():
+        return int(rid), int(page)
+    return None
 
 
 def history_trend(report_id: int, index: int) -> str:

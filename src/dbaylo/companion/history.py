@@ -32,7 +32,6 @@ from dbaylo.db.models import (
     ReportStatus,
 )
 from dbaylo.labs.charts import render_trend_chart
-from dbaylo.labs.humanize import strip_markup
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
@@ -159,10 +158,10 @@ async def list_confirmed(
     *,
     user_id: int,
     filt: HistoryFilter | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int | None = DEFAULT_LIMIT,
 ) -> list[LabReport]:
-    """Confirmed reports, most recent first, optionally filtered. Returns up to
-    ``limit + 1`` so the caller can tell there are more."""
+    """Confirmed reports, most recent first, optionally filtered. With ``limit`` it returns up to
+    ``limit + 1`` (caller can tell there are more); ``limit=None`` returns all (paginated UI)."""
     stmt = (
         select(LabReport)
         .where(LabReport.user_id == user_id, LabReport.status == ReportStatus.CONFIRMED)
@@ -174,7 +173,7 @@ async def list_confirmed(
         reports = [r for r in reports if _matches(r, filt)]
         if filt.latest:
             reports = reports[:1]
-    return reports[: limit + 1]
+    return reports if limit is None else reports[: limit + 1]
 
 
 async def get_report(session: AsyncSession, *, report_id: int, user_id: int) -> LabReport | None:
@@ -262,6 +261,86 @@ def report_flags(results: list[LabResult]) -> str:
     return locale.FLAG_ATTENTION if any(r.flagged for r in results) else ""
 
 
+def flagged_count(results: list[LabResult]) -> int:
+    return sum(1 for r in results if r.flagged)
+
+
+def flagged_keys(results: list[LabResult]) -> set[str]:
+    """Normalized analyte keys of the out-of-range rows (for the flagged-only dynamics view)."""
+    return {normalize_analyte(r.analyte) for r in results if r.flagged}
+
+
+def report_button_label(report: LabReport, results: list[LabResult]) -> str:
+    """The one-line button label for a report in the master list."""
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    if report.kind == ReportKind.NARRATIVE:
+        return locale.HIST_BTN_REPORT_DOC.format(
+            date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
+        )
+    n_flagged = flagged_count(results)
+    flags = locale.HIST_FLAGS_SUFFIX.format(n=n_flagged) if n_flagged else ""
+    return locale.HIST_BTN_REPORT.format(
+        date=date_txt, lab=lab_txt, count=len(results), flags=flags
+    )
+
+
+def render_card(report: LabReport, results: list[LabResult]) -> str:
+    """The per-report 'card' shown when a report is opened from the list."""
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    if report.kind == ReportKind.NARRATIVE:
+        return locale.HIST_CARD_DOC.format(
+            date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
+        )
+    n_flagged = flagged_count(results)
+    status = locale.HIST_CARD_FLAGGED.format(n=n_flagged) if n_flagged else locale.HIST_CARD_NORMAL
+    return locale.HIST_CARD.format(date=date_txt, lab=lab_txt, count=len(results), status=status)
+
+
+def _ps(text: str) -> str:
+    """Append the plain-text P.S. disclaimer block (consistent across every health view)."""
+    return f"{text}\n\n{locale.HIST_PS_BLOCK}"
+
+
+def render_problems(report: LabReport, results: list[LabResult]) -> str:
+    """Focused results view: the lab conclusion + ONLY the out-of-range rows (grouped by panel),
+    then an aggregate line for the normal ones — never an 85-row dump."""
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
+    if report.kind == ReportKind.NARRATIVE:
+        if report.report_type:
+            lines.append(f"{locale.LAB_TYPE_LABEL}: {report.report_type}")
+        if report.conclusion:
+            lines += ["", f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}"]
+        elif report.narrative:
+            lines += ["", report.narrative]
+        return assert_safe_output(_ps("\n".join(lines)))
+    if report.conclusion:
+        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+    flagged = [r for r in results if r.flagged]
+    if not flagged:
+        lines += ["", locale.HIST_NO_PROBLEMS]
+        return assert_safe_output(_ps("\n".join(lines)))
+    lines += ["", locale.HIST_PROBLEMS_HEADER.format(n=len(flagged))]
+    prev_section: object = _NO_SECTION
+    for r in flagged:
+        if r.section != prev_section:
+            prev_section = r.section
+            if r.section:
+                lines.append(locale.LAB_SECTION_HEADER.format(section=r.section))
+        value = f"{r.value:g}" if r.value is not None else "—"
+        if r.unit:
+            value = f"{value} {r.unit}"
+        ref = _ref_text(r.ref_low, r.ref_high)
+        lines.append(f"• {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) ⚠️".rstrip())
+    normal = len(results) - len(flagged)
+    if normal:
+        lines += ["", locale.HIST_PROBLEMS_NORMAL_AGG.format(n=normal)]
+    return assert_safe_output(_ps("\n".join(lines)))
+
+
 def render_report_line(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
@@ -308,11 +387,8 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
             lines.append(
                 f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
             )
-    if report.summary:  # the saved expert interpretation (already safe + has the disclaimer)
-        # The summary carries *bold*/_italic_ markers for the rich confirm-time render; /history
-        # shows it as a plain block, so strip the markers (no raw '*'/'_' shown to the user).
-        lines += ["", strip_markup(report.summary)]
-    return assert_safe_output("\n".join(lines))
+    # The expert reading is a SEPARATE view now (🔬 Розбір) — the full table is just the data.
+    return assert_safe_output(_ps("\n".join(lines)))
 
 
 def report_file_path(report: LabReport) -> Path | None:

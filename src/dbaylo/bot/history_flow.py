@@ -19,10 +19,12 @@ only model call is the companion fallback, which re-enters through the gate.
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.types import (
     BufferedInputFile,
@@ -32,6 +34,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
@@ -42,7 +45,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
 from dbaylo.labs.intake import ensure_user
-from dbaylo.labs.pipeline import compute_report_summary
+from dbaylo.labs.pipeline import compute_report_summary, render_report_charts
 from dbaylo.labs.trends import normalize_analyte
 from dbaylo.safety import GateSource, screen
 
@@ -53,57 +56,85 @@ def _telegram_id(event: Message | CallbackQuery) -> int | None:
     return event.from_user.id if event.from_user else None
 
 
-def _list_keyboard(report_id: int) -> InlineKeyboardMarkup:
+_PAGE_SIZE = 8
+
+
+def _btn(text: str, data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=data)
+
+
+def _list_view(
+    reports: list[LabReport], page: int, orphans: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """The paginated master list: one tappable button per report, a pager, the cleanup footer."""
+    pages = max(1, -(-len(reports) // _PAGE_SIZE))  # ceil division
+    page = max(0, min(page, pages - 1))
+    chunk = reports[page * _PAGE_SIZE : page * _PAGE_SIZE + _PAGE_SIZE]
+    rows: list[list[InlineKeyboardButton]] = [
+        [
+            _btn(
+                history.report_button_label(r, history.ordered_results(r)),
+                callbacks.history_open(r.id, page),
+            )
+        ]
+        for r in chunk
+    ]
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_btn(locale.BTN_HIST_PREV, callbacks.history_page(page - 1)))
+    if page < pages - 1:
+        nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.history_page(page + 1)))
+    if nav:
+        rows.append(nav)
+    if orphans:
+        rows.append([_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)])
+    header = locale.HIST_LIST_HEADER.format(n=len(reports))
+    if pages > 1:
+        header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
+    return header, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _card_keyboard(report_id: int, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(
-                    text=locale.BTN_HIST_FILE, callback_data=callbacks.history_file(report_id)
-                ),
-                InlineKeyboardButton(
-                    text=locale.BTN_HIST_RESULTS, callback_data=callbacks.history_results(report_id)
-                ),
-                InlineKeyboardButton(
-                    text=locale.BTN_HIST_INTERPRET,
-                    callback_data=callbacks.history_interpret(report_id),
-                ),
+                _btn(locale.BTN_HIST_INTERPRET, callbacks.history_interpret(report_id)),
+                _btn(locale.BTN_HIST_RESULTS, callbacks.history_results(report_id)),
             ],
             [
-                InlineKeyboardButton(
-                    text=locale.BTN_HIST_DELETE, callback_data=callbacks.history_delete(report_id)
-                ),
+                _btn(locale.BTN_HIST_DYNAMICS, callbacks.history_dynamics(report_id)),
+                _btn(locale.BTN_HIST_FILE, callbacks.history_file(report_id)),
+            ],
+            [
+                _btn(locale.BTN_HIST_DELETE, callbacks.history_delete(report_id)),
+                _btn(locale.BTN_HIST_BACK, callbacks.history_back(page)),
             ],
         ]
     )
 
 
-def _cleanup_keyboard(orphans: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=locale.HIST_PENDING_FOOTER.format(n=orphans),
-                    callback_data=callbacks.HIST_CLEAN,
-                )
-            ]
-        ]
-    )
+async def _load_reports(session: AsyncSession, user_id: int) -> tuple[list[LabReport], int]:
+    reports = await history.list_confirmed(session, user_id=user_id, limit=None)
+    orphans = await history.count_orphans(session, user_id=user_id, now=datetime.now())
+    return reports, orphans
 
 
 async def _send_list(message: Message, reports: list[LabReport], orphans: int) -> None:
-    """Render a report list (recent-first), with the opt-in orphan-cleanup affordance."""
-    cleanup = _cleanup_keyboard(orphans) if orphans else None
+    """Send the master list as a single message (fresh, from /history or the menu)."""
     if not reports:
-        await message.answer(locale.HIST_EMPTY, reply_markup=cleanup)
-        return
-    await message.answer(locale.HIST_HEADER, reply_markup=cleanup)
-    for report in reports[: history.DEFAULT_LIMIT]:
-        results = history.ordered_results(report)
-        await message.answer(
-            history.render_report_line(report, results), reply_markup=_list_keyboard(report.id)
+        footer = (
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)]
+                ]
+            )
+            if orphans
+            else None
         )
-    if len(reports) > history.DEFAULT_LIMIT:
-        await message.answer(locale.HIST_MORE.format(n=history.DEFAULT_LIMIT))
+        await message.answer(locale.HIST_EMPTY, reply_markup=footer)
+        return
+    text, keyboard = _list_view(reports, 0, orphans)
+    await message.answer(text, reply_markup=keyboard)
 
 
 # --- /history (and /reports) ----------------------------------------------------
@@ -117,7 +148,7 @@ async def render_history(message: Message, telegram_id: int, raw: str = "") -> N
         if raw:
             labs = await history.known_labs(session, user_id=user.id)
             filt = history.parse_history_query(raw, known_labs=labs)
-        reports = await history.list_confirmed(session, user_id=user.id, filt=filt)
+        reports = await history.list_confirmed(session, user_id=user.id, filt=filt, limit=None)
         orphans = await history.count_orphans(session, user_id=user.id, now=datetime.now())
     await _send_list(message, reports, orphans)
 
@@ -158,7 +189,7 @@ async def on_history_query(message: Message) -> None:
         filt = history.parse_history_query(text, known_labs=labs)
         reports: list[LabReport] | None = None
         if filt.has_filter:
-            reports = await history.list_confirmed(session, user_id=user.id, filt=filt)
+            reports = await history.list_confirmed(session, user_id=user.id, filt=filt, limit=None)
             orphans = await history.count_orphans(session, user_id=user.id, now=datetime.now())
 
     if reports is None:
@@ -200,6 +231,65 @@ async def cmd_trend(message: Message, command: CommandObject) -> None:
 # --- Callbacks ------------------------------------------------------------------
 
 
+# --- Master-detail navigation (edit-in-place) -----------------------------------
+
+
+async def _edit_to_list(callback: CallbackQuery, page: int, telegram_id: int) -> None:
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        reports, orphans = await _load_reports(session, user.id)
+    if isinstance(callback.message, Message):
+        text, keyboard = _list_view(reports, page, orphans)
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_PAGE + ":"))
+async def on_history_page(callback: CallbackQuery) -> None:
+    page = callbacks.parse_history_page(callback.data or "")
+    tg = _telegram_id(callback)
+    if page is None or tg is None:
+        await callback.answer()
+        return
+    await _edit_to_list(callback, page, tg)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_BACK + ":"))
+async def on_history_back(callback: CallbackQuery) -> None:
+    page = callbacks.parse_history_back(callback.data or "")
+    tg = _telegram_id(callback)
+    if page is None or tg is None:
+        await callback.answer()
+        return
+    await _edit_to_list(callback, page, tg)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_OPEN + ":"))
+async def on_history_open(callback: CallbackQuery) -> None:
+    """Open a report's card (edit the list message in place)."""
+    parsed = callbacks.parse_history_open(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, page = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        card = (
+            history.render_card(report, history.ordered_results(report))
+            if report is not None
+            else None
+        )
+    if card is None:
+        await callback.answer(locale.HIST_FILE_GONE, show_alert=True)
+        return
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(card, reply_markup=_card_keyboard(report_id, page))
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(callbacks.HIST_FILE + ":"))
 async def on_history_file(callback: CallbackQuery) -> None:
     report_id = callbacks.parse_history_file(callback.data or "")
@@ -221,9 +311,10 @@ async def on_history_file(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith(callbacks.HIST_RESULTS + ":"))
 async def on_history_results(callback: CallbackQuery) -> None:
+    """Focused results: lab conclusion + ONLY the out-of-range rows + an aggregate for the rest."""
     report_id = callbacks.parse_history_results(callback.data or "")
     tg = _telegram_id(callback)
-    if report_id is None or tg is None:
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
     text = locale.HIST_FILE_GONE
@@ -232,39 +323,90 @@ async def on_history_results(callback: CallbackQuery) -> None:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
         if report is not None:
-            results = history.ordered_results(report)
-            text = history.render_report_results(report, results)
-            rows = [
-                [
-                    InlineKeyboardButton(
-                        text=f"📈 {result.analyte[:28]}",
-                        callback_data=callbacks.history_trend(report_id, index),
-                    )
+            text = history.render_problems(report, history.ordered_results(report))
+            keyboard = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        _btn(locale.BTN_HIST_RESULTS_ALL, callbacks.history_results_all(report_id)),
+                        _btn(locale.BTN_HIST_DYNAMICS, callbacks.history_dynamics(report_id)),
+                    ]
                 ]
-                for index, result in enumerate(results)
-            ]
-            keyboard = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
-    if isinstance(callback.message, Message):
-        await answer_chunked(callback.message, text, reply_markup=keyboard)
+            )
+    await answer_chunked(callback.message, text, reply_markup=keyboard)
     await callback.answer()
 
 
-@router.callback_query(F.data.startswith(callbacks.HIST_INTERPRET + ":"))
-async def on_history_interpret(callback: CallbackQuery) -> None:
-    """(Re)generate the expert reading for a confirmed report from its stored data — the recovery
-    path when an analysis was interrupted (e.g. a restart) or the user wants to re-read it."""
-    report_id = callbacks.parse_history_interpret(callback.data or "")
+@router.callback_query(F.data.startswith(callbacks.HIST_RESULTS_ALL + ":"))
+async def on_history_results_all(callback: CallbackQuery) -> None:
+    """The full table — opt-in from the focused view, chunked, with the P.S."""
+    report_id = callbacks.parse_history_results_all(callback.data or "")
     tg = _telegram_id(callback)
     if report_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
-    await callback.answer()  # dismiss the spinner up front — generation can take a few minutes
-    await callback.message.answer(locale.LAB_INTERPRET_WORKING)
+    text = locale.HIST_FILE_GONE
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        if report is not None:
+            text = history.render_report_results(report, history.ordered_results(report))
+    await answer_chunked(callback.message, text)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_DYNAMICS + ":"))
+async def on_history_dynamics(callback: CallbackQuery) -> None:
+    """Trend charts for the FLAGGED analytes only (and only those with a real, multi-date trend)."""
+    report_id = callbacks.parse_history_dynamics(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
         if report is None:
             await callback.message.answer(locale.HIST_FILE_GONE)
+            return
+        keys = history.flagged_keys(history.ordered_results(report))
+        charts = await render_report_charts(session, user_id=user.id, analyte_keys=keys)
+    for name, png in charts:
+        await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
+    if not charts:
+        await callback.message.answer(locale.HIST_DYNAMICS_EMPTY)
+
+
+# --- Expert reading: cached (instant), with refresh / delete --------------------
+
+
+def _analysis_actions(report_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.BTN_INTERP_REFRESH, callbacks.history_interpret_refresh(report_id)),
+                _btn(locale.BTN_INTERP_DELETE, callbacks.history_interpret_del(report_id)),
+            ]
+        ]
+    )
+
+
+async def _send_analysis(message: Message, summary_text: str, report_id: int) -> None:
+    await answer_chunked(
+        message,
+        render_interpretation_html(summary_text),
+        reply_markup=_analysis_actions(report_id),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def _generate_analysis(message: Message, *, report_id: int, telegram_id: int) -> None:
+    await message.answer(locale.LAB_INTERPRET_WORKING)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        if report is None:
+            await message.answer(locale.HIST_FILE_GONE)
             return
         results = history.ordered_results(report)
         reconstructed = history.reconstruct_report(report, results)
@@ -274,9 +416,60 @@ async def on_history_interpret(callback: CallbackQuery) -> None:
         )
         report.summary = summary.text
         await session.commit()
-    await answer_chunked(
-        callback.message, render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
-    )
+    await _send_analysis(message, summary.text, report_id)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_INTERPRET + ":"))
+async def on_history_interpret(callback: CallbackQuery) -> None:
+    """Show the saved analysis INSTANTLY if it exists; otherwise generate it once and store it."""
+    report_id = callbacks.parse_history_interpret(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        cached = report.summary if report is not None else None
+        gone = report is None
+    if gone:
+        await callback.message.answer(locale.HIST_FILE_GONE)
+        return
+    if cached:
+        await _send_analysis(callback.message, cached, report_id)  # instant, from the DB
+    else:
+        await _generate_analysis(callback.message, report_id=report_id, telegram_id=tg)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_INTERP_REFRESH + ":"))
+async def on_history_interpret_refresh(callback: CallbackQuery) -> None:
+    report_id = callbacks.parse_history_interpret_refresh(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await clear_inline_keyboard(callback)  # consume the old refresh/delete row
+    await callback.answer()
+    await _generate_analysis(callback.message, report_id=report_id, telegram_id=tg)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_INTERP_DEL + ":"))
+async def on_history_interpret_del(callback: CallbackQuery) -> None:
+    report_id = callbacks.parse_history_interpret_del(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await clear_inline_keyboard(callback)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        if report is not None:
+            report.summary = None
+            await session.commit()
+    await callback.message.answer(locale.HIST_INTERP_DELETED)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_TREND + ":"))

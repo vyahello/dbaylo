@@ -17,6 +17,8 @@ import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dbaylo import locale
+from dbaylo.bot import history_flow
 from dbaylo.companion import history, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import (
@@ -222,6 +224,77 @@ async def test_render_report_line_flags_and_results(async_session: AsyncSession)
     body = history.render_report_results(report, results)
     assert "1. Глюкоза" in body and "2. Калій" in body
     assert "норма" in body
+
+
+async def test_report_button_label_and_card_show_flag_count(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2021, 8, 6),
+        lab="Сінево",
+        results=(("АЛТ", 63.0, None, 50.0), ("Калій", 4.0, 3.5, 5.1)),  # АЛТ out of range
+    )
+    results = history.ordered_results(report)
+    label = history.report_button_label(report, results)
+    assert "Сінево" in label and "⚠️1" in label  # one flagged, shown on the button
+    assert "⚠️ 1 поза нормою" in history.render_card(report, results)
+
+
+async def test_render_problems_shows_only_flagged_plus_aggregate(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    report = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2021, 8, 6),
+        lab="Сінево",
+        results=(("АЛТ", 63.0, None, 50.0), ("Калій", 4.0, 3.5, 5.1), ("Глюкоза", 5.0, 3.9, 6.1)),
+    )
+    body = history.render_problems(report, history.ordered_results(report))
+    assert "АЛТ" in body  # the out-of-range row is shown
+    assert "Калій" not in body and "Глюкоза" not in body  # normal rows are NOT listed
+    assert "Решта 2" in body  # aggregated instead
+    assert "P.S." in body  # disclaimer on every health view
+
+
+async def test_full_table_has_ps_and_omits_the_summary(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2021, 8, 6),
+        lab="Сінево",
+        results=(("Глюкоза", 5.0, 3.9, 6.1),),
+    )
+    report.summary = "СЕКРЕТНИЙ РОЗБІР"  # the analysis is a SEPARATE view now
+    body = history.render_report_results(report, history.ordered_results(report))
+    assert "Глюкоза" in body and "P.S." in body
+    assert "СЕКРЕТНИЙ РОЗБІР" not in body
+
+
+async def test_list_view_paginates_into_pages_of_eight(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    for day in range(1, 13):  # 12 confirmed reports
+        await _report(
+            async_session,
+            user_id=user.id,
+            on=date(2021, 1, day),
+            lab="Сінево",
+            results=(("Глюкоза", 5.0, 3.9, 6.1),),
+        )
+    reports = await history.list_confirmed(async_session, user_id=user.id, limit=None)
+    assert len(reports) == 12
+    text, kb = history_flow._list_view(reports, 0, orphans=0)
+    open_buttons = [
+        row[0]
+        for row in kb.inline_keyboard
+        if len(row) == 1 and (row[0].callback_data or "").startswith("hist_open")
+    ]
+    assert len(open_buttons) == 8  # one page
+    assert "1/2" in text  # 12 reports / 8 -> 2 pages
+    assert any(b.text == locale.BTN_HIST_NEXT for b in kb.inline_keyboard[-1])  # ▶ on page 0
 
 
 async def test_reconstruct_report_rebuilds_an_extracted_report(async_session: AsyncSession) -> None:
