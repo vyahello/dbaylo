@@ -22,6 +22,7 @@ from typing import Any, cast
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -33,6 +34,7 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
+from dbaylo.bot.formatting import render_interpretation_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.companion import history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -380,6 +382,12 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         )
         user_id = db_report.user_id
 
+    # Acknowledge immediately: the expert interpretation runs an LLM and can take a while, so
+    # confirm the save and show a "working" note before the slow call — never a silent gap.
+    await callback.message.answer(locale.LAB_CONFIRMED)
+    await callback.message.answer(locale.LAB_INTERPRET_WORKING)
+    await callback.answer()
+
     keys = {normalize_analyte(a.analyte) for a in report.results}
     async with get_session() as session:
         # Pass the confirmed report so the summary is the Stage 5 expert interpretation.
@@ -387,16 +395,17 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             session, user_id=user_id, analyte_keys=keys, report=report
         )
         # Persist the generated summary so /history can show it without re-calling the LLM.
+        # Stored as the plain safety-checked text; HTML styling is applied only at send time.
         stored = await session.get(LabReport, report_id)
         if stored is not None:
             stored.summary = summary.text
             await session.commit()
 
-    await callback.message.answer(locale.LAB_CONFIRMED)
     for name, png in summary.charts:
         await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
-    await callback.message.answer(summary.text)
-    await callback.answer()
+    await callback.message.answer(
+        render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
+    )
 
     # The report is saved; the pending FSM data is no longer needed. The repeat/concern
     # offers are stateless (they carry report_id), so they survive a state reset.

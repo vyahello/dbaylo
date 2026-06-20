@@ -247,6 +247,18 @@ LAB_INTERPRET_FLAGGED_ITEM = "• {analyte}: {value}"
 LAB_INTERPRET_ASK_DOCTOR = (
     "Найкраще обговорити повну картину з лікарем — він зможе оцінити її разом із твоєю історією."
 )
+# Shown the moment the user confirms a report — the expert interpretation runs an LLM and can
+# take a while, so we acknowledge immediately instead of leaving a silent gap.
+LAB_INTERPRET_WORKING = "Готую розбір показників і рекомендації — це може зайняти трохи часу… ⏳"
+# Canonical section headers for the expert interpretation. The model is told to print these
+# verbatim on their own line; the Telegram renderer (bot.formatting) bolds + emoji-prefixes them.
+INTERPRET_SECTION_OVERALL = "Загалом"
+INTERPRET_SECTION_ATTENTION = "Варто звернути увагу"
+INTERPRET_SECTION_HELP = "Що допоможе"
+INTERPRET_SECTION_DOCTOR = "Коли до лікаря"
+# Disclaimer is set off as a P.S. block under a divider (bot.formatting).
+INTERPRET_DIVIDER = "──────────"
+INTERPRET_PS_PREFIX = "P.S."
 
 # --- Stage 6: narrative / imaging documents (МРТ / УЗД / висновок) ---------------
 LAB_TYPE_LABEL = "Тип"
