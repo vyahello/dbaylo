@@ -13,8 +13,16 @@ from __future__ import annotations
 
 import html
 
+from aiogram.types import InlineKeyboardMarkup, Message
+
 from dbaylo import locale
 from dbaylo.triage.safety import DISCLAIMER
+
+# Telegram rejects a sendMessage over 4096 chars ("message is too long"). A big lab report
+# (e.g. an 8-page panel with ~85 rows) easily exceeds that, so any potentially-large message
+# is split into chunks first. We leave a margin under the hard cap.
+TELEGRAM_MAX = 4096
+_CHUNK_LIMIT = 3900
 
 # Fixed section headers -> (emoji, canonical display). Keyed by a normalized (casefolded,
 # punctuation-stripped) header so small variations — and the deterministic fallback header —
@@ -68,3 +76,57 @@ def render_interpretation_html(text: str) -> str:
     out = "\n".join(rendered).rstrip()
     ps = f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(DISCLAIMER)}</i>"
     return f"{out}\n\n{ps}"
+
+
+def split_for_telegram(text: str, *, limit: int = _CHUNK_LIMIT) -> list[str]:
+    """Split ``text`` into chunks no longer than ``limit``, breaking on line boundaries.
+
+    Lines are kept whole where possible (a row is never cut mid-way); a single line longer
+    than ``limit`` is hard-split as a last resort. Splitting only on newlines also keeps our
+    one-line ``<b>``/``<i>`` tags intact, so an HTML message stays valid across chunks.
+    """
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for line in text.split("\n"):
+        if current and len(current) + 1 + len(line) > limit:
+            chunks.append(current)
+            current = ""
+        if len(line) > limit:
+            if current:
+                chunks.append(current)
+                current = ""
+            for start in range(0, len(line), limit):
+                piece = line[start : start + limit]
+                if len(piece) == limit:
+                    chunks.append(piece)
+                else:
+                    current = piece
+        else:
+            current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+async def answer_chunked(
+    message: Message,
+    text: str,
+    *,
+    reply_markup: InlineKeyboardMarkup | None = None,
+    parse_mode: str | None = None,
+) -> None:
+    """Send ``text`` as one or more messages, each under Telegram's length cap.
+
+    The ``reply_markup`` is attached only to the LAST chunk, so the action buttons (confirm /
+    edit, per-analyte trend) sit at the bottom of the final part — never lost to an overflow.
+    """
+    chunks = split_for_telegram(text)
+    last = len(chunks) - 1
+    for index, chunk in enumerate(chunks):
+        await message.answer(
+            chunk,
+            reply_markup=reply_markup if index == last else None,
+            parse_mode=parse_mode,
+        )

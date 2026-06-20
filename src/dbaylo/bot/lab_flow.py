@@ -34,7 +34,7 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
-from dbaylo.bot.formatting import render_interpretation_html
+from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.companion import history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -258,7 +258,12 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
 
     await state.set_state(LabStates.confirming)
     await state.update_data(report_id=report_id, report=_report_to_state(outcome))
-    await message.answer(render_confirmation_text(outcome), reply_markup=confirmation_keyboard())
+    # A big report (e.g. ~85 rows) overflows Telegram's 4096-char cap, so send in chunks —
+    # the confirm/edit buttons ride the last one. (A single message would raise and the user
+    # would see nothing after the long extraction.)
+    await answer_chunked(
+        message, render_confirmation_text(outcome), reply_markup=confirmation_keyboard()
+    )
 
 
 @router.callback_query(F.data == _CB_CANCEL)
@@ -345,7 +350,9 @@ async def _restore_confirmation(
 ) -> None:
     await state.update_data(report=_report_to_state(report))
     await state.set_state(LabStates.confirming)
-    await message.answer(render_confirmation_text(report), reply_markup=confirmation_keyboard())
+    await answer_chunked(
+        message, render_confirmation_text(report), reply_markup=confirmation_keyboard()
+    )
 
 
 @router.callback_query(F.data == _CB_CONFIRM)
@@ -361,7 +368,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     report = _pending_report(data)
-    if callback.message is None:
+    if not isinstance(callback.message, Message):
         await callback.answer()
         return
 
@@ -403,8 +410,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
 
     for name, png in summary.charts:
         await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
-    await callback.message.answer(
-        render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
+    await answer_chunked(
+        callback.message, render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
     )
 
     # The report is saved; the pending FSM data is no longer needed. The repeat/concern

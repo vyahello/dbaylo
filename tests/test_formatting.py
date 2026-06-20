@@ -2,8 +2,17 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
+import pytest
+
 from dbaylo import locale
-from dbaylo.bot.formatting import render_interpretation_html
+from dbaylo.bot.formatting import (
+    TELEGRAM_MAX,
+    answer_chunked,
+    render_interpretation_html,
+    split_for_telegram,
+)
 from dbaylo.triage.safety import DISCLAIMER
 
 _BODY = (
@@ -67,3 +76,39 @@ def test_deterministic_fallback_attention_header_is_styled() -> None:
     text = f"{locale.LAB_INTERPRET_FLAGGED_HEADER}\n• Глюкоза: 7\n\n{DISCLAIMER}"
     out = render_interpretation_html(text)
     assert f"⚠️ <b>{locale.INTERPRET_SECTION_ATTENTION}</b>" in out
+
+
+# --- Long-message chunking (Telegram's 4096-char cap) ---------------------------
+
+
+def test_short_text_is_one_chunk() -> None:
+    assert split_for_telegram("just a line") == ["just a line"]
+
+
+def test_a_big_report_splits_under_the_limit_on_line_boundaries() -> None:
+    # ~85 rows like a real comprehensive panel — one single message would be rejected.
+    body = "\n".join(f"{i}. Аналіт {i} — {i * 1.5:g} (норма 0–10) ⚠️" for i in range(1, 86)) * 3
+    chunks = split_for_telegram(body)
+    assert len(chunks) > 1
+    assert all(len(c) <= TELEGRAM_MAX for c in chunks)
+    # Reassembling the chunks reproduces every line (nothing dropped, no row cut in half).
+    assert "\n".join(chunks).split("\n") == body.split("\n")
+
+
+def test_an_overlong_single_line_is_hard_split() -> None:
+    chunks = split_for_telegram("x" * 9000)
+    assert len(chunks) >= 3
+    assert all(len(c) <= TELEGRAM_MAX for c in chunks)
+    assert "".join(chunks) == "x" * 9000
+
+
+@pytest.mark.asyncio
+async def test_answer_chunked_attaches_markup_only_to_the_last_chunk() -> None:
+    message = AsyncMock()
+    long_text = "\n".join("рядок" * 200 for _ in range(60))  # > one message
+    markup = object()
+    await answer_chunked(message, long_text, reply_markup=markup)  # type: ignore[arg-type]
+    calls = message.answer.await_args_list
+    assert len(calls) > 1
+    assert all(c.kwargs["reply_markup"] is None for c in calls[:-1])
+    assert calls[-1].kwargs["reply_markup"] is markup

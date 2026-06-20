@@ -33,6 +33,7 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
+from dbaylo.bot.formatting import answer_chunked
 from dbaylo.companion import callbacks, history
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -234,7 +235,7 @@ async def on_history_results(callback: CallbackQuery) -> None:
             ]
             keyboard = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
     if isinstance(callback.message, Message):
-        await callback.message.answer(text, reply_markup=keyboard)
+        await answer_chunked(callback.message, text, reply_markup=keyboard)
     await callback.answer()
 
 
