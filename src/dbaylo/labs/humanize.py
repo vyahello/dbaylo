@@ -199,32 +199,41 @@ async def interpret(
 ) -> str:
     """An expert-level Ukrainian reading of a confirmed report, guaranteed safe.
 
-    The model interprets the values (using the lab's own flags) + the deterministic trends
-    and gives practical guidance; every output passes ``assert_safe_output`` and gets the
-    disclaimer, with a deterministic fallback when the LLM is unavailable or trips the guard.
+    The model interprets the values (using the lab's own flags) + the deterministic trends and
+    gives practical guidance; every output passes ``assert_safe_output`` and gets the disclaimer.
+    The full reading is the WHOLE point — the bare deterministic list is a poor substitute — so a
+    transient hiccup (a one-off ``ok=False`` from API overload / an interrupted call, or a single
+    generation that trips the guard) is **retried once** before degrading. A genuine *timeout* is
+    NOT retried (it would only time out again and double the wait), and an unavailable binary
+    falls back at once.
     """
     fallback = assert_safe_output(deterministic_interpretation(report))
-    try:
-        result = await runner(
-            _interpret_table(report, summaries),
-            append_system_prompt=INTERPRET_PERSONA,
-            model=model,
-            # A full reading of a big panel takes far longer than a chat turn; without its own
-            # timeout the call hits the 180s default and silently degrades to the bare list.
-            timeout_s=get_settings().claude_interpret_timeout_s,
-        )
-    except ClaudeUnavailable:
-        return _finalize(fallback)
-    if not result.ok or not result.text.strip():
-        return _finalize(fallback)
-    body = result.text.strip()
-    try:
-        # Guard the VISIBLE text: strip the *bold*/_italic_ markers first so a forbidden phrase
-        # can't slip past by hiding a marker inside it (e.g. "все *добре*").
-        assert_safe_output(strip_markup(body))
-    except ValueError:
-        return _finalize(fallback)
-    return _finalize(body)
+    table = _interpret_table(report, summaries)
+    for _attempt in range(2):  # one retry: the rich reading matters more than failing fast
+        try:
+            result = await runner(
+                table,
+                append_system_prompt=INTERPRET_PERSONA,
+                model=model,
+                # A full reading of a big panel takes far longer than a chat turn; without its own
+                # timeout the call hits the 180s default and silently degrades to the bare list.
+                timeout_s=get_settings().claude_interpret_timeout_s,
+            )
+        except ClaudeUnavailable:
+            return _finalize(fallback)
+        if not result.ok or not result.text.strip():
+            if result.error == "timeout":  # a real timeout — retrying just doubles the wait
+                return _finalize(fallback)
+            continue  # transient failure (overload / interrupted) — try once more
+        body = result.text.strip()
+        try:
+            # Guard the VISIBLE text: strip the *bold*/_italic_ markers first so a forbidden phrase
+            # can't slip past by hiding a marker inside it (e.g. "все *добре*").
+            assert_safe_output(strip_markup(body))
+        except ValueError:
+            continue  # this generation tripped the guard — a fresh one usually passes
+        return _finalize(body)
+    return _finalize(fallback)
 
 
 async def humanize(

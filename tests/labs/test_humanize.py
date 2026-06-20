@@ -137,6 +137,32 @@ async def test_interpret_guard_sees_through_markup() -> None:
     assert contains_forbidden_reassurance(out) is None
 
 
+async def test_interpret_retries_once_on_a_transient_failure() -> None:
+    calls: list[int] = []
+    good = "Загалом показники в межах норми. Варто обговорити з лікарем за потреби."
+
+    async def flaky(*args, **kwargs) -> ClaudeResult:
+        calls.append(1)
+        if len(calls) == 1:  # first call a transient failure (e.g. API overload)
+            return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=1, error="overloaded")
+        return ClaudeResult(ok=True, text=good, raw_stdout=good, exit_code=0)
+
+    out = await interpret(_report(), _summaries(), runner=flaky)
+    assert good in out and len(calls) == 2  # retried, then delivered the real reading
+
+
+async def test_interpret_does_not_retry_a_timeout() -> None:
+    calls: list[int] = []
+
+    async def timed_out(*args, **kwargs) -> ClaudeResult:
+        calls.append(1)
+        return ClaudeResult(ok=False, text="", raw_stdout="", exit_code=None, error="timeout")
+
+    out = await interpret(_report(conclusion="Нормозооспермія"), _summaries(), runner=timed_out)
+    assert "Нормозооспермія" in out  # deterministic fallback
+    assert len(calls) == 1  # a real timeout is NOT retried (it would just time out again)
+
+
 async def test_interpret_falls_back_when_claude_unavailable() -> None:
     async def boom(*args, **kwargs):
         raise ClaudeUnavailable("no binary")
