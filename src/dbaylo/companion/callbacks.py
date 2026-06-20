@@ -20,6 +20,7 @@ HIST_DELETE_OK = "hist_delok"
 HIST_DELETE_NO = "hist_delno"
 HIST_TREND = "hist_trend"
 HIST_CLEAN = "hist_clean"
+HIST_INTERPRET = "hist_interp"  # (re)generate the expert reading for a confirmed report
 
 
 def _make(prefix: str, ident: int) -> str:
@@ -104,6 +105,14 @@ def history_delete_no(report_id: int) -> str:
 
 def parse_history_delete_no(data: str) -> int | None:
     return _parse(HIST_DELETE_NO, data)
+
+
+def history_interpret(report_id: int) -> str:
+    return _make(HIST_INTERPRET, report_id)
+
+
+def parse_history_interpret(data: str) -> int | None:
+    return _parse(HIST_INTERPRET, data)
 
 
 def history_trend(report_id: int, index: int) -> str:

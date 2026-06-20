@@ -224,6 +224,31 @@ async def test_render_report_line_flags_and_results(async_session: AsyncSession)
     assert "норма" in body
 
 
+async def test_reconstruct_report_rebuilds_an_extracted_report(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = LabReport(
+        user_id=user.id,
+        report_date=date(2026, 5, 12),
+        lab="Synevo",
+        status=ReportStatus.CONFIRMED,
+        conclusion="висновок",
+        results=[
+            LabResult(analyte="АЛТ", value=63.0, unit="Од/л", ref_high=50.0, flagged=True),
+            LabResult(analyte="Калій", value=4.0, ref_low=3.5, ref_high=5.1, flagged=False),
+        ],
+    )
+    async_session.add(report)
+    await async_session.flush()
+
+    extracted = history.reconstruct_report(report, history.ordered_results(report))
+    assert extracted.lab == "Synevo" and extracted.conclusion == "висновок"
+    assert len(extracted.results) == 2
+    alt = extracted.results[0]
+    assert alt.analyte == "АЛТ" and alt.value == 63.0
+    assert alt.out_of_range is True  # the stored 'flagged' becomes the lab's out-of-range mark
+    assert [a.analyte for a in extracted.flagged_results()] == ["АЛТ"]
+
+
 async def test_render_report_results_groups_by_panel(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     report = LabReport(

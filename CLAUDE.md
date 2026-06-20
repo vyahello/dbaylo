@@ -202,7 +202,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
 - **Tier 1.2 — history & retrieval** (`companion/history.py`, `bot/history_flow.py`, migration
   0005): browse stored labs. `/history` (alias `/reports`) lists **confirmed** reports recent-first
-  (cap 10, `+1` sentinel for a "уточни" hint), with per-report `[📄 Файл][📊 Результати][🗑 Видалити]`;
+  (cap 10, `+1` sentinel for a "уточни" hint), with per-report `[📄 Файл][📊 Результати][🔬 Розбір]`
+  `[🗑 Видалити]` (🔬 **re-generates the expert reading** from the stored rows via
+  `history.reconstruct_report` → `interpret` — the recovery path when an analysis was interrupted
+  by a restart, since the duplicate-guard now blocks a re-upload);
   optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
   Ukrainian month, `останній`). `/trend <analyte>` and a per-result `📈` button reuse the
   deterministic trend engine (chart when ≥2 points). **All retrieval is no-LLM** — listing,

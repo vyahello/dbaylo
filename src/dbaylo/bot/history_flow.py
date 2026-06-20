@@ -22,6 +22,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.types import (
     BufferedInputFile,
@@ -33,7 +34,7 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
-from dbaylo.bot.formatting import answer_chunked
+from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.companion import callbacks, history
 from dbaylo.companion.conversation import generate_reply
@@ -41,6 +42,8 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
 from dbaylo.labs.intake import ensure_user
+from dbaylo.labs.pipeline import compute_report_summary
+from dbaylo.labs.trends import normalize_analyte
 from dbaylo.safety import GateSource, screen
 
 router = Router(name="history")
@@ -61,9 +64,15 @@ def _list_keyboard(report_id: int) -> InlineKeyboardMarkup:
                     text=locale.BTN_HIST_RESULTS, callback_data=callbacks.history_results(report_id)
                 ),
                 InlineKeyboardButton(
+                    text=locale.BTN_HIST_INTERPRET,
+                    callback_data=callbacks.history_interpret(report_id),
+                ),
+            ],
+            [
+                InlineKeyboardButton(
                     text=locale.BTN_HIST_DELETE, callback_data=callbacks.history_delete(report_id)
                 ),
-            ]
+            ],
         ]
     )
 
@@ -238,6 +247,36 @@ async def on_history_results(callback: CallbackQuery) -> None:
     if isinstance(callback.message, Message):
         await answer_chunked(callback.message, text, reply_markup=keyboard)
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_INTERPRET + ":"))
+async def on_history_interpret(callback: CallbackQuery) -> None:
+    """(Re)generate the expert reading for a confirmed report from its stored data — the recovery
+    path when an analysis was interrupted (e.g. a restart) or the user wants to re-read it."""
+    report_id = callbacks.parse_history_interpret(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()  # dismiss the spinner up front — generation can take a few minutes
+    await callback.message.answer(locale.LAB_INTERPRET_WORKING)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        if report is None:
+            await callback.message.answer(locale.HIST_FILE_GONE)
+            return
+        results = history.ordered_results(report)
+        reconstructed = history.reconstruct_report(report, results)
+        keys = {normalize_analyte(r.analyte) for r in results}
+        summary = await compute_report_summary(
+            session, user_id=user.id, analyte_keys=keys, report=reconstructed
+        )
+        report.summary = summary.text
+        await session.commit()
+    await answer_chunked(
+        callback.message, render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
+    )
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_TREND + ":"))

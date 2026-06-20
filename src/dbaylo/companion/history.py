@@ -34,6 +34,7 @@ from dbaylo.db.models import (
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.humanize import strip_markup
 from dbaylo.labs.pipeline import load_series_points
+from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
@@ -188,6 +189,39 @@ async def get_report(session: AsyncSession, *, report_id: int, user_id: int) -> 
         .options(selectinload(LabReport.results))
     )
     return report
+
+
+def reconstruct_report(report: LabReport, results: list[LabResult]) -> ExtractedReport:
+    """Rebuild an ``ExtractedReport`` from stored rows so a confirmed report can be re-interpreted
+    (e.g. after an analysis was interrupted by a restart). The lab's own out-of-range mark is
+    ``flagged``; ``ref_text`` and qualitative ``value_text`` are not persisted, so the numeric
+    flags drive the re-reading. A narrative report carries its findings text instead of rows."""
+    if report.kind == ReportKind.NARRATIVE:
+        return ExtractedReport(
+            results=[],
+            report_date=report.report_date,
+            lab=report.lab,
+            conclusion=report.conclusion,
+            report_type=report.report_type,
+            narrative=report.narrative,
+        )
+    return ExtractedReport(
+        results=[
+            ExtractedAnalyte(
+                analyte=r.analyte,
+                value=r.value,
+                unit=r.unit,
+                ref_low=r.ref_low,
+                ref_high=r.ref_high,
+                out_of_range=r.flagged,
+                section=r.section,
+            )
+            for r in results
+        ],
+        report_date=report.report_date,
+        lab=report.lab,
+        conclusion=report.conclusion,
+    )
 
 
 def ordered_results(report: LabReport) -> list[LabResult]:
