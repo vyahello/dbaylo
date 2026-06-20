@@ -41,18 +41,39 @@ async def test_checkin_messages_appends_due_concern_review(async_session: AsyncS
     fresh = await checkin.checkin_messages(async_session, user_id=user.id, now=t0)
     assert len(fresh) == 1 and fresh[0][1] is None
 
-    # Due after a week: prompt + a "still relevant?" review with a Вирішено button.
+    # Due after a week: prompt + a "still relevant?" review with a named Вирішено button.
     due = await checkin.checkin_messages(async_session, user_id=user.id, now=t0 + timedelta(days=8))
     assert len(due) == 2
-    text, buttons = due[1]
-    assert "високий тиск" in text
-    assert buttons is not None and buttons[0][1] == callbacks.problem_resolve(condition.id)
+    _, buttons = due[1]
+    assert buttons is not None
+    assert "високий тиск" in buttons[0][0]  # the concern name is on the button
+    assert buttons[0][1] == callbacks.problem_resolve(condition.id)
 
     # Sending it marks the concern reviewed, so it isn't asked again immediately.
     again = await checkin.checkin_messages(
         async_session, user_id=user.id, now=t0 + timedelta(days=8, minutes=1)
     )
     assert len(again) == 1
+
+
+async def test_checkin_batches_multiple_due_concerns_into_one_message(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    t0 = datetime(2026, 1, 1)
+    c1 = await concerns.add_active(async_session, user=user, name="високий тиск")
+    c2 = await concerns.add_active(async_session, user=user, name="біль у спині")
+    await concerns.mark_reviewed(async_session, c1.id, t0)
+    await concerns.mark_reviewed(async_session, c2.id, t0)
+
+    due = await checkin.checkin_messages(async_session, user_id=user.id, now=t0 + timedelta(days=8))
+    assert len(due) == 2  # the prompt + ONE batched review message (not one per concern)
+    _, buttons = due[1]
+    assert buttons is not None and len(buttons) == 2  # both concerns, one button each
+    assert {b[1] for b in buttons} == {
+        callbacks.problem_resolve(c1.id),
+        callbacks.problem_resolve(c2.id),
+    }
 
 
 def test_parse_extracts_fields() -> None:

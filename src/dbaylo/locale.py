@@ -339,9 +339,12 @@ CHECKIN_SAVED = "Дякую, що поділився(-лась) 💚 Занот�
 # The single, gentle follow-up — sent once if no check-in arrived; never nags.
 CHECKIN_NUDGE = "Я тут, якщо захочеш розповісти, як минув день. Без поспіху 🌿"
 # Periodic "still relevant?" prompt for an active concern (Tier 1.1 §B), with a button.
-CHECKIN_REVIEW_PROMPT = (
-    "Чи ще турбує тебе «{name}»? Якщо вже вирішилося — познач, і я не нагадуватиму."
+# One batched review message lists every concern due for review; each gets its own
+# "✅ <name>" button. Tapping one resolves that concern and leaves the others tappable.
+CHECKIN_REVIEW_HEADER = (
+    "Чи ще актуальні ці питання? Познач, що вже вирішилося — і я не нагадуватиму про це."
 )
+BTN_PROBLEM_RESOLVED_NAMED = "✅ {name}"
 
 # --- Tier 1.1: problems (active concerns) ---------------------------------------
 

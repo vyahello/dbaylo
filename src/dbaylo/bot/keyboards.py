@@ -36,6 +36,26 @@ async def clear_inline_keyboard(callback: CallbackQuery) -> None:
             await callback.message.edit_reply_markup(reply_markup=None)
 
 
+async def remove_button_row(callback: CallbackQuery) -> None:
+    """Remove only the keyboard ROW that holds the tapped button; leave the rest tappable.
+
+    For a single-row keyboard (e.g. a ``/problems`` item's [Вирішено][Перейменувати]) this clears
+    it. For a BATCHED message (one "✅ <name>" per row) it consumes just that one concern, so the
+    others stay actionable. Best-effort — a stale/uneditable message is ignored.
+    """
+    message = callback.message
+    if not isinstance(message, Message) or message.reply_markup is None:
+        return
+    rows = [
+        row
+        for row in message.reply_markup.inline_keyboard
+        if all(button.callback_data != callback.data for button in row)
+    ]
+    markup = InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+    with contextlib.suppress(TelegramBadRequest):
+        await message.edit_reply_markup(reply_markup=markup)
+
+
 # Persistent reply keyboard: two-per-row main actions; check-in + help share the last row.
 _MENU_ROWS = (
     (locale.MENU_LABS, locale.MENU_GOALS),

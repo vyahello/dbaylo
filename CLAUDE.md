@@ -192,7 +192,9 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   ≥1 active `Condition` exists (`ConditionStatus`, migration 0004), never an unconditional ping.
   `proactive.add_problem` schedules it on the first concern; resolving the last removes it
   (`reconcile` self-heals on startup). The firing check-in also asks "still relevant?" for concerns
-  due for review (~7 days, `Condition.last_review_at`) with a Вирішено button. Commands: `/problem`,
+  due for review (~7 days, `Condition.last_review_at`) in ONE **batched** message — a `✅ <name>`
+  button per due concern (not a message each), and `keyboards.remove_button_row` drops only the
+  tapped concern's row so the rest stay actionable. Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
   `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
   (list + turn off, next_run from the scheduler). On lab confirm the bot **offers** a repeat-lab

@@ -59,14 +59,22 @@ def build_prompt() -> str:
 async def checkin_messages(
     session: AsyncSession, *, user_id: int, now: datetime
 ) -> list[ProactiveMessage]:
-    """What the firing check-in sends: the prompt, then a "still relevant?" review
-    prompt (with a Вирішено button) for each active concern due for review."""
+    """What the firing check-in sends: the prompt, then — if any concerns are due for review —
+    ONE batched "still relevant?" message with a "✅ <name>" button per concern (not a separate
+    message each, which piled up when many concerns came due the same day)."""
     messages: list[ProactiveMessage] = [(build_prompt(), None)]
-    for condition in await concerns.due_for_review(session, user_id=user_id, now=now):
-        text = assert_safe_output(locale.CHECKIN_REVIEW_PROMPT.format(name=condition.name))
-        buttons = [(locale.BTN_PROBLEM_RESOLVED, callbacks.problem_resolve(condition.id))]
-        messages.append((text, buttons))
-        await concerns.mark_reviewed(session, condition.id, now)
+    due = await concerns.due_for_review(session, user_id=user_id, now=now)
+    if due:
+        buttons = [
+            (
+                locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name[:32]),
+                callbacks.problem_resolve(condition.id),
+            )
+            for condition in due
+        ]
+        messages.append((assert_safe_output(locale.CHECKIN_REVIEW_HEADER), buttons))
+        for condition in due:
+            await concerns.mark_reviewed(session, condition.id, now)
     return messages
 
 

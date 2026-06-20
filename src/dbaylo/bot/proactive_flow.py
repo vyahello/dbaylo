@@ -17,7 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
+from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard, remove_button_row
 from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -144,7 +144,9 @@ async def on_problem_resolve(
     if condition_id is None or tg is None:
         await callback.answer()
         return
-    await clear_inline_keyboard(callback)  # this problem is resolved — consume its buttons
+    # Consume just THIS concern's button: a batched check-in review packs several concerns into
+    # one message (one row each), so the other concerns must stay tappable.
+    await remove_button_row(callback)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         await proactive.resolve_problem(

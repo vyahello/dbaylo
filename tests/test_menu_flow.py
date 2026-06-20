@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import InlineKeyboardMarkup, Message
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
 from dbaylo.bot import menu_flow
@@ -19,6 +19,7 @@ from dbaylo.bot.keyboards import (
     cancel_keyboard,
     clear_inline_keyboard,
     main_menu_keyboard,
+    remove_button_row,
     section_keyboard,
 )
 from dbaylo.companion import callbacks
@@ -93,6 +94,31 @@ async def test_clear_inline_keyboard_noop_without_a_message() -> None:
     callback = AsyncMock()
     callback.message = None
     await clear_inline_keyboard(callback)  # nothing to clear, must not crash
+
+
+async def test_remove_button_row_drops_only_the_tapped_row() -> None:
+    callback = _callback("prob_resolve:2")
+    callback.message.reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="A", callback_data="prob_resolve:1")],
+            [InlineKeyboardButton(text="B", callback_data="prob_resolve:2")],
+            [InlineKeyboardButton(text="C", callback_data="prob_resolve:3")],
+        ]
+    )
+    await remove_button_row(callback)
+    _, kwargs = callback.message.edit_reply_markup.call_args
+    remaining = [b.callback_data for row in kwargs["reply_markup"].inline_keyboard for b in row]
+    assert remaining == ["prob_resolve:1", "prob_resolve:3"]  # only the tapped row removed
+
+
+async def test_remove_button_row_clears_when_last_row_goes() -> None:
+    callback = _callback("prob_resolve:1")
+    callback.message.reply_markup = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="A", callback_data="prob_resolve:1")]]
+    )
+    await remove_button_row(callback)
+    _, kwargs = callback.message.edit_reply_markup.call_args
+    assert kwargs["reply_markup"] is None  # nothing left -> keyboard cleared
 
 
 def test_section_keyboard_one_button_per_row() -> None:
