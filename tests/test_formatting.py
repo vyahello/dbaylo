@@ -102,6 +102,25 @@ def test_an_overlong_single_line_is_hard_split() -> None:
     assert "".join(chunks) == "x" * 9000
 
 
+def test_split_breaks_between_panels_never_orphaning_a_header() -> None:
+    # Two panels, each ~3 kB, so together they must split — but BETWEEN sections, not mid-panel.
+    blood = "▸ Загальний аналіз крові\n" + "\n".join(
+        f"{i}. показник крові номер {i} — 1.0" for i in range(1, 101)
+    )
+    urine = "▸ Загальний аналіз сечі\n" + "\n".join(
+        f"{i}. показник сечі номер {i} — не виявлено" for i in range(1, 101)
+    )
+    chunks = split_for_telegram(f"{blood}\n\n{urine}")
+    assert len(chunks) > 1
+    # No chunk ends on a bare panel header (the bug: header in one message, rows in the next).
+    assert all(not c.split("\n")[-1].lstrip().startswith("▸") for c in chunks)
+    # Each panel header travels in the same message as its first row.
+    blood_chunk = next(c for c in chunks if "▸ Загальний аналіз крові" in c)
+    urine_chunk = next(c for c in chunks if "▸ Загальний аналіз сечі" in c)
+    assert "1. показник крові номер 1" in blood_chunk
+    assert "1. показник сечі номер 1" in urine_chunk
+
+
 @pytest.mark.asyncio
 async def test_answer_chunked_attaches_markup_only_to_the_last_chunk() -> None:
     message = AsyncMock()

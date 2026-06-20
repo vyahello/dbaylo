@@ -78,15 +78,33 @@ def render_interpretation_html(text: str) -> str:
     return f"{out}\n\n{ps}"
 
 
-def split_for_telegram(text: str, *, limit: int = _CHUNK_LIMIT) -> list[str]:
-    """Split ``text`` into chunks no longer than ``limit``, breaking on line boundaries.
+# A line that begins a section: a panel header ("▸ …") in the confirm/results view, or a bold
+# header ("… <b>Загалом</b>") in the interpretation. We split BETWEEN sections, never mid-section,
+# so a header is never orphaned from its rows in a separate message.
+_PANEL_PREFIX = locale.LAB_SECTION_HEADER.split("{", 1)[0].strip()
 
-    Lines are kept whole where possible (a row is never cut mid-way); a single line longer
-    than ``limit`` is hard-split as a last resort. Splitting only on newlines also keeps our
-    one-line ``<b>``/``<i>`` tags intact, so an HTML message stays valid across chunks.
-    """
-    if len(text) <= limit:
-        return [text]
+
+def _is_section_start(line: str) -> bool:
+    return line.lstrip().startswith(_PANEL_PREFIX) or "<b>" in line
+
+
+def _section_blocks(text: str) -> list[str]:
+    """Group lines into section blocks — each header line starts a new block, carrying its rows."""
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in text.split("\n"):
+        if _is_section_start(line) and current:
+            blocks.append(current)
+            current = [line]
+        else:
+            current.append(line)
+    if current:
+        blocks.append(current)
+    return ["\n".join(block).rstrip() for block in blocks]
+
+
+def _split_lines(text: str, limit: int) -> list[str]:
+    """Pack whole lines into chunks ≤ ``limit``; hard-split only a single over-long line."""
     chunks: list[str] = []
     current = ""
     for line in text.split("\n"):
@@ -105,6 +123,34 @@ def split_for_telegram(text: str, *, limit: int = _CHUNK_LIMIT) -> list[str]:
                     current = piece
         else:
             current = f"{current}\n{line}" if current else line
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+def split_for_telegram(text: str, *, limit: int = _CHUNK_LIMIT) -> list[str]:
+    """Split ``text`` into chunks ≤ ``limit``, breaking on SECTION boundaries where possible.
+
+    Each section (its ``▸``/``<b>`` header + its rows) is kept whole in one message; a new message
+    starts before a section that would overflow. Only a single section larger than one whole
+    message is line-split as a last resort (its header rides the first part). Splitting on newlines
+    also keeps our one-line ``<b>``/``<i>`` tags intact, so an HTML message stays valid.
+    """
+    if len(text) <= limit:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for block in _section_blocks(text):
+        if len(block) > limit:  # a single section bigger than a message: flush, then line-split it
+            if current:
+                chunks.append(current)
+                current = ""
+            chunks.extend(_split_lines(block, limit))
+            continue
+        if current and len(current) + 2 + len(block) > limit:
+            chunks.append(current)
+            current = ""
+        current = f"{current}\n\n{block}" if current else block
     if current:
         chunks.append(current)
     return chunks
