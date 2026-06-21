@@ -245,7 +245,18 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   / `locale.HIST_PS_BLOCK`).
   Optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
   Ukrainian month, `останній`). `/trend <analyte>` reuses the
-  deterministic trend engine (chart when ≥2 points). **All retrieval is no-LLM** — listing,
+  deterministic trend engine (chart when ≥2 points). **Dynamics browser** (`/dynamics` + a
+  `📈 Динаміка по категоріях` button on the `/history` list): browse indicators grouped by clinical
+  CONTEXT across ALL labs — Кров/Сеча/Біохімія/Гормони/Інше/Описові(МРТ/УЗД) — then drill into one
+  indicator's trend. `companion/grouping.py` (pure) `categorize(section, analyte)` decides the
+  category from the printed panel then an analyte-name fallback (a section-less single-analyte ДІЛА
+  row still lands in Біохімія); `history.aggregate_indicators` rolls every analyte across confirmed
+  tabular reports into `IndicatorItem`s (category · has_trend · last_flagged), `category_counts`/
+  `indicators_in`/`list_narratives` feed the master-detail browser (edit-in-place, paginated; tap an
+  indicator → `trend_for_analyte`; the Описові category lists narrative docs). **Charts read the same
+  way everywhere** (`charts.render_trend_chart`): green/red in-range-vs-out zones + green ●/red ✕
+  status markers (out-of-range labelled), a legend, y-axis always spanning the reference bounds.
+  **All retrieval is no-LLM** — listing,
   rendering, parsing are pure. The NL search is the one seam: a free-text turn is routed to history
   only when `is_history_query` (intent **and** a concrete token); the handler calls
   `safety.screen()` **first**, then `parse_history_query`, and **falls back to the companion** when
@@ -341,7 +352,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  web/  locale.py  config.py
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
-                         concerns·medications·proactive·callbacks · history · intake)
+                         concerns·medications·proactive·callbacks · history·grouping · intake)
 migrations/  Alembic 0001..0010   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
