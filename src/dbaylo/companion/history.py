@@ -427,15 +427,22 @@ async def list_narratives(session: AsyncSession, *, user_id: int) -> list[LabRep
     return list((await session.scalars(stmt)).all())
 
 
-# Narrative study types can be long ("КТ … з внутрішньовенним контрастуванням"); truncate them on
-# a LIST BUTTON so the row stays tidy. The full type is shown on the card when the report is opened.
-_LABEL_TYPE_MAX = 34
+# Narrative study types can be long ("КТ … з внутрішньовенним контрастуванням"); truncate them so a
+# LIST BUTTON fits ONE line (like the tabular rows). The full type is shown on the card when opened.
+_LABEL_TYPE_MAX = 26
 
 
 def short_type(report_type: str | None) -> str:
-    """A narrative study type, shortened (…) to fit a one-line list button."""
-    text = report_type or locale.LAB_DOC_GENERIC
-    return text if len(text) <= _LABEL_TYPE_MAX else text[: _LABEL_TYPE_MAX - 1].rstrip() + "…"
+    """A narrative study type, shortened to fit a one-line list button — cut on a WORD boundary
+    (never mid-word) with an ellipsis. The full type is shown on the opened card."""
+    text = (report_type or locale.LAB_DOC_GENERIC).strip()
+    if len(text) <= _LABEL_TYPE_MAX:
+        return text
+    head = text[:_LABEL_TYPE_MAX].rstrip()
+    space = head.rfind(" ")
+    if space >= _LABEL_TYPE_MAX * 0.6:  # prefer a clean word break when one is reasonably late
+        head = head[:space].rstrip()
+    return head + "…"
 
 
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
