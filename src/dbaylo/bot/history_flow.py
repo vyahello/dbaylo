@@ -324,12 +324,16 @@ async def on_history_results(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     text = locale.HIST_FILE_GONE
+    parse_mode: str | None = None
     keyboard: InlineKeyboardMarkup | None = None
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
         if report is not None:
-            text = history.render_problems(report, history.ordered_results(report))
+            text = render_interpretation_html(
+                history.render_problems(report, history.ordered_results(report))
+            )
+            parse_mode = ParseMode.HTML
             keyboard = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -338,7 +342,7 @@ async def on_history_results(callback: CallbackQuery) -> None:
                     ]
                 ]
             )
-    await answer_chunked(callback.message, text, reply_markup=keyboard)
+    await answer_chunked(callback.message, text, reply_markup=keyboard, parse_mode=parse_mode)
     await callback.answer()
 
 
@@ -351,12 +355,16 @@ async def on_history_results_all(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     text = locale.HIST_FILE_GONE
+    parse_mode: str | None = None
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
         if report is not None:
-            text = history.render_report_results(report, history.ordered_results(report))
-    await answer_chunked(callback.message, text)
+            text = render_interpretation_html(
+                history.render_report_results(report, history.ordered_results(report))
+            )
+            parse_mode = ParseMode.HTML
+    await answer_chunked(callback.message, text, parse_mode=parse_mode)
     await callback.answer()
 
 

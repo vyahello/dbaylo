@@ -43,6 +43,11 @@ _SECTIONS: dict[str, tuple[str, str]] = {
 # Leading/trailing chrome a header line may carry (numbering, colon, dash, bullet, our markers).
 _HEADER_CHROME = " \t:：.—–-•·*_"
 
+# Panel sub-header prefix ("▸ ") used by the confirm/results/interpretation views. Defined here so
+# the renderer can bold a panel label while keeping the literal "▸" outside the tag — the chunk
+# splitter (``_is_section_start``) still recognises it as a section boundary.
+_PANEL_PREFIX = locale.LAB_SECTION_HEADER.split("{", 1)[0].strip()
+
 # Light inline markup the interpretation model may emit: *bold* and _italic_, for the analyte+value,
 # small sub-headings, and gentle caveats. We convert these to HTML tags AFTER escaping the text, so
 # the only angle brackets in the final string are the ones we inject — a stray '<' in lab data can
@@ -83,6 +88,11 @@ def render_interpretation_html(text: str) -> str:
         if match is not None:
             emoji, display = match
             rendered.append(f"{emoji} <b>{_escape(display)}</b>")
+        elif line.lstrip().startswith(_PANEL_PREFIX):
+            # A "▸ Панель" sub-header: bold the label, keep the literal "▸" so the chunk splitter
+            # still treats the line as a section boundary.
+            label = line.lstrip()[len(_PANEL_PREFIX) :].strip()
+            rendered.append(f"{_PANEL_PREFIX} <b>{_escape(label)}</b>")
         else:
             rendered.append(_inline_markup(_escape(line)))
 
@@ -133,7 +143,6 @@ def split_interpretation(text: str) -> dict[str, str]:
 # interpretation's emoji headers ("🩺 <b>Загалом</b>", …). We split BETWEEN sections, never mid-
 # section, so a header is never orphaned from its rows in a separate message. (Inline *bold* in a
 # body line is NOT a section start — only these markers are.)
-_PANEL_PREFIX = locale.LAB_SECTION_HEADER.split("{", 1)[0].strip()
 _SECTION_EMOJIS = tuple({emoji for emoji, _ in _SECTIONS.values()})
 
 

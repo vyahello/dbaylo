@@ -494,6 +494,10 @@ HIST_REPORT_UPLOADED = "   (завантажено {uploaded})"
 HIST_MORE = "Показано останні {n}. Уточни: /history synevo · /history 2026-05 · /history травень"
 HIST_FILE_GONE = "Файл недоступний — можливо, його переміщено або видалено з диска."
 HIST_RESULTS_HEADER = "{date} · {lab}:"
+# Premium bold one-line titles for a results view (rendered as <b> at send). The doc form leads
+# with the study type and omits an unknown lab (showing "невідома" there was noise).
+HIST_TITLE_LAB = "🔬 {date} · {lab}"
+HIST_TITLE_DOC = "📄 {parts}"
 
 # Master-detail list: one tappable button per report; a card with actions on open.
 HIST_LIST_HEADER = "🗂 Твої аналізи ({n}). Обери, щоб переглянути:"
@@ -530,9 +534,6 @@ HIST_DYNAMICS_EMPTY = (
 BTN_INTERP_REFRESH = "🔄 Оновити розбір"
 BTN_INTERP_DELETE = "🗑 Видалити розбір"
 HIST_INTERP_DELETED = "Розбір видалено. Натисни «🔬 Розбір», щоб зробити новий."
-
-# Plain-text P.S. disclaimer block, appended to every health-content view for consistency.
-HIST_PS_BLOCK = f"{INTERPRET_DIVIDER}\n{INTERPRET_PS_PREFIX} {DISCLAIMER}"
 
 # Delete (two-step; shows what is being removed + any Tier 1.1 coupling).
 HIST_DELETE_CONFIRM = (

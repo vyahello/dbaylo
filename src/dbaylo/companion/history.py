@@ -478,8 +478,39 @@ def render_card(report: LabReport, results: list[LabResult]) -> str:
 
 
 def _ps(text: str) -> str:
-    """Append the plain-text P.S. disclaimer block (consistent across every health view)."""
-    return f"{text}\n\n{locale.HIST_PS_BLOCK}"
+    """Append the bare disclaimer. The send layer (``render_interpretation_html``) turns the
+    trailing disclaimer into the consistent italic *P.S.* block, so every health view ends alike."""
+    return f"{text}\n\n{DISCLAIMER}"
+
+
+def _bold(text: str) -> str:
+    """Wrap a fixed structural label in the *bold* marker the send layer converts to ``<b>``.
+    Applied only to fixed labels — never to lab free-text — so a forbidden phrase can't hide
+    behind a marker from the guard's view."""
+    return f"*{text}*"
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+
+
+def _findings_lines(narrative: str) -> list[str]:
+    """Break a wall of narrative findings into one sentence per line, so an МРТ/КТ reads as a
+    scannable list instead of one dense paragraph."""
+    parts = [p.strip() for p in _SENTENCE_SPLIT.split(narrative.strip()) if p.strip()]
+    return parts or [narrative.strip()]
+
+
+def _results_title(report: LabReport) -> str:
+    """The bold one-line header for a results view. A narrative/imaging document leads with its
+    TYPE and omits an unknown lab (the bare 'невідома' there was just noise)."""
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab = normalize_lab(report.lab)
+    if report.kind == ReportKind.NARRATIVE:
+        parts = [report.report_type or locale.LAB_DOC_GENERIC, date_txt]
+        if lab:
+            parts.append(lab)
+        return _bold(locale.HIST_TITLE_DOC.format(parts=" · ".join(parts)))
+    return _bold(locale.HIST_TITLE_LAB.format(date=date_txt, lab=lab or locale.LAB_LAB_UNKNOWN))
 
 
 # Collapsing in-range rows into an aggregate helps only when there are many; a handful is shown
@@ -511,29 +542,25 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
     """Focused results view: the lab conclusion + the out-of-range rows (grouped by panel). The
     in-range rows are listed by name when there are only a few, or collapsed into an aggregate
     when there are many — never an 85-row dump."""
-    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
-    lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
+    lines = [_results_title(report)]
     if report.kind == ReportKind.NARRATIVE:
-        if report.report_type:
-            lines.append(f"{locale.LAB_TYPE_LABEL}: {report.report_type}")
         if report.conclusion:
-            lines += ["", f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}"]
+            lines += ["", f"{_bold(locale.LAB_CONCLUSION_LABEL)}: {report.conclusion}"]
         elif report.narrative:
-            lines += ["", report.narrative]
+            lines += [""] + _findings_lines(report.narrative)
         return assert_safe_output(_ps("\n".join(lines)))
     if report.conclusion:
-        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+        lines += ["", f"{_bold(locale.LAB_CONCLUSION_LABEL)}: {report.conclusion}"]
     flagged = [r for r in results if r.flagged]
     normal = [r for r in results if not r.flagged]
     collapse = len(normal) > _INLINE_NORMAL_MAX
     if flagged:
-        lines += ["", locale.HIST_PROBLEMS_HEADER.format(n=len(flagged))]
+        lines += ["", _bold(locale.HIST_PROBLEMS_HEADER.format(n=len(flagged)))]
         lines += _grouped_result_lines(flagged, locale.FLAG_ATTENTION)
     if normal and collapse:
         lines += ["", locale.HIST_PROBLEMS_NORMAL_AGG.format(n=len(normal))]
     elif normal:
-        lines += ["", locale.HIST_PROBLEMS_NORMAL_HEADER]
+        lines += ["", _bold(locale.HIST_PROBLEMS_NORMAL_HEADER)]
         lines += _grouped_result_lines(normal, "")
     elif not flagged:  # no rows at all (defensive)
         lines += ["", locale.HIST_NO_PROBLEMS]
@@ -556,19 +583,15 @@ def render_report_line(report: LabReport, results: list[LabResult]) -> str:
 
 
 def render_report_results(report: LabReport, results: list[LabResult]) -> str:
-    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
-    lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
+    lines = [_results_title(report)]
     if report.kind == ReportKind.NARRATIVE:
-        if report.report_type:
-            lines.append(f"{locale.LAB_TYPE_LABEL}: {report.report_type}")
         if report.narrative:
-            lines += ["", report.narrative]
+            lines += [""] + _findings_lines(report.narrative)
         if report.conclusion:
-            lines += ["", f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}"]
+            lines += ["", f"{_bold(locale.LAB_CONCLUSION_LABEL)}: {report.conclusion}"]
     else:
         if report.conclusion:
-            lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
+            lines += ["", f"{_bold(locale.LAB_CONCLUSION_LABEL)}: {report.conclusion}"]
         lines.append("")
         prev_section: object = _NO_SECTION
         for i, r in enumerate(results, 1):

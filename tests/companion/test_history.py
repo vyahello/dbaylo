@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot import history_flow
+from dbaylo.bot.formatting import render_interpretation_html
 from dbaylo.companion import callbacks, grouping, history, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import (
@@ -32,6 +33,7 @@ from dbaylo.db.models import (
     User,
 )
 from dbaylo.labs.trends import compute_flag, is_out_of_range
+from dbaylo.triage.safety import DISCLAIMER
 
 TZ = ZoneInfo("Europe/Kyiv")
 
@@ -266,7 +268,12 @@ async def test_render_problems_lists_few_in_range_by_name(
     assert "АЛТ" in body  # the out-of-range row (with ⚠️)
     assert "Калій" in body and "Глюкоза" in body  # only a couple in range -> listed by name
     assert "У межах норми" in body
-    assert "P.S." in body  # disclaimer on every health view
+    assert DISCLAIMER in body  # disclaimer on every health view (rendered as the italic P.S.)
+
+    # The send layer turns it into the premium HTML: a bold title + the consistent italic P.S.
+    html = render_interpretation_html(body)
+    assert "<b>🔬 2021-08-06 · Сінево</b>" in html  # bold one-line title
+    assert f"P.S. <i>{DISCLAIMER}</i>" in html  # one consistent italic P.S. everywhere
 
 
 async def test_render_problems_collapses_many_in_range(async_session: AsyncSession) -> None:
@@ -294,7 +301,8 @@ async def test_full_table_has_ps_and_omits_the_summary(async_session: AsyncSessi
     )
     report.summary = "СЕКРЕТНИЙ РОЗБІР"  # the analysis is a SEPARATE view now
     body = history.render_report_results(report, history.ordered_results(report))
-    assert "Глюкоза" in body and "P.S." in body
+    assert "Глюкоза" in body and DISCLAIMER in body
+    assert "СЕКРЕТНИЙ РОЗБІР" not in body
     assert "СЕКРЕТНИЙ РОЗБІР" not in body
 
 
@@ -366,6 +374,35 @@ async def test_render_report_results_groups_by_panel(async_session: AsyncSession
     body = history.render_report_results(report, history.ordered_results(report))
     assert "▸ Аналіз крові" in body and "▸ Аналіз сечі" in body
     assert body.index("▸ Аналіз крові") < body.index("▸ Аналіз сечі")
+
+
+async def test_narrative_results_lead_with_type_split_findings_and_omit_unknown_lab(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    report = LabReport(
+        user_id=user.id,
+        report_date=date(2023, 11, 4),
+        lab=None,  # an imaging doc often has no lab name
+        status=ReportStatus.CONFIRMED,
+        kind=ReportKind.NARRATIVE,
+        report_type="МРТ головного мозку",
+        narrative="Вогнищевих змін не виявлено. Шлуночки не розширені.",
+        conclusion="Без патології.",
+        results=[],  # populate the collection in memory (no async lazy-load)
+    )
+    async_session.add(report)
+    await async_session.flush()
+
+    body = history.render_problems(report, history.ordered_results(report))
+    assert locale.LAB_LAB_UNKNOWN not in body  # no bare "невідома" for a doc without a lab
+    assert "МРТ головного мозку" in body  # the title leads with the study type
+
+    full = history.render_report_results(report, history.ordered_results(report))
+    # The findings wall is split into one sentence per line (scannable, not a paragraph).
+    assert "Вогнищевих змін не виявлено." in full.splitlines()
+    assert "Шлуночки не розширені." in full.splitlines()
+    assert locale.LAB_LAB_UNKNOWN not in full
 
 
 async def test_render_report_line_no_date(async_session: AsyncSession) -> None:
