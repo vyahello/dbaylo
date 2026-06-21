@@ -67,6 +67,7 @@ _CB_CANCEL = "lab:cancel"
 _CB_SHOW_ALL = "lab:all"  # expand the collapsed in-range rows into the full table
 _CB_EDIT_DATE = "lab:edate"  # one-tap edit of the report date
 _CB_EDIT_LAB = "lab:elab"  # one-tap edit of the lab name
+_CB_EDIT_KEEP = "lab:keep"  # back out of a date/lab edit, re-show the confirmation unchanged
 
 # Post-confirm offers carry the report_id in the callback data, so the buttons work
 # even when the FSM state is gone — a restart (MemoryStorage is in-memory) or a Tier 1.3
@@ -439,23 +440,58 @@ async def on_show_all(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
 
 
+def _keep_keyboard() -> InlineKeyboardMarkup:
+    """A single 'leave as is' button so an accidental field-edit tap is escapable."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=locale.BTN_EDIT_KEEP, callback_data=_CB_EDIT_KEEP)]
+        ]
+    )
+
+
+async def _prompt_edit_date(message: Message, report: ExtractedReport) -> None:
+    current = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
+    await message.answer(
+        locale.LAB_EDIT_NEW_DATE.format(current=current), reply_markup=_keep_keyboard()
+    )
+
+
+async def _prompt_edit_lab(message: Message, report: ExtractedReport) -> None:
+    current = report.lab or locale.LAB_LAB_UNKNOWN
+    await message.answer(
+        locale.LAB_EDIT_NEW_LAB.format(current=current), reply_markup=_keep_keyboard()
+    )
+
+
 @router.callback_query(F.data == _CB_EDIT_DATE)
 async def on_edit_date_btn(callback: CallbackQuery, state: FSMContext) -> None:
-    """One-tap jump to editing the report date (the field whose error corrupts the series)."""
+    """One-tap jump to CORRECTING the auto-recognised date (a misread date corrupts the series)."""
     await clear_inline_keyboard(callback)
+    report = _pending_report(await state.get_data())
     await state.set_state(LabStates.edit_date)
-    if callback.message:
-        await callback.message.answer(locale.LAB_EDIT_NEW_DATE)
+    if isinstance(callback.message, Message):
+        await _prompt_edit_date(callback.message, report)
     await callback.answer()
 
 
 @router.callback_query(F.data == _CB_EDIT_LAB)
 async def on_edit_lab_btn(callback: CallbackQuery, state: FSMContext) -> None:
-    """One-tap jump to editing the lab name."""
+    """One-tap jump to CORRECTING the auto-recognised lab name."""
     await clear_inline_keyboard(callback)
+    report = _pending_report(await state.get_data())
     await state.set_state(LabStates.edit_lab)
-    if callback.message:
-        await callback.message.answer(locale.LAB_EDIT_NEW_LAB)
+    if isinstance(callback.message, Message):
+        await _prompt_edit_lab(callback.message, report)
+    await callback.answer()
+
+
+@router.callback_query(F.data == _CB_EDIT_KEEP)
+async def on_edit_keep(callback: CallbackQuery, state: FSMContext) -> None:
+    """Leave the field as recognised: re-show the confirmation unchanged (nothing is lost)."""
+    await clear_inline_keyboard(callback)
+    report = _pending_report(await state.get_data())
+    if isinstance(callback.message, Message):
+        await _restore_confirmation(callback.message, state, report)
     await callback.answer()
 
 
@@ -466,10 +502,10 @@ async def on_edit_pick(message: Message, state: FSMContext) -> None:
     target = parse_edit_target(message.text or "", len(report.results))
     if target == "date":
         await state.set_state(LabStates.edit_date)
-        await message.answer(locale.LAB_EDIT_NEW_DATE)
+        await _prompt_edit_date(message, report)
     elif target == "lab":
         await state.set_state(LabStates.edit_lab)
-        await message.answer(locale.LAB_EDIT_NEW_LAB)
+        await _prompt_edit_lab(message, report)
     elif isinstance(target, int):
         await state.update_data(edit_index=target)
         await state.set_state(LabStates.edit_value)

@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 from datetime import date
+from unittest.mock import AsyncMock
 
 import pytest
 
+from dbaylo import locale
 from dbaylo.bot.lab_flow import (
     _CB_CONCERN_NO,
     _CB_CONCERN_YES,
     _CB_EDIT_DATE,
+    _CB_EDIT_KEEP,
     _CB_EDIT_LAB,
     _CB_REPEAT_NO,
     _CB_REPEAT_OTHER,
     _CB_SHOW_ALL,
     _concern_keyboard,
     _parse_rid,
+    _prompt_edit_date,
+    _prompt_edit_lab,
     _repeat_keyboard,
     _report_from_state,
     _report_to_state,
@@ -168,6 +173,27 @@ def test_confirmation_keyboard_hides_expand_when_nothing_collapsed() -> None:
     report = ExtractedReport(results=[ExtractedAnalyte("X", value=10.0, ref_low=1.0, ref_high=5.0)])
     assert _CB_SHOW_ALL not in _cb_datas(confirmation_keyboard(report))
     assert _CB_SHOW_ALL not in _cb_datas(confirmation_keyboard(_report(), full=True))
+
+
+async def test_field_edit_prompt_shows_the_recognised_value() -> None:
+    # The date/lab are auto-recognised; the edit prompt must show what was recognised (and a
+    # "leave as is" escape), so the user isn't confused into thinking nothing was extracted.
+    message = AsyncMock()
+    await _prompt_edit_date(message, _report())
+    text = message.answer.await_args.args[0]
+    assert "2026-05-12" in text  # the recognised date is echoed back
+    keep = message.answer.await_args.kwargs["reply_markup"]
+    assert _cb_datas(keep) == [_CB_EDIT_KEEP]
+
+
+async def test_field_edit_prompt_lab_value_and_unknown_fallback() -> None:
+    message = AsyncMock()
+    await _prompt_edit_lab(message, _report())
+    assert "Synevo" in message.answer.await_args.args[0]
+    # When nothing was recognised, the prompt says so rather than implying a silent gap.
+    message2 = AsyncMock()
+    await _prompt_edit_date(message2, ExtractedReport(results=[ExtractedAnalyte("X", value=1.0)]))
+    assert locale.LAB_DATE_UNKNOWN in message2.answer.await_args.args[0]
 
 
 def test_confirmation_keyboard_narrative_has_no_number_edit() -> None:

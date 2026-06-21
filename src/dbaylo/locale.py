@@ -213,8 +213,13 @@ BTN_EDIT_LAB = "🔬 Лабораторія"
 
 LAB_EDIT_PICK = "Що виправити? Надішли номер рядка (1–{n}), або «дата» / «лабораторія»."
 LAB_EDIT_NEW_VALUE = "Введи правильне значення для «{name}» (тільки число):"
-LAB_EDIT_NEW_DATE = "Введи дату звіту у форматі РРРР-ММ-ДД:"
-LAB_EDIT_NEW_LAB = "Введи назву лабораторії:"
+# These two fields ARE recognised automatically; the buttons only correct a misread, so the
+# prompt shows what was recognised and frames the input as an optional fix.
+LAB_EDIT_NEW_DATE = (
+    "Я розпізнав дату звіту: {current}.\nЯкщо вона помилкова — введи правильну (РРРР-ММ-ДД):"
+)
+LAB_EDIT_NEW_LAB = "Я розпізнав лабораторію: {current}.\nЯкщо назва помилкова — введи правильну:"
+BTN_EDIT_KEEP = "↩️ Лишити як є"  # back out of a field edit without changing anything
 LAB_EDIT_BAD_ROW = "Такого рядка немає. Спробуй ще раз."
 LAB_EDIT_BAD_VALUE = "Не зрозумів число. Введи значення на кшталт 5.4."
 LAB_EDIT_BAD_DATE = "Не зрозумів дату. Потрібен формат РРРР-ММ-ДД (наприклад, 2026-05-12)."
