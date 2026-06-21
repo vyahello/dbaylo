@@ -50,7 +50,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
 from dbaylo.labs.intake import ensure_user
-from dbaylo.labs.pipeline import compute_report_summary, render_report_charts
+from dbaylo.labs.pipeline import compute_report_summary, render_one_chart, render_report_charts
 from dbaylo.labs.trends import normalize_analyte
 from dbaylo.safety import GateSource, screen
 
@@ -359,10 +359,124 @@ async def on_history_results_all(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+# --- Charts picker: one button per trending analyte → its single chart (no 45-image dump) -------
+
+_CHART_PAGE_SIZE = 8
+
+
+def _charts_picker_view(
+    items: list[history.TrendChartItem], report_id: int, page: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """A paginated list — one button per trending analyte (flagged first, ⚠️-marked), a pager,
+    and an opt-in 'усі графіки'. Picking a button renders just THAT analyte's chart."""
+    pages = max(1, -(-len(items) // _CHART_PAGE_SIZE))
+    page = max(0, min(page, pages - 1))
+    start = page * _CHART_PAGE_SIZE
+    rows: list[list[InlineKeyboardButton]] = []
+    for offset, item in enumerate(items[start : start + _CHART_PAGE_SIZE]):
+        prefix = locale.CHART_FLAGGED_PREFIX if item.flagged else ""
+        rows.append([_btn(f"{prefix}{item.name}", callbacks.chart_pick(report_id, start + offset))])
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_btn(locale.BTN_HIST_PREV, callbacks.chart_page(report_id, page - 1)))
+    if page < pages - 1:
+        nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.chart_page(report_id, page + 1)))
+    if nav:
+        rows.append(nav)
+    rows.append([_btn(locale.BTN_CHART_ALL, callbacks.chart_all(report_id))])
+    header = locale.CHART_PICK_HEADER
+    if pages > 1:
+        header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
+    return header, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def open_charts_picker(
+    message: Message, *, telegram_id: int, report_id: int, silent_if_empty: bool = False
+) -> None:
+    """Show the charts picker for a report (used by /history and the post-confirm chain). When
+    there is no trend yet, say so — unless called silently as the last step of the confirm chain."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+    if not items:
+        if not silent_if_empty:
+            await message.answer(locale.HIST_DYNAMICS_EMPTY)
+        return
+    text, keyboard = _charts_picker_view(items, report_id, 0)
+    await message.answer(text, reply_markup=keyboard)
+
+
 @router.callback_query(F.data.startswith(callbacks.HIST_DYNAMICS + ":"))
 async def on_history_dynamics(callback: CallbackQuery) -> None:
-    """Trend charts for the FLAGGED analytes only (and only those with a real, multi-date trend)."""
+    """Open the charts picker for a report (from the /history card)."""
     report_id = callbacks.parse_history_dynamics(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await open_charts_picker(callback.message, telegram_id=tg, report_id=report_id)
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_OPEN + ":"))
+async def on_chart_open(callback: CallbackQuery) -> None:
+    """Open the charts picker (the post-confirm chain's 'обрати показник' entry)."""
+    report_id = callbacks.parse_chart_open(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await open_charts_picker(callback.message, telegram_id=tg, report_id=report_id)
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_PAGE + ":"))
+async def on_chart_page(callback: CallbackQuery) -> None:
+    """Paginate the charts picker in place."""
+    parsed = callbacks.parse_chart_page(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, page = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+    if not items:
+        return
+    text, keyboard = _charts_picker_view(items, report_id, page)
+    with contextlib.suppress(TelegramBadRequest):  # ignore "message is not modified"
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_PICK + ":"))
+async def on_chart_pick(callback: CallbackQuery) -> None:
+    """Render ONE analyte's chart (the picked button)."""
+    parsed = callbacks.parse_chart_pick(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, index = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        if not 0 <= index < len(items):
+            return
+        item = items[index]
+        png = await render_one_chart(session, user_id=user.id, key=item.key, title=item.name)
+    if png is not None:
+        await callback.message.answer_photo(
+            BufferedInputFile(png, filename=f"{item.key}.png"), caption=item.name
+        )
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_ALL + ":"))
+async def on_chart_all(callback: CallbackQuery) -> None:
+    """Opt-in: render every trending chart at once (the old behaviour, now behind a button)."""
+    report_id = callbacks.parse_chart_all(callback.data or "")
     tg = _telegram_id(callback)
     if report_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
@@ -370,16 +484,11 @@ async def on_history_dynamics(callback: CallbackQuery) -> None:
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        report = await history.get_report(session, report_id=report_id, user_id=user.id)
-        if report is None:
-            await callback.message.answer(locale.HIST_FILE_GONE)
-            return
-        keys = history.flagged_keys(history.ordered_results(report))
+        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        keys = {item.key for item in items}
         charts = await render_report_charts(session, user_id=user.id, analyte_keys=keys)
     for name, png in charts:
         await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
-    if not charts:
-        await callback.message.answer(locale.HIST_DYNAMICS_EMPTY)
 
 
 # --- Expert reading: cached (instant), with refresh / delete --------------------

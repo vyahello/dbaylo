@@ -102,6 +102,18 @@ def _has_trend(points: list[LabPoint]) -> bool:
     return len({p.taken_on for p in points}) >= 2
 
 
+async def render_one_chart(
+    session: AsyncSession, *, user_id: int, key: str, title: str
+) -> bytes | None:
+    """Render the trend chart (PNG) for a SINGLE analyte key, on demand from the picker — so the
+    user sees one indicator at a time instead of a wall of images. None if it has no real trend."""
+    series = build_series(await load_series_points(session, user_id))
+    points = series.get(key)
+    if points and _has_trend(points):
+        return render_trend_chart(points, title=title)
+    return None
+
+
 async def render_report_charts(
     session: AsyncSession, *, user_id: int, analyte_keys: set[str]
 ) -> list[tuple[str, bytes]]:

@@ -280,6 +280,41 @@ def flagged_keys(results: list[LabResult]) -> set[str]:
     return {normalize_analyte(r.analyte) for r in results if r.flagged}
 
 
+@dataclass(frozen=True)
+class TrendChartItem:
+    """One pickable analyte in the charts picker: a display name, its normalized key, and
+    whether it is out of range (flagged items are listed first)."""
+
+    name: str
+    key: str
+    flagged: bool
+
+
+async def list_report_trends(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[TrendChartItem]:
+    """The report's analytes that actually have a trend worth a chart (measured on >=2 distinct
+    dates), flagged-first then alphabetical — the data behind the charts PICKER, so we never
+    dump dozens of images. Deterministic, no LLM."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    items: dict[str, TrendChartItem] = {}
+    for r in ordered_results(report):
+        key = normalize_analyte(r.analyte)
+        points = series.get(key)
+        if not points or len({p.taken_on for p in points}) < 2:  # a same-day re-upload is no trend
+            continue
+        prev = items.get(key)
+        items[key] = TrendChartItem(
+            name=prev.name if prev else r.analyte,
+            key=key,
+            flagged=bool(r.flagged) or (prev.flagged if prev else False),
+        )
+    return sorted(items.values(), key=lambda it: (not it.flagged, it.name.casefold()))
+
+
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     """The one-line button label for a report in the master list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE

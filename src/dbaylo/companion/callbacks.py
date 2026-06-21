@@ -196,6 +196,54 @@ def parse_history_interpret_view(data: str) -> tuple[int, int] | None:
     return None
 
 
+# Charts picker (a paginated list of one button per trending analyte → its single chart),
+# instead of dumping every chart at once. Shared by the post-confirm chain and /history.
+CHART_OPEN = "chart_open"  # open the picker for a report (page 0)
+CHART_PAGE = "chart_page"  # paginate the picker
+CHART_PICK = "chart_pick"  # render ONE analyte's chart (by index into the trend list)
+CHART_ALL = "chart_all"  # opt-in: render them all
+
+
+def chart_open(report_id: int) -> str:
+    return _make(CHART_OPEN, report_id)
+
+
+def parse_chart_open(data: str) -> int | None:
+    return _parse(CHART_OPEN, data)
+
+
+def chart_all(report_id: int) -> str:
+    return _make(CHART_ALL, report_id)
+
+
+def parse_chart_all(data: str) -> int | None:
+    return _parse(CHART_ALL, data)
+
+
+def chart_page(report_id: int, page: int) -> str:
+    return f"{CHART_PAGE}{_SEP}{report_id}{_SEP}{page}"
+
+
+def parse_chart_page(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, page = rest.partition(_SEP)
+    if head == CHART_PAGE and rid.isdigit() and page.isdigit():
+        return int(rid), int(page)
+    return None
+
+
+def chart_pick(report_id: int, index: int) -> str:
+    return f"{CHART_PICK}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_chart_pick(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == CHART_PICK and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
+    return None
+
+
 def history_trend(report_id: int, index: int) -> str:
     return f"{HIST_TREND}{_SEP}{report_id}{_SEP}{index}"
 

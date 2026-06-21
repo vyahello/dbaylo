@@ -131,11 +131,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `_CB_EDIT_LAB`); number-typing (`✏️ Виправити`) handles the rare value fix, using the **global**
   row index shown in either view. Rendered as escaped Telegram **HTML** (bold header/panels) via
   `answer_chunked(parse_mode=HTML)` (section-aware `split_for_telegram` as the overflow net); the lab
-  `conclusion` is shown. Post-confirm offers are **stateless** (carry
-  `report_id`) so they survive a restart / menu-tap state reset. **Charts are opt-in**: the analysis
-  is sent first, then a 📈 button appears **only** when an analyte has a real trend (measurements on
-  ≥2 distinct dates — a same-day re-upload is not a trend); tapping it renders the charts on demand
-  (`pipeline.render_report_charts`, deterministic) instead of dumping an image per analyte.
+  `conclusion` is shown. Post-confirm, the analysis is sent first, then the follow-up offers are
+  **sequenced ONE AT A TIME** (never a stack): repeat-lab reminder → (concern, only if out of range)
+  → charts picker — each shown only after the prior is answered (`_advance_after_repeat`/
+  `_advance_after_concern`). All offers are **stateless** (carry `report_id`) so they survive a
+  restart / menu-tap state reset. **Charts are a PICKER, not a dump**: a real trend needs
+  measurements on ≥2 distinct dates (a same-day re-upload is not a trend); `history.list_report_trends`
+  lists the trending analytes (flagged-first, ⚠️-marked) as one button each (paginated, `chart_pick`/
+  `chart_page`), tapping one renders just THAT chart (`pipeline.render_one_chart`); `📊 Показати всі`
+  (`chart_all`) stays as an opt-in dump. The picker is shared with `/history` (the card's 📈 → same
+  `open_charts_picker`) — no 45-image flood anywhere.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes
@@ -228,9 +233,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   and stores it; `[🔄 Оновити][🗑 Видалити розбір]` regenerate / clear it. **📊 Показники is
   problems-first** (`render_problems`): the lab conclusion + ONLY the out-of-range rows (grouped by
   panel) + an aggregate `✅ Решта N — у межах норми`, with `[📋 Усі показники]` (opt-in full table)
-  and `[📈 Динаміка]`. **📈 Динаміка** charts ONLY the flagged analytes that have a real multi-date
-  trend (`flagged_keys` → `render_report_charts`) — no 85-chart flood; other indicators via
-  `/trend <name>`. Every health view ends with the **P.S. disclaimer** (`_ps` / `locale.HIST_PS_BLOCK`).
+  and `[📈 Динаміка]`. **📈 Динаміка** opens the shared **charts picker** (`open_charts_picker`):
+  one button per trending analyte (flagged-first), tap one → its single chart — no 85-chart flood;
+  any indicator also via `/trend <name>`. Every health view ends with the **P.S. disclaimer** (`_ps`
+  / `locale.HIST_PS_BLOCK`).
   Optional filters parse deterministically (lab keyword / known lab, `YYYY-MM(-DD)`, year,
   Ukrainian month, `останній`). `/trend <analyte>` reuses the
   deterministic trend engine (chart when ≥2 points). **All retrieval is no-LLM** — listing,

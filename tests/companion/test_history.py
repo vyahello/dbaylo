@@ -389,6 +389,35 @@ async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> No
     assert "Глюкоза" in view.text
 
 
+async def test_list_report_trends_multi_date_flagged_first(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    # Глюкоза (will be out of range) + Білок measured on two dates -> trends; Калій only once.
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 1, 1),
+        lab="A",
+        results=(("Глюкоза", 5.0, 3.9, 6.1), ("Білок", 70.0, 64.0, 83.0)),
+    )
+    r2 = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="A",
+        results=(
+            ("Глюкоза", 7.0, 3.9, 6.1),  # out of range -> flagged
+            ("Білок", 72.0, 64.0, 83.0),  # in range
+            ("Калій", 4.0, 3.5, 5.1),  # only one date -> no trend
+        ),
+    )
+    items = await history.list_report_trends(async_session, user_id=user.id, report_id=r2.id)
+    keys = [it.key for it in items]
+    assert "калій" not in keys  # a single measurement is not a trend
+    assert set(keys) == {"глюкоза", "білок"}
+    assert items[0].key == "глюкоза" and items[0].flagged  # flagged analyte sorts first
+    assert not next(it for it in items if it.key == "білок").flagged
+
+
 async def test_trend_not_found(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="невідоме")
