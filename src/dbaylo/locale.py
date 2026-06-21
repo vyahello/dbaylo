@@ -292,10 +292,12 @@ INTERPRET_SECTION_DOCTOR = "Коли до лікаря"
 INTERPRET_DIVIDER = "──────────"
 INTERPRET_PS_PREFIX = "P.S."
 # Navigable analysis (drill-down): the default message is the overview; one button per section.
+# Each label says what its section is ABOUT (mirrors the section header) — "Показники" /
+# "До лікаря" were too vague about what one would actually see.
 BTN_ANALYSIS_OVERVIEW = "🩺 Огляд"
-BTN_ANALYSIS_ATTENTION = "⚠️ Показники"
+BTN_ANALYSIS_ATTENTION = "⚠️ Звернути увагу"
 BTN_ANALYSIS_HELP = "🌿 Що робити"
-BTN_ANALYSIS_DOCTOR = "🧑‍⚕️ До лікаря"
+BTN_ANALYSIS_DOCTOR = "🧑‍⚕️ Коли до лікаря"
 
 # --- Stage 6: narrative / imaging documents (МРТ / УЗД / висновок) ---------------
 LAB_TYPE_LABEL = "Тип"
