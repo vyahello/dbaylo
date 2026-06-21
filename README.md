@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/dbaylo-persona.png" alt="Дбайло" width="180">
+  <img src="docs/assets/dbaylo-avatar.png" alt="Дбайло" width="160" style="border-radius:50%">
 </p>
 
 <h1 align="center">Дбайло</h1>
@@ -27,12 +27,17 @@ Single-user, personal use. The bot speaks **Ukrainian** to you; the code stays E
 
 ## What it does
 
-- 🧪 **Reads your labs.** Send a photo or PDF — it extracts the values, you confirm them, and it
-  tracks each analyte over time with **deterministic** trends and charts.
+- 🧪 **Reads your labs.** Send a photo or PDF — tabular panels *or* narrative/imaging reports
+  (МРТ / УЗД / висновок) — it extracts the values, you confirm them, and it stores them.
+- 🔬 **Explains them like a friend.** An expert plain-language reading of each report (grouped by
+  body system, what's worth attention and how soon to see which doctor), then **deterministic**
+  per-analyte trends with norm-aware charts — never a diagnosis, never a prescription.
+- 📈 **Shows the dynamics.** Browse your indicators grouped by context (blood / urine / biochemistry /
+  hormones) across **all** your labs, and watch each one move over time.
 - 🚑 **Watches for red flags.** A pure rule engine maps symptoms to "see a doctor / urgent / emergency"
   and only ever **escalates toward care**.
-- 🌿 **Builds habits.** Goals, a gentle daily check-in (sleep / water / mood / training), and
-  reminders — supportive, never guilt-trips.
+- 🌿 **Builds habits.** Goals, a gentle daily check-in (sleep / water / mood / training), medication &
+  repeat-lab reminders — supportive, never guilt-trips.
 - 💸 **Finds prices & free care.** Looks up the price of a *named* medicine, flags prices above the
   state ceiling, and checks whether a service **may be free under НСЗУ ПМГ** before you pay.
 
@@ -52,7 +57,7 @@ Telegram ─▶ aiogram bot ─▶ safety.gate.screen(text)        ← the only 
       (deterministic,     (deterministic,          lab summary · navigator)
        escalate up)        redirect / support)     every reply: guard + disclaimer + fallback
 
-Labs   photo/PDF ─▶ claude extract ─▶ you confirm ─▶ SQLite ─▶ deterministic trends ─▶ chart + summary
+Labs   photo/PDF ─▶ claude extract ─▶ you confirm ─▶ SQLite ─▶ deterministic trends ─▶ charts + expert reading
 Prices /price · /coverage ─▶ gate ─▶ fail-soft fetch ─▶ ceiling & ПМГ-coverage guards (never fabricates)
 ```
 
@@ -62,7 +67,7 @@ escalation; the LLM never decides it. Safety rails live in code and tests, not j
 | Layer | What | Where |
 |-------|------|-------|
 | **L1** Wellness companion | Goals, daily check-in, reminders, chat + the wellness guardrail | `companion/`, `wellness/` |
-| **L2** Lab & data core | Lab intake, Claude extraction, deterministic trends, charts | `labs/`, `db/` |
+| **L2** Lab & data core | Lab intake (tabular + narrative), Claude extraction, expert reading, deterministic trends & charts | `labs/`, `db/` |
 | **L3** Triage | Deterministic red-flag engine — **the safety core** | `triage/` |
 | **L4** Price & НСЗУ navigator | On-demand prices, МОЗ ceiling, НСЗУ coverage, transparent providers | `navigator/` |
 | — | The single user-text → LLM choke-point | `safety/` |
@@ -87,14 +92,19 @@ venv/bin/dbaylo-bot           # run the bot via long polling (no public URL / ce
 
 In Telegram:
 
+There's a button menu and a populated "/" command list, so nothing must be typed from memory.
+
 | Command | Does |
 |---|---|
 | `/start`, `/help` | intro & the command list |
-| *(send a photo/PDF)* | read a lab result → confirm → trends + chart + summary |
+| *(send a photo/PDF)* | read a lab — tabular *or* narrative/imaging — → confirm → expert reading + trends |
+| `/history`, `/reports` | browse saved reports (analysis, results, charts, file, delete) — filter by lab/date/`останній` |
+| `/dynamics` | indicators grouped by context (blood / urine / biochem …), drill into each trend |
+| `/trend <analyte>` | one analyte's movement over time + a chart (deterministic, range-relative) |
 | `/checkin` | quick daily check-in (sleep / water / mood / training; symptoms route to triage) |
 | `/goal`, `/goals` | set / list a wellness goal (an aggressive target is gently redirected) |
-| `/history`, `/reports` | browse saved labs (open the file, view results, delete) — filter by lab/date/`останній` |
-| `/trend <analyte>` | one analyte's movement over time + a chart (deterministic, range-relative) |
+| `/problem`, `/problems` | track something that worries you (daily check-ins while it's active) |
+| `/medication`, `/reminders` | medication reminders; list / turn off any reminder |
 | `/price <drug>` | cheapest options for a **named** medicine + a state-ceiling check |
 | `/coverage <service>` | is it free under НСЗУ ПМГ? (checked *before* price) |
 
