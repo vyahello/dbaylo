@@ -13,6 +13,7 @@ confirmation in progress survives a restart.
 from __future__ import annotations
 
 import asyncio
+import html
 import json
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
@@ -52,6 +53,7 @@ from dbaylo.labs.intake import (
     persist_confirmed,
     save_original_file,
 )
+from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import compute_report_summary, render_report_charts
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import compute_flag, is_out_of_range, normalize_analyte
@@ -61,6 +63,9 @@ router = Router(name="labs")
 _CB_CONFIRM = "lab:confirm"
 _CB_EDIT = "lab:edit"
 _CB_CANCEL = "lab:cancel"
+_CB_SHOW_ALL = "lab:all"  # expand the collapsed in-range rows into the full table
+_CB_EDIT_DATE = "lab:edate"  # one-tap edit of the report date
+_CB_EDIT_LAB = "lab:elab"  # one-tap edit of the lab name
 
 # Post-confirm offers carry the report_id in the callback data, so the buttons work
 # even when the FSM state is gone — a restart (MemoryStorage is in-memory) or a Tier 1.3
@@ -101,69 +106,158 @@ class LabStates(StatesGroup):
 _NO_SECTION: object = object()
 
 
-def _confirm_emoji(a: ExtractedAnalyte) -> str:
-    """⚠️ if the lab flags the row (or it's out of range), ✅ if it has a value, else ❔."""
-    if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range):
+def _esc(text: str) -> str:
+    # Body text, never an attribute -> keep apostrophes/quotes literal (see formatting._escape).
+    return html.escape(text, quote=False)
+
+
+def _is_oor(a: ExtractedAnalyte) -> bool:
+    """The lab flagged the row, or the value is numerically out of its reference range."""
+    return is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range)
+
+
+def _is_unread(a: ExtractedAnalyte) -> bool:
+    """OCR could not read a value (and it is not a qualitative result like 'не виявлено')."""
+    return a.value is None and not a.value_text
+
+
+def _needs_check(a: ExtractedAnalyte) -> bool:
+    """A row worth surfacing at confirm time: out of range, or unreadable (rail #5)."""
+    return _is_oor(a) or _is_unread(a)
+
+
+def _row_marker(a: ExtractedAnalyte) -> str:
+    """⚠️ for an out-of-range row, ❔ for an unreadable one, nothing for an in-range one.
+
+    The in-range rows deliberately carry NO ✅ — a screen of green checks reads as
+    'все добре', which the safety rails forbid implying (rail #4). Absence of a marker
+    is the 'in range' signal; the global row number is the bullet.
+    """
+    if _is_oor(a):
         return locale.FLAG_ATTENTION
-    if a.value is not None or a.value_text:
-        return locale.FLAG_EMOJI["normal"]
-    return locale.FLAG_EMOJI["unknown"]
+    if _is_unread(a):
+        return locale.FLAG_EMOJI["unknown"]
+    return ""
 
 
-def render_confirmation_text(report: ExtractedReport) -> str:
-    """Build the Ukrainian confirmation view for an extracted report (table or narrative)."""
-    date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
-    if report.is_narrative:
-        lines = [
-            f"{locale.LAB_TYPE_LABEL}: {report.report_type or locale.LAB_DOC_GENERIC}",
-            f"{locale.LAB_DATE_LABEL}: {date_txt}",
-            f"{locale.LAB_LAB_LABEL}: {lab_txt}",
-            "",
-        ]
-        if report.narrative:
-            lines += [report.narrative, ""]
-        if report.conclusion:
-            lines += [f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}", ""]
-        lines.append(locale.LAB_CONFIRM_PROMPT)
-        return "\n".join(lines)
-    lines = [
-        f"{locale.LAB_DATE_LABEL}: {date_txt}",
-        f"{locale.LAB_LAB_LABEL}: {lab_txt}",
-    ]
-    if report.conclusion:
-        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
-    lines.append("")
-    # Group rows under their panel header (blood vs urine stay apart); the row number is still
-    # global and contiguous, so editing by number is unaffected.
+def _row_line(index: int, a: ExtractedAnalyte) -> str:
+    """One numbered analyte row (the global index keeps edit-by-number working from any view)."""
+    body = (
+        f"{index}. {_esc(a.analyte)} — {_esc(a.display_value())} "
+        f"({locale.LAB_NORM_LABEL} {_esc(a.display_reference())})"
+    )
+    return f"{body} {_row_marker(a)}".rstrip()
+
+
+def _grouped_rows(rows: list[tuple[int, ExtractedAnalyte]]) -> list[str]:
+    """Render rows under bold panel headers (blood vs urine stay apart)."""
+    out: list[str] = []
     prev_section: object = _NO_SECTION
-    for i, a in enumerate(report.results, 1):
+    for index, a in rows:
         if a.section != prev_section:
             prev_section = a.section
             if a.section:
-                if lines[-1] != "":
-                    lines.append("")
-                lines.append(locale.LAB_SECTION_HEADER.format(section=a.section))
-        ref = a.display_reference()
-        line = (
-            f"{i}. {a.analyte} — {a.display_value()} "
-            f"({locale.LAB_NORM_LABEL} {ref}) {_confirm_emoji(a)}"
-        )
-        lines.append(line.rstrip())
-    lines += ["", locale.LAB_CONFIRM_PROMPT]
+                if out and out[-1] != "":
+                    out.append("")
+                out.append(locale.LAB_SECTION_HEADER.format(section=f"<b>{_esc(a.section)}</b>"))
+        out.append(_row_line(index, a))
+    return out
+
+
+def _summary_line(total: int, n_oor: int, n_unread: int) -> str:
+    parts = [locale.LAB_CONFIRM_COUNT.format(n=total)]
+    if n_unread:
+        parts.append(locale.LAB_CONFIRM_ATTENTION.format(n=n_oor + n_unread))
+    elif n_oor:
+        parts.append(locale.LAB_CONFIRM_OOR.format(n=n_oor))
+    return " · ".join(parts)
+
+
+def _confirm_header(report: ExtractedReport) -> str:
+    date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
+    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    inner = locale.LAB_CONFIRM_HEADER.format(date=_esc(date_txt), lab=_esc(lab_txt))
+    return f"<b>{inner}</b>"
+
+
+def _render_narrative_confirmation(report: ExtractedReport) -> str:
+    lines = [
+        f"<b>{_esc(report.report_type or locale.LAB_DOC_GENERIC)}</b>",
+        _confirm_header(report),
+        "",
+    ]
+    if report.narrative:
+        lines += [_esc(report.narrative), ""]
+    if report.conclusion:
+        lines += [f"{locale.LAB_CONCLUSION_LABEL}: {_esc(report.conclusion)}", ""]
+    lines.append(locale.LAB_CONFIRM_PROMPT)
     return "\n".join(lines)
 
 
-def confirmation_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=locale.BTN_CONFIRM_ALL, callback_data=_CB_CONFIRM)],
+def render_confirmation_text(report: ExtractedReport) -> str:
+    """Problems-first confirmation view (Telegram HTML): header + summary + ONLY the rows
+    that need a look (out of range / unreadable), with the in-range rows collapsed into an
+    aggregate. The full table is one tap away (``render_confirmation_full``), so every value
+    is still verifiable before saving (rail #5). A narrative document keeps its prose view."""
+    if report.is_narrative:
+        return _render_narrative_confirmation(report)
+    indexed = list(enumerate(report.results, 1))
+    attention = [(i, a) for i, a in indexed if _needs_check(a)]
+    n_oor = sum(1 for a in report.results if _is_oor(a))
+    n_unread = sum(1 for a in report.results if _is_unread(a))
+    total = len(report.results)
+
+    lines = [_confirm_header(report), _summary_line(total, n_oor, n_unread)]
+    if report.conclusion:
+        lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {_esc(report.conclusion)}")
+    if attention:
+        lines += ["", locale.LAB_CONFIRM_ATT_HEADER.format(n=len(attention))]
+        lines += _grouped_rows(attention)
+        normal = total - len(attention)
+        if normal:
+            lines += ["", locale.LAB_CONFIRM_NORMAL_AGG.format(n=normal)]
+        lines += ["", locale.LAB_CONFIRM_VERIFY]
+    else:
+        lines += ["", locale.LAB_CONFIRM_ALL_NORMAL.format(n=total), "", locale.LAB_CONFIRM_PROMPT]
+    return "\n".join(lines)
+
+
+def render_confirmation_full(report: ExtractedReport) -> str:
+    """The full numbered table — every row, grouped by panel, neutral markers (the opt-in
+    '📋 Усі показники' expand from the problems-first view)."""
+    lines = [_confirm_header(report), locale.LAB_CONFIRM_FULL_HEADER, ""]
+    lines += _grouped_rows(list(enumerate(report.results, 1)))
+    return "\n".join(lines)
+
+
+def confirmation_keyboard(report: ExtractedReport, *, full: bool = False) -> InlineKeyboardMarkup:
+    """Confirm / expand / quick-edit / cancel. The expand button appears only when in-range
+    rows are hidden (and not already on the full view); quick-edit covers the two fields most
+    often wrong (date corrupts the whole series); number-typing handles the rare value fix."""
+    rows: list[list[InlineKeyboardButton]] = [
+        [InlineKeyboardButton(text=locale.BTN_CONFIRM_ALL, callback_data=_CB_CONFIRM)]
+    ]
+    n_total = len(report.results)
+    n_attention = sum(1 for a in report.results if _needs_check(a))
+    if not full and n_total and n_attention < n_total:
+        rows.append(
             [
-                InlineKeyboardButton(text=locale.BTN_EDIT, callback_data=_CB_EDIT),
-                InlineKeyboardButton(text=locale.BTN_CANCEL, callback_data=_CB_CANCEL),
-            ],
+                InlineKeyboardButton(
+                    text=locale.BTN_CONFIRM_SHOW_ALL.format(n=n_total), callback_data=_CB_SHOW_ALL
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(text=locale.BTN_EDIT_DATE, callback_data=_CB_EDIT_DATE),
+            InlineKeyboardButton(text=locale.BTN_EDIT_LAB, callback_data=_CB_EDIT_LAB),
         ]
     )
+    last_row = [InlineKeyboardButton(text=locale.BTN_CANCEL, callback_data=_CB_CANCEL)]
+    if not report.is_narrative:  # narrative has no numbered rows to edit by number
+        last_row.insert(0, InlineKeyboardButton(text=locale.BTN_EDIT, callback_data=_CB_EDIT))
+    rows.append(last_row)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def parse_edit_target(text: str, n_rows: int) -> str | int | None:
@@ -290,11 +384,14 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
 
     await state.set_state(LabStates.confirming)
     await state.update_data(report_id=report_id, report=_report_to_state(outcome))
-    # A big report (e.g. ~85 rows) overflows Telegram's 4096-char cap, so send in chunks —
-    # the confirm/edit buttons ride the last one. (A single message would raise and the user
-    # would see nothing after the long extraction.)
+    # Problems-first, so a typical report is one short message. A pathological one (many
+    # flagged rows) can still overflow Telegram's 4096-char cap, so send section-aware chunks
+    # as a safety net — the action buttons ride the last one.
     await answer_chunked(
-        message, render_confirmation_text(outcome), reply_markup=confirmation_keyboard()
+        message,
+        render_confirmation_text(outcome),
+        reply_markup=confirmation_keyboard(outcome),
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -321,6 +418,43 @@ async def on_edit(callback: CallbackQuery, state: FSMContext) -> None:
     await state.set_state(LabStates.edit_pick)
     if callback.message:
         await callback.message.answer(locale.LAB_EDIT_PICK.format(n=len(report.results)))
+    await callback.answer()
+
+
+@router.callback_query(F.data == _CB_SHOW_ALL)
+async def on_show_all(callback: CallbackQuery, state: FSMContext) -> None:
+    """Expand the collapsed in-range rows: send the full table and move the action buttons to
+    the bottom of it (the compact message's keyboard is consumed, so there's one button set)."""
+    data = await state.get_data()
+    report = _pending_report(data)
+    await clear_inline_keyboard(callback)
+    if isinstance(callback.message, Message):
+        await answer_chunked(
+            callback.message,
+            render_confirmation_full(report),
+            reply_markup=confirmation_keyboard(report, full=True),
+            parse_mode=ParseMode.HTML,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data == _CB_EDIT_DATE)
+async def on_edit_date_btn(callback: CallbackQuery, state: FSMContext) -> None:
+    """One-tap jump to editing the report date (the field whose error corrupts the series)."""
+    await clear_inline_keyboard(callback)
+    await state.set_state(LabStates.edit_date)
+    if callback.message:
+        await callback.message.answer(locale.LAB_EDIT_NEW_DATE)
+    await callback.answer()
+
+
+@router.callback_query(F.data == _CB_EDIT_LAB)
+async def on_edit_lab_btn(callback: CallbackQuery, state: FSMContext) -> None:
+    """One-tap jump to editing the lab name."""
+    await clear_inline_keyboard(callback)
+    await state.set_state(LabStates.edit_lab)
+    if callback.message:
+        await callback.message.answer(locale.LAB_EDIT_NEW_LAB)
     await callback.answer()
 
 
@@ -375,7 +509,7 @@ async def on_edit_date(message: Message, state: FSMContext) -> None:
 async def on_edit_lab(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     report = _pending_report(data)
-    report.lab = (message.text or "").strip() or None
+    report.lab = normalize_lab((message.text or "").strip() or None)
     await _restore_confirmation(message, state, report)
 
 
@@ -385,7 +519,10 @@ async def _restore_confirmation(
     await state.update_data(report=_report_to_state(report))
     await state.set_state(LabStates.confirming)
     await answer_chunked(
-        message, render_confirmation_text(report), reply_markup=confirmation_keyboard()
+        message,
+        render_confirmation_text(report),
+        reply_markup=confirmation_keyboard(report),
+        parse_mode=ParseMode.HTML,
     )
 
 

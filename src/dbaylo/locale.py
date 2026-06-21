@@ -185,6 +185,17 @@ LAB_UNSUPPORTED_FILE = (
     "Я вмію читати фото (JPEG/PNG) або PDF з результатами аналізів. Спробуй надіслати такий файл."
 )
 LAB_CONFIRM_PROMPT = "Усе правильно?"
+# Problems-first confirmation view (mirrors the history "Показники" redesign): a compact
+# header + summary, only the rows that need a look, the in-range rows collapsed.
+LAB_CONFIRM_HEADER = "🔬 {date} · {lab}"
+LAB_CONFIRM_COUNT = "{n} показників"
+LAB_CONFIRM_OOR = "⚠️ {n} поза нормою"
+LAB_CONFIRM_ATTENTION = "⚠️ {n} потребують уваги"  # used when some rows are also unreadable
+LAB_CONFIRM_ATT_HEADER = "⚠️ Перевір ці значення ({n}):"
+LAB_CONFIRM_NORMAL_AGG = "✅ Решта {n} — у межах норми"
+LAB_CONFIRM_ALL_NORMAL = "✅ Усі {n} — у межах норми"
+LAB_CONFIRM_VERIFY = "Звір позначені значення з бланком. Усе правильно?"
+LAB_CONFIRM_FULL_HEADER = "📋 Усі показники:"
 LAB_NORM_LABEL = "норма"
 # Header before each panel's rows (combined reports: blood vs urine stay visually apart).
 LAB_SECTION_HEADER = "▸ {section}"
@@ -196,6 +207,9 @@ LAB_LAB_UNKNOWN = "невідома"
 BTN_CONFIRM_ALL = "✅ Підтвердити все"
 BTN_EDIT = "✏️ Виправити"
 BTN_CANCEL = "🗑 Скасувати"
+BTN_CONFIRM_SHOW_ALL = "📋 Усі {n} показників"  # expand the collapsed in-range rows
+BTN_EDIT_DATE = "📅 Дата"  # one-tap edit of the two most-corrected fields
+BTN_EDIT_LAB = "🔬 Лабораторія"
 
 LAB_EDIT_PICK = "Що виправити? Надішли номер рядка (1–{n}), або «дата» / «лабораторія»."
 LAB_EDIT_NEW_VALUE = "Введи правильне значення для «{name}» (тільки число):"

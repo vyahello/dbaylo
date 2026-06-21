@@ -9,8 +9,11 @@ import pytest
 from dbaylo.bot.lab_flow import (
     _CB_CONCERN_NO,
     _CB_CONCERN_YES,
+    _CB_EDIT_DATE,
+    _CB_EDIT_LAB,
     _CB_REPEAT_NO,
     _CB_REPEAT_OTHER,
+    _CB_SHOW_ALL,
     _concern_keyboard,
     _parse_rid,
     _repeat_keyboard,
@@ -20,6 +23,7 @@ from dbaylo.bot.lab_flow import (
     confirmation_keyboard,
     parse_edit_target,
     parse_value,
+    render_confirmation_full,
     render_confirmation_text,
 )
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
@@ -40,15 +44,42 @@ def _report() -> ExtractedReport:
     )
 
 
-def test_render_confirmation_text_is_ukrainian_and_complete() -> None:
+def test_render_confirmation_is_problems_first() -> None:
     text = render_confirmation_text(_report())
-    assert "Дата: 2026-05-12" in text
-    assert "Лабораторія: Synevo" in text
+    assert "2026-05-12" in text and "Synevo" in text  # bold header, date · lab
     assert "норма" in text
+    assert "1. Глюкоза" in text  # 7.0 > 6.1 -> out of range -> surfaced in full
+    assert "⚠️" in text
+    # Кетони ("не виявлено") is in range -> collapsed into the aggregate, NOT listed.
+    assert "2. Кетони" not in text
+    assert "у межах норми" in text  # the aggregate line for the hidden row
+    assert "Звір" in text  # the verify prompt (there are rows to check)
+    # No green ✅ on a normal row (rail #4): the only ✅ is on the aggregate line.
+    assert text.count("✅") == 1
+
+
+def test_render_all_in_range_shows_aggregate_not_rows() -> None:
+    report = ExtractedReport(
+        report_date=date(2026, 5, 12),
+        results=[ExtractedAnalyte("Калій", value=4.0, ref_low=3.5, ref_high=5.1)],
+    )
+    text = render_confirmation_text(report)
+    assert "Усі 1 — у межах норми" in text
     assert "Усе правильно?" in text
-    assert "1. Глюкоза" in text and "2. Кетони" in text
-    assert "⚠️" in text  # 7.0 > 6.1 -> out of range, attention marker
-    assert "✅" in text  # Кетони "не виявлено" is not flagged -> ok
+    assert "Калій" not in text  # in range -> not listed in the compact view
+
+
+def test_render_surfaces_unreadable_row_with_question_mark() -> None:
+    report = ExtractedReport(
+        results=[
+            ExtractedAnalyte("Гемоглобін", value=None),  # OCR could not read it
+            ExtractedAnalyte("Калій", value=4.0, ref_low=3.5, ref_high=5.1),  # fine
+        ]
+    )
+    text = render_confirmation_text(report)
+    assert "1. Гемоглобін" in text and "❔" in text  # surfaced for a look (rail #5)
+    assert "потребують уваги" in text  # summary umbrella when a row is unreadable
+    assert "Решта 1 — у межах норми" in text
 
 
 def test_render_handles_unknown_date_and_lab() -> None:
@@ -57,7 +88,7 @@ def test_render_handles_unknown_date_and_lab() -> None:
     assert "невідома" in text
 
 
-def test_render_groups_rows_by_panel_section() -> None:
+def test_render_full_groups_rows_by_panel_section() -> None:
     # A combined report: same name (Глюкоза, Лейкоцити) in two panels must stay apart.
     report = ExtractedReport(
         results=[
@@ -67,11 +98,12 @@ def test_render_groups_rows_by_panel_section() -> None:
             ExtractedAnalyte("Лейкоцити", value_text="15-50", section="Аналіз сечі"),
         ]
     )
-    text = render_confirmation_text(report)
-    assert "▸ Аналіз крові" in text and "▸ Аналіз сечі" in text
+    text = render_confirmation_full(report)
+    assert "Аналіз крові" in text and "Аналіз сечі" in text
     # Headers come before their rows; numbering stays global and contiguous (edit-by-number).
-    assert text.index("▸ Аналіз крові") < text.index("▸ Аналіз сечі")
+    assert text.index("Аналіз крові") < text.index("Аналіз сечі")
     assert "1. Глюкоза" in text and "3. Глюкоза" in text  # both panels' Глюкоза present, numbered
+    assert "✅" not in text  # in-range rows carry no green check (rail #4)
 
 
 def test_render_confirmation_narrative_document() -> None:
@@ -122,10 +154,30 @@ def test_state_round_trip_preserves_data() -> None:
     assert restored.results[1].value_text == "не виявлено"
 
 
-def test_confirmation_keyboard_has_three_buttons() -> None:
-    kb = confirmation_keyboard()
-    flat = [b for row in kb.inline_keyboard for b in row]
-    assert len(flat) == 3
+def test_confirmation_keyboard_offers_expand_when_rows_hidden() -> None:
+    # _report(): one out-of-range row + one in-range row -> the in-range one is collapsed,
+    # so the "show all" expand button is offered, plus the quick-edit date/lab buttons.
+    datas = _cb_datas(confirmation_keyboard(_report()))
+    assert _CB_SHOW_ALL in datas
+    assert _CB_EDIT_DATE in datas and _CB_EDIT_LAB in datas
+
+
+def test_confirmation_keyboard_hides_expand_when_nothing_collapsed() -> None:
+    # Every row needs a look -> nothing is hidden -> no expand button. Also hidden on the
+    # full view itself.
+    report = ExtractedReport(results=[ExtractedAnalyte("X", value=10.0, ref_low=1.0, ref_high=5.0)])
+    assert _CB_SHOW_ALL not in _cb_datas(confirmation_keyboard(report))
+    assert _CB_SHOW_ALL not in _cb_datas(confirmation_keyboard(_report(), full=True))
+
+
+def test_confirmation_keyboard_narrative_has_no_number_edit() -> None:
+    # A narrative document has no numbered rows, so the number-typing "✏️ Виправити" is dropped;
+    # date/lab quick-edit and confirm/cancel remain.
+    report = ExtractedReport(report_type="МРТ", narrative="текст")
+    datas = _cb_datas(confirmation_keyboard(report))
+    assert "lab:edit" not in datas  # _CB_EDIT
+    assert _CB_EDIT_DATE in datas and _CB_EDIT_LAB in datas
+    assert "lab:confirm" in datas and "lab:cancel" in datas
 
 
 # --- Post-confirm offers are stateless: report_id rides in the callback data --------
