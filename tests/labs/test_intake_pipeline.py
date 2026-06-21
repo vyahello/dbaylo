@@ -22,6 +22,9 @@ from dbaylo.labs.pipeline import (
     render_report_charts,
 )
 from dbaylo.labs.schema import ExtractedAnalyte
+from dbaylo.labs.trends import series_key
+
+_GLU = series_key(None, "Глюкоза")  # the composite series key the pipeline now uses
 
 
 def _analyte(name, value, low, high, unit="ммоль/л"):
@@ -144,11 +147,11 @@ async def test_compute_report_summary_counts_real_trends(async_session, monkeypa
     await _confirm(async_session, user, 1, 7.0)
     await _confirm(async_session, user, 10, 5.4)  # a second, DIFFERENT date -> a real trend
 
-    summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={_GLU})
     assert summary.text == "Підсумок українською."
     assert summary.chart_count == 1  # one analyte measured on two distinct dates
 
-    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={_GLU})
     assert len(charts) == 1
     assert charts[0][0] == "Глюкоза"
     assert charts[0][1].startswith(b"\x89PNG")
@@ -165,7 +168,7 @@ async def test_same_day_reupload_is_not_a_trend(async_session, monkeypatch) -> N
     await _confirm(async_session, user, 5, 7.0)
     await _confirm(async_session, user, 5, 7.0)  # same day again
 
-    summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    summary = await compute_report_summary(async_session, user_id=user.id, analyte_keys={_GLU})
     assert summary.chart_count == 0
-    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={"глюкоза"})
+    charts = await render_report_charts(async_session, user_id=user.id, analyte_keys={_GLU})
     assert charts == []

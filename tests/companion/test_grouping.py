@@ -15,10 +15,14 @@ from dbaylo.companion import grouping
         ("Біохімічний аналіз крові", "АЛТ", grouping.BIOCHEM),
         ("Загальний аналіз сечі", "Лейкоцити", grouping.URINE),
         ("Мікроскопія осаду сечі", "Епітелій", grouping.URINE),
+        # Spermogram is its own specimen: even "Еритроцити" there is NOT blood.
+        ("Спермограма", "Еритроцити", grouping.SEMEN),
+        ("Спермограма", "Лейкоцити", grouping.SEMEN),
         # No section -> fall back to the analyte name (e.g. a single-analyte ДІЛА report).
         (None, "Натрій", grouping.BIOCHEM),
         (None, "Гемоглобін", grouping.BLOOD),
         (None, "ТТГ", grouping.HORMONES),
+        (None, "Кількість сперматозоїдів", grouping.SEMEN),  # semen-specific name
         (None, "Щось небачене", grouping.OTHER),
     ],
 )

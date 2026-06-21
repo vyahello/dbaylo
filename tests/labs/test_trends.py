@@ -16,14 +16,17 @@ from dbaylo.labs.trends import (
     classify,
     compute_flag,
     compute_trend,
+    find_series,
     is_out_of_range,
     normalize_analyte,
     polarity,
     qualitative_match,
+    series_key,
+    specimen,
 )
 
 
-def p(day: int, value: float | None, low=None, high=None, analyte="Глюкоза", unit="ммоль/л"):
+def p(day, value, low=None, high=None, analyte="Глюкоза", unit="ммоль/л", section=None):
     return LabPoint(
         analyte=analyte,
         taken_on=date(2026, 1, day),
@@ -31,6 +34,7 @@ def p(day: int, value: float | None, low=None, high=None, analyte="Глюкоз�
         unit=unit,
         ref_low=low,
         ref_high=high,
+        section=section,
     )
 
 
@@ -125,9 +129,36 @@ def test_build_series_groups_aliases_and_sorts() -> None:
         p(2, 9.0, analyte="Сечовина"),
     ]
     series = build_series(points)
-    assert set(series) == {"глюкоза", "сечовина"}
-    glucose_dates = [pt.taken_on.day for pt in series["глюкоза"]]
+    assert set(series) == {series_key(None, "Глюкоза"), series_key(None, "Сечовина")}
+    glucose_dates = [pt.taken_on.day for pt in series[series_key(None, "Глюкоза")]]
     assert glucose_dates == [1, 3]  # sorted ascending
+
+
+def test_specimen_keeps_same_name_in_different_fluids_apart() -> None:
+    # "Еритроцити" in blood, urine and semen are three different readings — never one chart.
+    assert specimen("Загальний аналіз крові", "Еритроцити") == "blood"
+    assert specimen("Загальний аналіз сечі", "Еритроцити") == "urine"
+    assert specimen("Спермограма", "Еритроцити") == "semen"
+    points = [
+        p(1, 4.5, analyte="Еритроцити", section="Загальний аналіз крові"),
+        p(2, 5.0, analyte="Еритроцити", section="Загальний аналіз крові"),
+        p(1, 2.0, analyte="Еритроцити", section="Загальний аналіз сечі"),
+        p(2, 3.0, analyte="Еритроцити", section="Загальний аналіз сечі"),
+        p(1, 1.0, analyte="Еритроцити", section="Спермограма"),
+    ]
+    series = build_series(points)
+    assert len(series) == 3  # blood / urine / semen — not merged into one
+    # A bare-name /trend lookup picks the richest matching series (here a 2-point one).
+    found = find_series(series, "еритроцити")
+    assert found is not None and len(found) == 2
+
+
+def test_specimen_falls_back_to_blood_without_a_section() -> None:
+    # A section-less row (single-analyte report) stays with its blood twin, not a phantom split.
+    assert specimen(None, "Натрій") == "blood"
+    assert series_key(None, "Натрій") == series_key("Біохімічний аналіз крові", "Натрій")
+    # Semen-specific names are recognised even with no section.
+    assert specimen(None, "Кількість сперматозоїдів в еякуляті") == "semen"
 
 
 # --- compute_trend: data sufficiency --------------------------------------------

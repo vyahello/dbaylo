@@ -36,6 +36,10 @@ class LabPoint:
     # The lab's OWN out-of-range mark for this measurement — the reliable verdict even when the
     # numeric reference was not captured (many rows have flagged=True but no ref_low/ref_high).
     flagged: bool = False
+    # The printed panel the row sits under ("Загальний аналіз сечі", "Спермограма", …). Carried so
+    # the same analyte NAME in different specimens (Еритроцити in blood vs urine vs semen) never
+    # collapses into one nonsensical series — see ``series_key``.
+    section: str | None = None
 
 
 class TrendDirection(Enum):
@@ -119,6 +123,59 @@ def normalize_analyte(name: str) -> str:
     """Normalize an analyte name to a grouping key (casefold + collapse spaces + alias)."""
     base = _WS_RE.sub(" ", name).strip().casefold()
     return ANALYTE_ALIASES.get(base, base)
+
+
+# --- Specimen (body fluid) discriminator ----------------------------------------
+#
+# The SAME analyte name means a different thing in a different specimen: "Еритроцити" in blood is
+# the RBC count, in urine it is sediment, in a spermogram it is yet another reading — with different
+# units and ranges. Grouping a trend series by name ALONE merges these into one nonsensical chart.
+# So the series key carries a coarse specimen bucket too, decided from the printed panel (reliable)
+# with a small name fallback. A urine / semen row in practice always carries a section, so a row
+# WITHOUT a recognizable section is treated as blood — keeping a section-less single-analyte report
+# (e.g. a standalone ДІЛА Натрій) in the same series as its panel-printed twin.
+
+_SEMEN, _URINE, _BLOOD = "semen", "urine", "blood"
+
+# Section keyword -> specimen (checked first; "сперм"/"сеч" before the generic "кров").
+_SPECIMEN_SECTION: tuple[tuple[str, str], ...] = (
+    ("спермограм", _SEMEN),
+    ("еякулят", _SEMEN),
+    ("сперм", _SEMEN),
+    ("сеч", _URINE),
+    ("кров", _BLOOD),
+    ("гематолог", _BLOOD),
+    ("біохім", _BLOOD),
+    ("гормон", _BLOOD),
+    ("тиреоїд", _BLOOD),
+    ("загальний аналіз", _BLOOD),
+)
+
+# Analyte-name fallback when the row has no recognizable section — only the strong semen signals;
+# everything else falls through to blood (urine/semen rows carry a section in practice).
+_SPECIMEN_ANALYTE_SEMEN: tuple[str, ...] = ("сперматозоїд", "еякулят", "спермі")
+
+_KEY_SEP = "\x1f"  # unit separator: never appears in an analyte name
+
+
+def specimen(section: str | None, analyte: str) -> str:
+    """Coarse body-fluid bucket (blood / urine / semen) for a row, from its panel then its name.
+    Internal only — used solely to keep same-named analytes in different specimens apart."""
+    s = (section or "").casefold()
+    for keyword, spec in _SPECIMEN_SECTION:
+        if keyword in s:
+            return spec
+    a = analyte.casefold()
+    if any(keyword in a for keyword in _SPECIMEN_ANALYTE_SEMEN):
+        return _SEMEN
+    return _BLOOD
+
+
+def series_key(section: str | None, analyte: str) -> str:
+    """The trend-series grouping key: specimen + normalized analyte name. Two rows share a series
+    IFF they are the same analyte measured in the same specimen — so blood/urine/semen 'Еритроцити'
+    are three separate series, never one merged chart."""
+    return f"{specimen(section, analyte)}{_KEY_SEP}{normalize_analyte(analyte)}"
 
 
 # --- Range helpers --------------------------------------------------------------
@@ -226,10 +283,19 @@ def build_series(points: list[LabPoint]) -> dict[str, list[LabPoint]]:
     """Group points by normalized analyte key, each list sorted by date ascending."""
     grouped: dict[str, list[LabPoint]] = defaultdict(list)
     for point in points:
-        grouped[normalize_analyte(point.analyte)].append(point)
+        grouped[series_key(point.section, point.analyte)].append(point)
     for series in grouped.values():
         series.sort(key=lambda p: p.taken_on)
     return dict(grouped)
+
+
+def find_series(series: dict[str, list[LabPoint]], analyte: str) -> list[LabPoint] | None:
+    """Best series for a BARE analyte name (no specimen) — for ``/trend <name>``, where the user
+    types only a name. Matches on the analyte-name part of the composite key; if the same name
+    exists in several specimens, returns the richest series (most measurements)."""
+    norm = normalize_analyte(analyte)
+    matches = [pts for k, pts in series.items() if k.rsplit(_KEY_SEP, 1)[-1] == norm]
+    return max(matches, key=len) if matches else None
 
 
 def _classify(latest: LabPoint, previous: LabPoint) -> TrendDirection:
@@ -254,7 +320,7 @@ def _classify(latest: LabPoint, previous: LabPoint) -> TrendDirection:
 def compute_trend(points: list[LabPoint]) -> TrendSummary:
     """Compute the trend summary for a single analyte's series."""
     display = points[-1].analyte if points else ""
-    key = normalize_analyte(display) if display else ""
+    key = series_key(points[-1].section, points[-1].analyte) if points else ""
 
     numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
     latest = numeric[-1] if numeric else None

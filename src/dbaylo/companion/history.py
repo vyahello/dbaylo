@@ -37,7 +37,7 @@ from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
+from dbaylo.labs.trends import build_series, compute_trend, find_series, series_key
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
 DEFAULT_LIMIT = 10
@@ -297,8 +297,8 @@ def flagged_count(results: list[LabResult]) -> int:
 
 
 def flagged_keys(results: list[LabResult]) -> set[str]:
-    """Normalized analyte keys of the out-of-range rows (for the flagged-only dynamics view)."""
-    return {normalize_analyte(r.analyte) for r in results if r.flagged}
+    """Series keys of the out-of-range rows (for the flagged-only dynamics view)."""
+    return {series_key(r.section, r.analyte) for r in results if r.flagged}
 
 
 @dataclass(frozen=True)
@@ -323,7 +323,7 @@ async def list_report_trends(
     series = build_series(await load_series_points(session, user_id))
     items: dict[str, TrendChartItem] = {}
     for r in ordered_results(report):
-        key = normalize_analyte(r.analyte)
+        key = series_key(r.section, r.analyte)
         points = series.get(key)
         # Need NUMERIC values on >=2 distinct dates — a qualitative analyte (urine bacteria, all
         # value=None) has nothing to chart, so it must not appear in the picker (an empty graph).
@@ -375,7 +375,7 @@ async def aggregate_indicators(session: AsyncSession, *, user_id: int) -> list[I
     rows = (await session.execute(stmt)).all()
     by_key: dict[str, list[Any]] = defaultdict(list)
     for r in rows:
-        by_key[normalize_analyte(r.analyte)].append(r)
+        by_key[series_key(r.section, r.analyte)].append(r)
     items: list[IndicatorItem] = []
     for key, group in by_key.items():
         group.sort(key=lambda r: r.report_date)
@@ -644,7 +644,7 @@ class TrendView:
 async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str) -> TrendView:
     points = await load_series_points(session, user_id)
     series = build_series(points)
-    pts = series.get(normalize_analyte(analyte))
+    pts = find_series(series, analyte)
     if not pts:
         return TrendView(found=False, text=f"{locale.TREND_NOT_FOUND}\n\n{DISCLAIMER}", chart=None)
 

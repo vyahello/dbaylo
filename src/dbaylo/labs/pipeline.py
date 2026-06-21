@@ -48,6 +48,7 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             LabResult.ref_low,
             LabResult.ref_high,
             LabResult.flagged,
+            LabResult.section,
         )
         .join(LabReport, LabResult.report_id == LabReport.id)
         .where(
@@ -66,6 +67,7 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             ref_low=row.ref_low,
             ref_high=row.ref_high,
             flagged=bool(row.flagged),
+            section=row.section,
         )
         for row in rows
     ]

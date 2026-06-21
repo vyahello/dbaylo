@@ -55,7 +55,7 @@ from dbaylo.labs.intake import (
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import compute_report_summary
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import compute_flag, is_out_of_range, normalize_analyte
+from dbaylo.labs.trends import compute_flag, is_out_of_range, series_key
 
 router = Router(name="labs")
 
@@ -640,7 +640,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(locale.LAB_INTERPRET_WORKING)
     await callback.answer()
 
-    keys = {normalize_analyte(a.analyte) for a in report.results}
+    keys = {series_key(a.section, a.analyte) for a in report.results}
     async with get_session() as session:
         # Pass the confirmed report so the summary is the Stage 5 expert interpretation.
         summary = await compute_report_summary(

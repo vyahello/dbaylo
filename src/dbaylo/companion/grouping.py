@@ -15,15 +15,20 @@ BLOOD = "blood"
 URINE = "urine"
 BIOCHEM = "biochem"
 HORMONES = "hormones"
+SEMEN = "semen"  # spermogram / male-fertility panel — its own specimen, never confused with blood
 OTHER = "other"
 IMAGING = "imaging"  # narrative documents (set by the caller, not by categorize())
 
 # Display order of the categories in the browser.
-CATEGORY_ORDER: tuple[str, ...] = (BLOOD, URINE, BIOCHEM, HORMONES, OTHER, IMAGING)
+CATEGORY_ORDER: tuple[str, ...] = (BLOOD, URINE, BIOCHEM, HORMONES, SEMEN, OTHER, IMAGING)
 
 # Panel-name keyword -> category (checked first, on the printed section). Order matters:
+# spermogram before everything (a semen "Еритроцити" must not read as blood), then
 # "біохім"/"сеч" before the generic "кров" so "Біохімічний аналіз крові" is biochem, not blood.
 _SECTION_KEYWORDS: tuple[tuple[str, str], ...] = (
+    ("спермограм", SEMEN),
+    ("еякулят", SEMEN),
+    ("сперм", SEMEN),
     ("сеч", URINE),
     ("біохім", BIOCHEM),
     ("гормон", HORMONES),
@@ -35,6 +40,7 @@ _SECTION_KEYWORDS: tuple[tuple[str, str], ...] = (
 
 # Analyte-name keyword -> category (fallback when a row has no section).
 _ANALYTE_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("сперматозоїд", "еякулят", "спермі", "сперматогенез", "акросом"), SEMEN),
     (
         (
             "гемоглобін",

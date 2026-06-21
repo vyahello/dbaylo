@@ -430,6 +430,7 @@ CATEGORY_NAMES: dict[str, str] = {
     "urine": "🔬 Сеча",
     "biochem": "⚗️ Біохімія",
     "hormones": "🧬 Гормони",
+    "semen": "🧫 Спермограма",
     "other": "📋 Інше",
     "imaging": "🩻 Описові (МРТ/УЗД)",
 }
@@ -514,7 +515,7 @@ HIST_CARD_NORMAL = "✅ усі в межах норми"
 BTN_HIST_FILE = "📄 Файл"
 BTN_HIST_RESULTS = "📊 Показники"
 BTN_HIST_RESULTS_ALL = "📋 Усі показники"
-BTN_HIST_DYNAMICS = "📈 Динаміка проблемних"
+BTN_HIST_DYNAMICS = "📈 Динаміка"
 BTN_HIST_INTERPRET = "🔬 Розбір"
 BTN_HIST_DELETE = "🗑 Видалити"
 BTN_HIST_BACK = "◀ Назад"
@@ -527,8 +528,8 @@ HIST_PROBLEMS_NORMAL_AGG = "✅ Решта {n} — у межах норми."
 HIST_PROBLEMS_NORMAL_HEADER = "✅ У межах норми:"  # when a few in-range rows are listed by name
 HIST_NO_PROBLEMS = "✅ Усі показники — в межах норми."
 HIST_DYNAMICS_EMPTY = (
-    "Поки немає динаміки проблемних показників — потрібен ще один аналіз в інший день. "
-    "Щоб подивитися інший показник: /trend <назва>."
+    "Поки немає динаміки показників — потрібен ще один аналіз в інший день, щоб було що "
+    "порівняти. Щоб подивитися конкретний показник: /trend <назва>."
 )
 # Cached analysis actions.
 BTN_INTERP_REFRESH = "🔄 Оновити розбір"

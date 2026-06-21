@@ -51,7 +51,7 @@ from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
 from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.pipeline import compute_report_summary, render_one_chart, render_report_charts
-from dbaylo.labs.trends import normalize_analyte
+from dbaylo.labs.trends import series_key
 from dbaylo.safety import GateSource, screen
 
 router = Router(name="history")
@@ -744,7 +744,7 @@ async def _generate_analysis(message: Message, *, report_id: int, telegram_id: i
             return
         results = history.ordered_results(report)
         reconstructed = history.reconstruct_report(report, results)
-        keys = {normalize_analyte(r.analyte) for r in results}
+        keys = {series_key(r.section, r.analyte) for r in results}
         report.summary = history.SUMMARY_PENDING  # mark pending BEFORE the slow LLM call
         await session.commit()  # ... and persist it, so a restart mid-run is recoverable
         summary = await compute_report_summary(

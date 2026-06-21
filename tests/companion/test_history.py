@@ -32,7 +32,7 @@ from dbaylo.db.models import (
     ReportStatus,
     User,
 )
-from dbaylo.labs.trends import compute_flag, is_out_of_range
+from dbaylo.labs.trends import compute_flag, is_out_of_range, series_key
 from dbaylo.triage.safety import DISCLAIMER
 
 TZ = ZoneInfo("Europe/Kyiv")
@@ -482,9 +482,10 @@ async def test_aggregate_indicators_groups_by_category(async_session: AsyncSessi
     )
     items = await history.aggregate_indicators(async_session, user_id=user.id)
     by_key = {it.key: it for it in items}
-    assert by_key["гемоглобін"].category == grouping.BLOOD and by_key["гемоглобін"].has_trend
-    assert by_key["натрій"].category == grouping.BIOCHEM  # name-based (no section in the fixture)
-    assert by_key["натрій"].last_flagged  # latest value out of range
+    hb, na = series_key(None, "Гемоглобін"), series_key(None, "Натрій")
+    assert by_key[hb].category == grouping.BLOOD and by_key[hb].has_trend
+    assert by_key[na].category == grouping.BIOCHEM  # name-based (no section in the fixture)
+    assert by_key[na].last_flagged  # latest value out of range
 
     counts = dict(history.category_counts(items, 0))
     assert counts[grouping.BLOOD] == 1 and counts[grouping.BIOCHEM] == 1
@@ -546,8 +547,8 @@ async def test_list_report_trends_skips_qualitative(async_session: AsyncSession)
             async_session, user_id=user.id, report_id=last.id
         )
     ]
-    assert "глюкоза" in keys  # numeric on 2 dates -> chartable
-    assert "бактерії" not in keys  # qualitative -> would draw an EMPTY chart, so excluded
+    assert series_key(None, "Глюкоза") in keys  # numeric on 2 dates -> chartable
+    assert series_key(None, "Бактерії") not in keys  # qualitative -> empty chart, so excluded
 
 
 async def test_list_report_trends_multi_date_flagged_first(async_session: AsyncSession) -> None:
@@ -573,10 +574,11 @@ async def test_list_report_trends_multi_date_flagged_first(async_session: AsyncS
     )
     items = await history.list_report_trends(async_session, user_id=user.id, report_id=r2.id)
     keys = [it.key for it in items]
-    assert "калій" not in keys  # a single measurement is not a trend
-    assert set(keys) == {"глюкоза", "білок"}
-    assert items[0].key == "глюкоза" and items[0].flagged  # flagged analyte sorts first
-    assert not next(it for it in items if it.key == "білок").flagged
+    glu, bil = series_key(None, "Глюкоза"), series_key(None, "Білок")
+    assert series_key(None, "Калій") not in keys  # a single measurement is not a trend
+    assert set(keys) == {glu, bil}
+    assert items[0].key == glu and items[0].flagged  # flagged analyte sorts first
+    assert not next(it for it in items if it.key == bil).flagged
 
 
 async def test_trend_not_found(async_session: AsyncSession) -> None:

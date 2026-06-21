@@ -126,6 +126,10 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
         ax.set_ylabel(numeric[-1].unit)
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
+    # Tick ONLY on the dates we actually measured — otherwise matplotlib auto-fills "nice" dates
+    # (e.g. a 2022 tick between a 2021 and a 2023 sample) and reads as phantom measurements.
+    ax.set_xticks(sorted(set(xs)))
+    ax.margins(x=0.08)  # a little breathing room so the first/last marker isn't clipped
     fig.autofmt_xdate()
 
     handles: list[object] = []
