@@ -629,6 +629,9 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             report_type=report.report_type,
             narrative=report.narrative,
         )
+        # Mark the analysis PENDING (committed on block exit) BEFORE the slow LLM call, so a
+        # restart mid-interpretation leaves an empty summary the startup recovery can finish.
+        db_report.summary = history.SUMMARY_PENDING
         user_id = db_report.user_id
 
     # Acknowledge immediately: the expert interpretation runs an LLM and can take a while, so

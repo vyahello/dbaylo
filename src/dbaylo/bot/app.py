@@ -9,6 +9,7 @@ fire from the same service — no separate process. The webhook entrypoint in
 from __future__ import annotations
 
 import asyncio
+import contextlib
 
 from aiogram import Bot, Dispatcher
 from aiogram.fsm.storage.base import BaseStorage
@@ -27,8 +28,11 @@ from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
 from dbaylo.bot.storage import SQLiteStorage
+from dbaylo.companion import callbacks, history
 from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
 from dbaylo.config import get_settings
+from dbaylo.db import get_session
+from dbaylo.labs.labnames import normalize_lab
 
 
 def build_dispatcher(
@@ -106,6 +110,36 @@ def make_sender(bot: Bot) -> Sender:
     return sender
 
 
+async def recover_interrupted_analyses(bot: Bot, owner_id: int) -> None:
+    """After a restart, offer to finish any analysis that was interrupted mid-run (a deploy /
+    crash killed the LLM call, leaving the summary PENDING). One message per affected report with
+    a one-tap '▶️ Доробити розбір' — the same cached-or-generate path, which regenerates because
+    the summary is empty. Best-effort: a send failure must never block the bot from starting."""
+    if not owner_id:
+        return
+    async with get_session() as session:
+        interrupted = await history.find_interrupted_analyses(session)
+    for report in interrupted:
+        date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+        lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
+        markup = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_FINISH_ANALYSIS,
+                        callback_data=callbacks.history_interpret(report.id),
+                    )
+                ]
+            ]
+        )
+        with contextlib.suppress(Exception):
+            await bot.send_message(
+                owner_id,
+                locale.ANALYSIS_INTERRUPTED.format(date=date_txt, lab=lab_txt),
+                reply_markup=markup,
+            )
+
+
 async def _run_polling() -> None:
     bot = build_bot()
     dispatcher = build_dispatcher()
@@ -117,6 +151,9 @@ async def _run_polling() -> None:
     await reminder_scheduler.start()
     # Register the "/" command menu so every command is discoverable without typing.
     await apply_bot_commands(bot)
+    # Offer to finish any analysis a restart interrupted (best-effort; never blocks startup).
+    with contextlib.suppress(Exception):
+        await recover_interrupted_analyses(bot, get_settings().owner_telegram_id)
     try:
         await dispatcher.start_polling(bot)
     finally:

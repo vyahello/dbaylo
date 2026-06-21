@@ -284,6 +284,11 @@ LAB_INTERPRET_HELP_GENERIC = (
 # Shown the moment the user confirms a report — the expert interpretation runs an LLM and can
 # take a while, so we acknowledge immediately instead of leaving a silent gap.
 LAB_INTERPRET_WORKING = "Готую розбір показників і рекомендації — це може зайняти трохи часу… ⏳"
+# Startup auto-recovery: a restart interrupted the analysis (summary left pending).
+ANALYSIS_INTERRUPTED = (
+    "Минулого разу розбір аналізу ({date} · {lab}) не завершився — мене перезапустили. Доробити?"
+)
+BTN_FINISH_ANALYSIS = "▶️ Доробити розбір"
 # Canonical section headers for the expert interpretation. The model is told to print these
 # verbatim on their own line; the Telegram renderer (bot.formatting) bolds + emoji-prefixes them.
 INTERPRET_SECTION_OVERALL = "Загалом"

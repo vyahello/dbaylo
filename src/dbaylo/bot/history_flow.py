@@ -737,6 +737,8 @@ async def _generate_analysis(message: Message, *, report_id: int, telegram_id: i
         results = history.ordered_results(report)
         reconstructed = history.reconstruct_report(report, results)
         keys = {normalize_analyte(r.analyte) for r in results}
+        report.summary = history.SUMMARY_PENDING  # mark pending BEFORE the slow LLM call
+        await session.commit()  # ... and persist it, so a restart mid-run is recoverable
         summary = await compute_report_summary(
             session, user_id=user.id, analyte_keys=keys, report=reconstructed
         )

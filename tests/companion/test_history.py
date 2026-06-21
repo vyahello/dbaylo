@@ -406,6 +406,18 @@ async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> No
     assert "Глюкоза" in view.text
 
 
+async def test_find_interrupted_analyses_only_pending(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    pending = await _report(async_session, user_id=user.id, on=date(2021, 1, 1), lab="A")
+    pending.summary = history.SUMMARY_PENDING  # "" — analysis started, never finished (restart)
+    done = await _report(async_session, user_id=user.id, on=date(2021, 1, 2), lab="A")
+    done.summary = "готовий розбір"  # finished
+    await _report(async_session, user_id=user.id, on=date(2021, 1, 3), lab="A")  # summary NULL
+    await async_session.flush()
+    found = await history.find_interrupted_analyses(async_session)
+    assert [r.id for r in found] == [pending.id]  # only the empty-summary (interrupted) one
+
+
 async def test_aggregate_indicators_groups_by_category(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     await _report(

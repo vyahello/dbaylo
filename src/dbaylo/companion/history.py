@@ -197,6 +197,23 @@ async def get_report(session: AsyncSession, *, report_id: int, user_id: int) -> 
     return report
 
 
+# The expert reading is marked PENDING (summary == "") right before the slow LLM call and set to
+# the real text after — so an empty summary means "interrupted by a restart", which is distinct
+# from NULL (never analysed / the user deleted the розбір). Used to auto-recover on startup.
+SUMMARY_PENDING = ""
+
+
+async def find_interrupted_analyses(session: AsyncSession) -> list[LabReport]:
+    """Confirmed reports whose analysis was started but never finished (summary == PENDING) —
+    i.e. the process was restarted mid-interpretation. Offered for one-tap completion on startup."""
+    stmt = (
+        select(LabReport)
+        .where(LabReport.status == ReportStatus.CONFIRMED, LabReport.summary == SUMMARY_PENDING)
+        .order_by(LabReport.id)
+    )
+    return list((await session.scalars(stmt)).all())
+
+
 def reconstruct_report(report: LabReport, results: list[LabResult]) -> ExtractedReport:
     """Rebuild an ``ExtractedReport`` from stored rows so a confirmed report can be re-interpreted
     (e.g. after an analysis was interrupted by a restart). The lab's own out-of-range mark is
