@@ -183,11 +183,11 @@ def _confirm_header(report: ExtractedReport) -> str:
 
 
 def _render_narrative_confirmation(report: ExtractedReport) -> str:
-    lines = [
-        f"<b>{_esc(report.report_type or locale.LAB_DOC_GENERIC)}</b>",
-        _confirm_header(report),
-        "",
-    ]
+    date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
+    # An imaging study often has no lab brand — show date (· lab only when there IS one), never
+    # a bare "невідома"; its study type is the title.
+    meta = f"{date_txt} · {_esc(report.lab)}" if report.lab else date_txt
+    lines = [f"📄 <b>{_esc(report.report_type or locale.LAB_DOC_GENERIC)}</b>", meta, ""]
     if report.narrative:
         lines += [_esc(report.narrative), ""]
     if report.conclusion:
@@ -306,9 +306,14 @@ def parse_value(text: str) -> float | None:
 
 
 def _report_to_state(report: ExtractedReport) -> dict[str, object]:
+    # ALL fields must survive the round-trip — dropping narrative/report_type/conclusion turned a
+    # confirmed МРТ into an empty 'tabular' report, whose interpretation hallucinated "table empty".
     return {
         "report_date": report.report_date.isoformat() if report.report_date else None,
         "lab": report.lab,
+        "conclusion": report.conclusion,
+        "report_type": report.report_type,
+        "narrative": report.narrative,
         "results": [vars(a) for a in report.results],
     }
 
@@ -316,11 +321,18 @@ def _report_to_state(report: ExtractedReport) -> dict[str, object]:
 def _report_from_state(data: Mapping[str, Any]) -> ExtractedReport:
     raw_date = data.get("report_date")
     raw_results = cast("list[dict[str, Any]]", data.get("results") or [])
-    raw_lab = data.get("lab")
+
+    def _str(key: str) -> str | None:
+        value = data.get(key)
+        return value if isinstance(value, str) else None
+
     return ExtractedReport(
         results=[ExtractedAnalyte(**row) for row in raw_results],
         report_date=date.fromisoformat(raw_date) if isinstance(raw_date, str) else None,
-        lab=raw_lab if isinstance(raw_lab, str) else None,
+        lab=_str("lab"),
+        conclusion=_str("conclusion"),
+        report_type=_str("report_type"),
+        narrative=_str("narrative"),
     )
 
 

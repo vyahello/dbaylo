@@ -126,6 +126,7 @@ def test_render_full_groups_rows_by_panel_section() -> None:
 
 def test_render_confirmation_narrative_document() -> None:
     report = ExtractedReport(
+        report_date=date(2021, 6, 25),
         report_type="МРТ головного мозку",
         narrative="Без вогнищевих змін.",
         conclusion="Патології не виявлено",
@@ -135,6 +136,7 @@ def test_render_confirmation_narrative_document() -> None:
     assert "Без вогнищевих змін" in text
     assert "Патології не виявлено" in text
     assert "Усе правильно?" in text  # still goes through the confirm loop (rail #5)
+    assert "невідома" not in text  # an imaging study with no lab does not show a bare "невідома"
 
 
 @pytest.mark.parametrize(
@@ -170,6 +172,22 @@ def test_state_round_trip_preserves_data() -> None:
     assert [a.analyte for a in restored.results] == ["Глюкоза", "Кетони"]
     assert restored.results[0].value == 7.0
     assert restored.results[1].value_text == "не виявлено"
+
+
+def test_state_round_trip_preserves_narrative() -> None:
+    # The МРТ bug: the FSM round-trip used to drop narrative/report_type/conclusion, so a confirmed
+    # imaging study lost its findings between confirm and persist -> stored as an empty tabular.
+    original = ExtractedReport(
+        report_date=date(2021, 6, 25),
+        report_type="МРТ головного мозку",
+        narrative="Без вогнищевих змін.",
+        conclusion="Патології не виявлено",
+    )
+    restored = _report_from_state(_report_to_state(original))
+    assert restored.is_narrative
+    assert restored.report_type == "МРТ головного мозку"
+    assert restored.narrative == "Без вогнищевих змін."
+    assert restored.conclusion == "Патології не виявлено"
 
 
 def test_confirmation_keyboard_offers_expand_when_many_in_range() -> None:
