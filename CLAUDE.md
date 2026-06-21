@@ -120,8 +120,18 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `LabReport.content_hash`); if the same bytes were already CONFIRMED for this user
   (`find_confirmed_by_hash`), the bot skips extraction entirely and offers the saved report instead
   (a discarded/deleted upload does not block re-uploading).
-  Row marker: **⚠️** if flagged (the lab's indicator or numerically out of range), else **✅**
-  (`is_out_of_range`); the lab `conclusion` is shown. Post-confirm offers are **stateless** (carry
+  The confirmation view is **problems-first** (mirrors `/history` "Показники"): a bold header +
+  summary (`N показників · ⚠️ K поза нормою`), then ONLY the rows that need a look — out of range OR
+  unreadable (`❔`, `_is_unread`) — grouped by panel, with the in-range rows collapsed to
+  `✅ Решта N — у межах норми`. A `📋 Усі N показників` button (`render_confirmation_full`,
+  `_CB_SHOW_ALL`) expands the full numbered table on demand, so **every** value stays verifiable
+  before saving (rail #5). An in-range row carries **no ✅ marker** (rail #4: a screen of green
+  checks would imply "все добре"); the marker is **⚠️** out-of-range (`_is_oor`) / **❔** unreadable
+  only. `📅 Дата` / `🔬 Лабораторія` buttons one-tap the two most-corrected fields (`_CB_EDIT_DATE`/
+  `_CB_EDIT_LAB`); number-typing (`✏️ Виправити`) handles the rare value fix, using the **global**
+  row index shown in either view. Rendered as escaped Telegram **HTML** (bold header/panels) via
+  `answer_chunked(parse_mode=HTML)` (section-aware `split_for_telegram` as the overflow net); the lab
+  `conclusion` is shown. Post-confirm offers are **stateless** (carry
   `report_id`) so they survive a restart / menu-tap state reset. **Charts are opt-in**: the analysis
   is sent first, then a 📈 button appears **only** when an analyte has a real trend (measurements on
   ≥2 distinct dates — a same-day re-upload is not a trend); tapping it renders the charts on demand
