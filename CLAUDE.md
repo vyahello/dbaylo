@@ -135,7 +135,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **sequenced ONE AT A TIME** (never a stack): repeat-lab reminder → (concern, only if out of range)
   → (charts offer, only if there is a real trend) — each a question shown only after the prior is
   answered (`_advance_after_repeat`/`_advance_after_concern`), never auto-opened. All offers are
-  **stateless** (carry `report_id`) so they survive a restart / menu-tap state reset. **Charts are a
+  **stateless** (carry `report_id`) so they survive a restart / menu-tap state reset.
+  **Auto-recovery of an interrupted analysis**: the summary is set to PENDING (`summary == ""`,
+  `history.SUMMARY_PENDING`) right BEFORE the slow LLM call and to the real text after — so an empty
+  summary uniquely means "a restart killed the interpretation" (distinct from `NULL` = never
+  analysed / розбір deleted). On startup `app.recover_interrupted_analyses` finds those reports
+  (`history.find_interrupted_analyses`) and offers the owner a one-tap **▶️ Доробити розбір**
+  (= `history_interpret`, which regenerates because the summary is empty); applied at confirm AND
+  the `/history` regenerate path, best-effort (never blocks startup). **Charts are a
   PICKER, not a dump**: a real trend needs measurements on ≥2 distinct dates (a same-day re-upload is
   not a trend); the yes/no charts offer (`_charts_offer_keyboard`) opens — only on "Так" —
   `open_charts_picker`, where `history.list_report_trends` lists the trending analytes (flagged-first,
