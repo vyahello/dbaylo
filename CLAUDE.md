@@ -133,14 +133,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `answer_chunked(parse_mode=HTML)` (section-aware `split_for_telegram` as the overflow net); the lab
   `conclusion` is shown. Post-confirm, the analysis is sent first, then the follow-up offers are
   **sequenced ONE AT A TIME** (never a stack): repeat-lab reminder → (concern, only if out of range)
-  → charts picker — each shown only after the prior is answered (`_advance_after_repeat`/
-  `_advance_after_concern`). All offers are **stateless** (carry `report_id`) so they survive a
-  restart / menu-tap state reset. **Charts are a PICKER, not a dump**: a real trend needs
-  measurements on ≥2 distinct dates (a same-day re-upload is not a trend); `history.list_report_trends`
-  lists the trending analytes (flagged-first, ⚠️-marked) as one button each (paginated, `chart_pick`/
-  `chart_page`), tapping one renders just THAT chart (`pipeline.render_one_chart`); `📊 Показати всі`
-  (`chart_all`) stays as an opt-in dump. The picker is shared with `/history` (the card's 📈 → same
-  `open_charts_picker`) — no 45-image flood anywhere.
+  → (charts offer, only if there is a real trend) — each a question shown only after the prior is
+  answered (`_advance_after_repeat`/`_advance_after_concern`), never auto-opened. All offers are
+  **stateless** (carry `report_id`) so they survive a restart / menu-tap state reset. **Charts are a
+  PICKER, not a dump**: a real trend needs measurements on ≥2 distinct dates (a same-day re-upload is
+  not a trend); the yes/no charts offer (`_charts_offer_keyboard`) opens — only on "Так" —
+  `open_charts_picker`, where `history.list_report_trends` lists the trending analytes (flagged-first,
+  ⚠️-marked) as one button each (paginated, `chart_pick`/`chart_page`), tapping one renders just THAT
+  chart (`pipeline.render_one_chart`); `📊 Показати всі` (`chart_all`) stays as an opt-in dump. The
+  picker is shared with `/history` (the card's 📈 → same `open_charts_picker`) — no flood anywhere.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes
