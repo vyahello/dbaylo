@@ -651,14 +651,21 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 def _saved_report_keyboard(report_id: int) -> InlineKeyboardMarkup:
-    """A button to open the already-saved report (reuses the /history results view)."""
+    """For a duplicate upload: open the already-saved report, or delete that previous version so
+    the file can be re-uploaded (e.g. to re-read it after an extraction fix). Delete reuses the
+    safe two-step `/history` flow (shows what's removed, then confirms)."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text=locale.BTN_VIEW_SAVED, callback_data=callbacks.history_results(report_id)
                 )
-            ]
+            ],
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_DELETE_PREV, callback_data=callbacks.history_delete(report_id)
+                )
+            ],
         ]
     )
 

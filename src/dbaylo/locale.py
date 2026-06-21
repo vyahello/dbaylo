@@ -177,6 +177,7 @@ LAB_RECEIVED = (
 # Shown when the exact same file (same bytes) was already confirmed — no re-extraction, no copy.
 LAB_DUPLICATE = "Цей файл я вже додавав ({date}) — не дублюю. Ось збережений аналіз:"
 BTN_VIEW_SAVED = "📊 Показати збережений"
+BTN_DELETE_PREV = "🗑 Видалити попередню версію"  # remove the saved report so it can be re-uploaded
 LAB_EXTRACTION_FAILED = (
     "Не вдалося розпізнати результати. Надішли, будь ласка, чіткіше фото або PDF, "
     "або введи значення вручну."
