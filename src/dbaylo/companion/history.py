@@ -11,16 +11,18 @@ from __future__ import annotations
 
 import contextlib
 import re
+from collections import Counter, defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from dbaylo import locale
-from dbaylo.companion import proactive
+from dbaylo.companion import grouping, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import (
     Condition,
@@ -313,6 +315,92 @@ async def list_report_trends(
             flagged=bool(r.flagged) or (prev.flagged if prev else False),
         )
     return sorted(items.values(), key=lambda it: (not it.flagged, it.name.casefold()))
+
+
+# --- Cross-lab dynamics browser: indicators grouped by clinical category --------
+
+
+@dataclass(frozen=True)
+class IndicatorItem:
+    """One analyte in the dynamics browser: its category, whether it has a multi-date trend,
+    and whether its most recent value was out of range."""
+
+    name: str
+    key: str
+    category: str
+    has_trend: bool
+    last_flagged: bool
+
+
+async def aggregate_indicators(session: AsyncSession, *, user_id: int) -> list[IndicatorItem]:
+    """Every analyte the user has across ALL confirmed tabular reports/labs, with its category,
+    trend availability (>=2 distinct dates), and last-out-of-range flag. Deterministic, no LLM."""
+    stmt = (
+        select(
+            LabResult.analyte,
+            LabResult.section,
+            LabResult.value,
+            LabResult.flagged,
+            LabReport.report_date,
+        )
+        .join(LabReport, LabResult.report_id == LabReport.id)
+        .where(
+            LabReport.user_id == user_id,
+            LabReport.status == ReportStatus.CONFIRMED,
+            LabReport.kind == ReportKind.TABULAR,
+            LabReport.report_date.is_not(None),
+        )
+    )
+    rows = (await session.execute(stmt)).all()
+    by_key: dict[str, list[Any]] = defaultdict(list)
+    for r in rows:
+        by_key[normalize_analyte(r.analyte)].append(r)
+    items: list[IndicatorItem] = []
+    for key, group in by_key.items():
+        group.sort(key=lambda r: r.report_date)
+        latest = group[-1]
+        dated: set[date] = {r.report_date for r in group if r.value is not None}
+        items.append(
+            IndicatorItem(
+                name=latest.analyte,
+                key=key,
+                category=grouping.categorize(latest.section, latest.analyte),
+                has_trend=len(dated) >= 2,
+                last_flagged=bool(latest.flagged),
+            )
+        )
+    return items
+
+
+def category_counts(items: list[IndicatorItem], narrative_count: int) -> list[tuple[str, int]]:
+    """Non-empty categories (in display order) with their counts; the imaging category carries
+    the count of narrative documents (МРТ/УЗД)."""
+    counts: Counter[str] = Counter(it.category for it in items)
+    if narrative_count:
+        counts[grouping.IMAGING] = narrative_count
+    return [(c, counts[c]) for c in grouping.CATEGORY_ORDER if counts.get(c)]
+
+
+def indicators_in(items: list[IndicatorItem], category: str) -> list[IndicatorItem]:
+    """Indicators of one category, flagged first, then those with a trend, then alphabetical."""
+    chosen = [it for it in items if it.category == category]
+    return sorted(
+        chosen, key=lambda it: (not it.last_flagged, not it.has_trend, it.name.casefold())
+    )
+
+
+async def list_narratives(session: AsyncSession, *, user_id: int) -> list[LabReport]:
+    """The user's confirmed narrative documents (МРТ/УЗД/висновок), most recent first."""
+    stmt = (
+        select(LabReport)
+        .where(
+            LabReport.user_id == user_id,
+            LabReport.status == ReportStatus.CONFIRMED,
+            LabReport.kind == ReportKind.NARRATIVE,
+        )
+        .order_by(LabReport.report_date.is_(None), LabReport.report_date.desc())
+    )
+    return list((await session.scalars(stmt)).all())
 
 
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:

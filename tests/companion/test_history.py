@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot import history_flow
-from dbaylo.companion import history, proactive
+from dbaylo.companion import callbacks, grouping, history, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import (
     Condition,
@@ -27,6 +27,7 @@ from dbaylo.db.models import (
     LabReport,
     LabResult,
     Reminder,
+    ReportKind,
     ReportStatus,
     User,
 )
@@ -309,7 +310,9 @@ async def test_list_view_paginates_into_pages_of_eight(async_session: AsyncSessi
     ]
     assert len(open_buttons) == 8  # one page
     assert "1/2" in text  # 12 reports / 8 -> 2 pages
-    assert any(b.text == locale.BTN_HIST_NEXT for b in kb.inline_keyboard[-1])  # ▶ on page 0
+    all_btns = [b for row in kb.inline_keyboard for b in row]
+    assert any(b.text == locale.BTN_HIST_NEXT for b in all_btns)  # ▶ on page 0
+    assert any(b.callback_data == callbacks.DYN_OPEN for b in all_btns)  # dynamics entry present
 
 
 async def test_reconstruct_report_rebuilds_an_extracted_report(async_session: AsyncSession) -> None:
@@ -401,6 +404,55 @@ async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> No
     view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="Глюкоза")
     assert view.found and view.chart is not None and view.chart[:4] == b"\x89PNG"
     assert "Глюкоза" in view.text
+
+
+async def test_aggregate_indicators_groups_by_category(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2021, 1, 1),
+        lab="Synevo",
+        results=(("Гемоглобін", 140.0, 130.0, 160.0),),
+    )
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2021, 3, 1),
+        lab="Synevo",
+        # Гемоглобін on a 2nd date -> a trend; Натрій once, 150 > 146 -> last out of range.
+        results=(("Гемоглобін", 145.0, 130.0, 160.0), ("Натрій", 150.0, 132.0, 146.0)),
+    )
+    items = await history.aggregate_indicators(async_session, user_id=user.id)
+    by_key = {it.key: it for it in items}
+    assert by_key["гемоглобін"].category == grouping.BLOOD and by_key["гемоглобін"].has_trend
+    assert by_key["натрій"].category == grouping.BIOCHEM  # name-based (no section in the fixture)
+    assert not by_key["натрій"].has_trend and by_key["натрій"].last_flagged
+
+    counts = dict(history.category_counts(items, 0))
+    assert counts[grouping.BLOOD] == 1 and counts[grouping.BIOCHEM] == 1
+    # Flagged sorts first within a category; here biochem has just Натрій.
+    assert [it.name for it in history.indicators_in(items, grouping.BIOCHEM)] == ["Натрій"]
+
+
+async def test_category_counts_includes_imaging_for_narratives(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    async_session.add(
+        LabReport(
+            user_id=user.id,
+            report_date=date(2021, 6, 25),
+            status=ReportStatus.CONFIRMED,
+            kind=ReportKind.NARRATIVE,
+            report_type="МРТ головного мозку",
+            narrative="Без змін.",
+        )
+    )
+    await async_session.flush()
+    narratives = await history.list_narratives(async_session, user_id=user.id)
+    assert len(narratives) == 1 and narratives[0].report_type == "МРТ головного мозку"
+    items = await history.aggregate_indicators(async_session, user_id=user.id)  # no tabular rows
+    counts = dict(history.category_counts(items, len(narratives)))
+    assert counts == {grouping.IMAGING: 1}
 
 
 async def test_list_report_trends_multi_date_flagged_first(async_session: AsyncSession) -> None:

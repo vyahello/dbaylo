@@ -413,6 +413,23 @@ BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 BTN_CHART_ALL = "📊 Показати всі графіки"
 CHART_FLAGGED_PREFIX = "⚠️ "  # marks an out-of-range analyte in the picker (listed first)
+DYN_TREND_PREFIX = "📈 "  # marks an analyte that has a multi-date trend
+
+# Dynamics browser: indicators grouped by clinical category, across all labs.
+CATEGORY_NAMES: dict[str, str] = {
+    "blood": "🩸 Кров",
+    "urine": "🔬 Сеча",
+    "biochem": "⚗️ Біохімія",
+    "hormones": "🧬 Гормони",
+    "other": "📋 Інше",
+    "imaging": "🩻 Описові (МРТ/УЗД)",
+}
+DYN_HEADER = "📈 Динаміка показників. Обери категорію:"
+DYN_CATEGORY_HEADER = "{category} — обери показник (📈 є динаміка, ⚠️ востаннє поза нормою):"
+DYN_IMAGING_HEADER = "🩻 Описові дослідження. Обери, щоб переглянути:"
+DYN_EMPTY = "Поки немає збережених показників. Надішли фото або PDF аналізів — і я відстежуватиму."
+DYN_BTN_BACK = "◀ Категорії"
+BTN_DYN_BROWSE = "📈 Динаміка по категоріях"  # entry from the /history list
 # Trend-chart legend (the only user-facing text drawn onto the chart besides the title/unit).
 CHART_LEGEND_RANGE = "норма"
 CHART_LEGEND_OK = "у нормі"
@@ -782,6 +799,7 @@ BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("start", "Головне меню і знайомство"),
     ("checkin", "Швидкий щоденний чек-ін"),
     ("history", "Збережені аналізи: файли, результати"),
+    ("dynamics", "Динаміка показників по категоріях"),
     ("trend", "Динаміка показника, напр. /trend глюкоза"),
     ("goals", "Мої цілі для здоров'я"),
     ("goal", "Поставити нову ціль"),

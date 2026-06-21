@@ -44,7 +44,7 @@ from dbaylo.bot.formatting import (
     split_interpretation,
 )
 from dbaylo.bot.keyboards import clear_inline_keyboard
-from dbaylo.companion import callbacks, history
+from dbaylo.companion import callbacks, grouping, history
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -91,6 +91,7 @@ def _list_view(
         nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.history_page(page + 1)))
     if nav:
         rows.append(nav)
+    rows.append([_btn(locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN)])  # browse dynamics by category
     if orphans:
         rows.append([_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)])
     header = locale.HIST_LIST_HEADER.format(n=len(reports))
@@ -490,6 +491,170 @@ async def on_chart_all(callback: CallbackQuery) -> None:
         charts = await render_report_charts(session, user_id=user.id, analyte_keys=keys)
     for name, png in charts:
         await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
+
+
+# --- Dynamics browser: indicators grouped by clinical category, across all labs ------
+
+_DYN_PAGE_SIZE = 10
+
+
+def _pair_rows(buttons: list[InlineKeyboardButton]) -> list[list[InlineKeyboardButton]]:
+    return [buttons[i : i + 2] for i in range(0, len(buttons), 2)]
+
+
+def _dyn_home_view(counts: list[tuple[str, int]]) -> tuple[str, InlineKeyboardMarkup]:
+    buttons = [
+        _btn(f"{locale.CATEGORY_NAMES.get(cat, cat)} ({n})", callbacks.dyn_category(cat))
+        for cat, n in counts
+    ]
+    return locale.DYN_HEADER, InlineKeyboardMarkup(inline_keyboard=_pair_rows(buttons))
+
+
+def _dyn_category_view(
+    category: str, indicators: list[history.IndicatorItem], page: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    pages = max(1, -(-len(indicators) // _DYN_PAGE_SIZE))
+    page = max(0, min(page, pages - 1))
+    start = page * _DYN_PAGE_SIZE
+    buttons: list[InlineKeyboardButton] = []
+    for offset, it in enumerate(indicators[start : start + _DYN_PAGE_SIZE]):
+        prefix = (
+            locale.CHART_FLAGGED_PREFIX
+            if it.last_flagged
+            else (locale.DYN_TREND_PREFIX if it.has_trend else "")
+        )
+        buttons.append(
+            _btn(f"{prefix}{it.name}", callbacks.dyn_indicator(category, start + offset))
+        )
+    rows = _pair_rows(buttons)
+    nav: list[InlineKeyboardButton] = []
+    if page > 0:
+        nav.append(_btn(locale.BTN_HIST_PREV, callbacks.dyn_category(category, page - 1)))
+    if page < pages - 1:
+        nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.dyn_category(category, page + 1)))
+    if nav:
+        rows.append(nav)
+    rows.append([_btn(locale.DYN_BTN_BACK, callbacks.DYN_HOME)])
+    header = locale.DYN_CATEGORY_HEADER.format(
+        category=locale.CATEGORY_NAMES.get(category, category)
+    )
+    if pages > 1:
+        header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
+    return header, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _dyn_imaging_view(narratives: list[LabReport]) -> tuple[str, InlineKeyboardMarkup]:
+    rows: list[list[InlineKeyboardButton]] = []
+    for r in narratives:
+        date_txt = r.report_date.isoformat() if r.report_date else locale.HIST_NO_DATE
+        rtype = r.report_type or locale.LAB_DOC_GENERIC
+        rows.append([_btn(f"📄 {date_txt} · {rtype}", callbacks.history_results(r.id))])
+    rows.append([_btn(locale.DYN_BTN_BACK, callbacks.DYN_HOME)])
+    return locale.DYN_IMAGING_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _dyn_home(telegram_id: int) -> tuple[str, InlineKeyboardMarkup] | None:
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        items = await history.aggregate_indicators(session, user_id=user.id)
+        narratives = await history.list_narratives(session, user_id=user.id)
+    counts = history.category_counts(items, len(narratives))
+    return _dyn_home_view(counts) if counts else None
+
+
+async def render_dynamics(message: Message, telegram_id: int) -> None:
+    """Open the dynamics browser (category list) — from /dynamics or the /history button."""
+    view = await _dyn_home(telegram_id)
+    if view is None:
+        await message.answer(locale.DYN_EMPTY)
+        return
+    text, keyboard = view
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.message(Command("dynamics"))
+async def cmd_dynamics(message: Message) -> None:
+    tg = _telegram_id(message)
+    if tg is not None:
+        await render_dynamics(message, tg)
+
+
+@router.callback_query(F.data == callbacks.DYN_OPEN)
+async def on_dyn_open(callback: CallbackQuery) -> None:
+    """Open the dynamics browser as a NEW message (from the /history list — keeps the list)."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await render_dynamics(callback.message, tg)
+
+
+@router.callback_query(F.data == callbacks.DYN_HOME)
+async def on_dyn_home(callback: CallbackQuery) -> None:
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    view = await _dyn_home(tg)
+    if view is None:
+        await callback.message.answer(locale.DYN_EMPTY)
+        return
+    text, keyboard = view
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(callbacks.DYN_CAT + ":"))
+async def on_dyn_category(callback: CallbackQuery) -> None:
+    parsed = callbacks.parse_dyn_category(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    category, page = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        if category == grouping.IMAGING:
+            text, keyboard = _dyn_imaging_view(
+                await history.list_narratives(session, user_id=user.id)
+            )
+        else:
+            items = await history.aggregate_indicators(session, user_id=user.id)
+            text, keyboard = _dyn_category_view(
+                category, history.indicators_in(items, category), page
+            )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(callbacks.DYN_IND + ":"))
+async def on_dyn_indicator(callback: CallbackQuery) -> None:
+    """Show one indicator's trend chart (the analyte's dynamics across all labs)."""
+    parsed = callbacks.parse_dyn_indicator(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    category, index = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        items = await history.aggregate_indicators(session, user_id=user.id)
+        indicators = history.indicators_in(items, category)
+        if not 0 <= index < len(indicators):
+            return
+        view = await history.trend_for_analyte(
+            session, user_id=user.id, analyte=indicators[index].name
+        )
+    if view.chart is not None:
+        await callback.message.answer_photo(
+            BufferedInputFile(view.chart, filename="trend.png"), caption=view.text
+        )
+    else:
+        await callback.message.answer(view.text)
 
 
 # --- Expert reading: cached (instant), with refresh / delete --------------------

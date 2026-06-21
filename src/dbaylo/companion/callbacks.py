@@ -232,6 +232,35 @@ def parse_chart_page(data: str) -> tuple[int, int] | None:
     return None
 
 
+# Dynamics browser: indicators grouped by clinical category, across all labs.
+DYN_OPEN = "dyn_open"  # open the browser as a NEW message (from the /history list)
+DYN_HOME = "dyn_home"  # back to the category list (edits the browser message in place)
+DYN_CAT = "dyn_cat"  # open a category (carries the short category key, e.g. "blood")
+DYN_IND = "dyn_ind"  # open one indicator's trend (category key + index into the sorted list)
+
+
+def dyn_category(category: str, page: int = 0) -> str:
+    return f"{DYN_CAT}{_SEP}{category}{_SEP}{page}"
+
+
+def parse_dyn_category(data: str) -> tuple[str, int] | None:
+    parts = data.split(_SEP)
+    if len(parts) == 3 and parts[0] == DYN_CAT and parts[2].isdigit():
+        return parts[1], int(parts[2])
+    return None
+
+
+def dyn_indicator(category: str, index: int) -> str:
+    return f"{DYN_IND}{_SEP}{category}{_SEP}{index}"
+
+
+def parse_dyn_indicator(data: str) -> tuple[str, int] | None:
+    parts = data.split(_SEP)
+    if len(parts) == 3 and parts[0] == DYN_IND and parts[2].isdigit():
+        return parts[1], int(parts[2])
+    return None
+
+
 def chart_pick(report_id: int, index: int) -> str:
     return f"{CHART_PICK}{_SEP}{report_id}{_SEP}{index}"
 
