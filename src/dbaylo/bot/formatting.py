@@ -91,6 +91,44 @@ def render_interpretation_html(text: str) -> str:
     return f"{out}\n\n{ps}"
 
 
+# Stable order of the interpretation's sections, for navigable (drill-down) delivery.
+SECTION_KEYS: tuple[str, ...] = ("overall", "attention", "help", "doctor")
+_DISPLAY_TO_KEY: dict[str, str] = {
+    locale.INTERPRET_SECTION_OVERALL.casefold(): "overall",
+    locale.INTERPRET_SECTION_ATTENTION.casefold(): "attention",
+    locale.INTERPRET_SECTION_HELP.casefold(): "help",
+    locale.INTERPRET_SECTION_DOCTOR.casefold(): "doctor",
+}
+
+
+def split_interpretation(text: str) -> dict[str, str]:
+    """Split a stored interpretation into ``{section_key: "Header\\n<body>"}`` for the four
+    canonical sections, so each can be delivered on its own (drill-down).
+
+    Sections that are absent or empty are omitted; the trailing disclaimer is dropped (each
+    section re-adds the P.S. when rendered through ``render_interpretation_html``). If the text
+    does not carry the canonical headers — a narrative reading, or the deterministic fallback —
+    the result lacks the ``overall`` key, and the caller sends the whole thing as before.
+    """
+    body = text
+    if body.endswith(DISCLAIMER):
+        body = body[: -len(DISCLAIMER)].rstrip()
+    buckets: dict[str, list[str]] = {}
+    order: list[str] = []
+    current: str | None = None
+    for line in body.splitlines():
+        match = _match_header(line)
+        key = _DISPLAY_TO_KEY.get(match[1].casefold()) if match is not None else None
+        if key is not None:
+            current = key
+            if key not in buckets:
+                buckets[key] = []
+                order.append(key)
+        if current is not None:
+            buckets[current].append(line)
+    return {k: "\n".join(buckets[k]).strip() for k in order if "\n".join(buckets[k]).strip()}
+
+
 # A line that begins a section: a panel header ("▸ …") in the confirm/results view, or one of the
 # interpretation's emoji headers ("🩺 <b>Загалом</b>", …). We split BETWEEN sections, never mid-
 # section, so a header is never orphaned from its rows in a separate message. (Inline *bold* in a

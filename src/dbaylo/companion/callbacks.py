@@ -29,6 +29,7 @@ HIST_RESULTS_ALL = "hist_resall"  # the FULL results table (opt-in from the prob
 HIST_DYNAMICS = "hist_dyn"  # trend charts for the flagged analytes only
 HIST_INTERP_REFRESH = "hist_iref"  # regenerate a cached analysis
 HIST_INTERP_DEL = "hist_idel"  # delete a saved analysis
+HIST_INTERP_VIEW = "hist_iview"  # open one section of the analysis (drill-down: 0=overview..3)
 
 
 def _make(prefix: str, ident: int) -> str:
@@ -180,6 +181,18 @@ def parse_history_open(data: str) -> tuple[int, int] | None:
     rid, _, page = rest.partition(_SEP)
     if head == HIST_OPEN and rid.isdigit() and page.isdigit():
         return int(rid), int(page)
+    return None
+
+
+def history_interpret_view(report_id: int, index: int) -> str:
+    return f"{HIST_INTERP_VIEW}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_history_interpret_view(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == HIST_INTERP_VIEW and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
     return None
 
 

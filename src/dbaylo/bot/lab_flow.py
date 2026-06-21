@@ -36,7 +36,8 @@ from aiogram.types import (
 from sqlalchemy import select
 
 from dbaylo import locale
-from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
+from dbaylo.bot.formatting import answer_chunked
+from dbaylo.bot.history_flow import send_analysis
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
 from dbaylo.companion import callbacks, history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -583,9 +584,8 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             await session.commit()
 
     # The analysis comes FIRST (the valuable part), never buried under a wall of charts.
-    await answer_chunked(
-        callback.message, render_interpretation_html(summary.text), parse_mode=ParseMode.HTML
-    )
+    # Delivered as a navigable overview (Загалом + per-section buttons), not a 4-message wall.
+    await send_analysis(callback.message, summary.text, report_id)
     # Charts are opt-in: offer a button only when there is a real trend to show (>=2 dates), so a
     # confirm never dumps dozens of flat same-day images. The button carries the report_id.
     if summary.chart_count > 0:

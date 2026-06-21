@@ -12,6 +12,7 @@ from dbaylo.bot.formatting import (
     answer_chunked,
     render_interpretation_html,
     split_for_telegram,
+    split_interpretation,
 )
 from dbaylo.triage.safety import DISCLAIMER
 
@@ -96,6 +97,33 @@ def test_deterministic_fallback_attention_header_is_styled() -> None:
     text = f"{locale.LAB_INTERPRET_FLAGGED_HEADER}\n• Глюкоза: 7\n\n{DISCLAIMER}"
     out = render_interpretation_html(text)
     assert f"⚠️ <b>{locale.INTERPRET_SECTION_ATTENTION}</b>" in out
+
+
+# --- Section split for the navigable (drill-down) analysis ----------------------
+
+
+def test_split_interpretation_yields_four_sections() -> None:
+    sections = split_interpretation(f"{_BODY}\n\n{DISCLAIMER}")
+    assert set(sections) == {"overall", "attention", "help", "doctor"}
+    # Each section keeps its own header line and body, and DROPS the trailing disclaimer.
+    assert sections["overall"].startswith(locale.INTERPRET_SECTION_OVERALL)
+    assert "об'єднує два типи" in sections["overall"]
+    assert "Лейкоцити в сечі" in sections["attention"]
+    assert DISCLAIMER not in sections["doctor"]
+
+
+def test_split_interpretation_renders_one_section_with_its_own_ps() -> None:
+    # A single split-out section round-trips through the HTML renderer (header bold + P.S.).
+    section = split_interpretation(f"{_BODY}\n\n{DISCLAIMER}")["attention"]
+    out = render_interpretation_html(section)
+    assert f"⚠️ <b>{locale.INTERPRET_SECTION_ATTENTION}</b>" in out
+    assert out.rstrip().endswith("</i>")  # the P.S. disclaimer is re-added per section
+
+
+def test_split_interpretation_without_canonical_headers_has_no_overall() -> None:
+    # A narrative reading / deterministic fallback lacks the headers -> caller sends it whole.
+    sections = split_interpretation(f"Якийсь вільний текст без заголовків.\n\n{DISCLAIMER}")
+    assert "overall" not in sections
 
 
 # --- Long-message chunking (Telegram's 4096-char cap) ---------------------------

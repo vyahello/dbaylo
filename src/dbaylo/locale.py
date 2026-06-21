@@ -286,6 +286,11 @@ INTERPRET_SECTION_DOCTOR = "Коли до лікаря"
 # Disclaimer is set off as a P.S. block under a divider (bot.formatting).
 INTERPRET_DIVIDER = "──────────"
 INTERPRET_PS_PREFIX = "P.S."
+# Navigable analysis (drill-down): the default message is the overview; one button per section.
+BTN_ANALYSIS_OVERVIEW = "🩺 Огляд"
+BTN_ANALYSIS_ATTENTION = "⚠️ Показники"
+BTN_ANALYSIS_HELP = "🌿 Що робити"
+BTN_ANALYSIS_DOCTOR = "🧑‍⚕️ До лікаря"
 
 # --- Stage 6: narrative / imaging documents (МРТ / УЗД / висновок) ---------------
 LAB_TYPE_LABEL = "Тип"

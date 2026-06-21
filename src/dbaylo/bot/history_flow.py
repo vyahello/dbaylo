@@ -37,7 +37,12 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
+from dbaylo.bot.formatting import (
+    SECTION_KEYS,
+    answer_chunked,
+    render_interpretation_html,
+    split_interpretation,
+)
 from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.companion import callbacks, history
 from dbaylo.companion.conversation import generate_reply
@@ -380,24 +385,70 @@ async def on_history_dynamics(callback: CallbackQuery) -> None:
 # --- Expert reading: cached (instant), with refresh / delete --------------------
 
 
+# Section key -> its drill-down button label (the overview/overall button reads "🩺 Огляд").
+_ANALYSIS_LABELS: dict[str, str] = {
+    "overall": locale.BTN_ANALYSIS_OVERVIEW,
+    "attention": locale.BTN_ANALYSIS_ATTENTION,
+    "help": locale.BTN_ANALYSIS_HELP,
+    "doctor": locale.BTN_ANALYSIS_DOCTOR,
+}
+
+
+def _refresh_delete_row(report_id: int) -> list[InlineKeyboardButton]:
+    return [
+        _btn(locale.BTN_INTERP_REFRESH, callbacks.history_interpret_refresh(report_id)),
+        _btn(locale.BTN_INTERP_DELETE, callbacks.history_interpret_del(report_id)),
+    ]
+
+
 def _analysis_actions(report_id: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(locale.BTN_INTERP_REFRESH, callbacks.history_interpret_refresh(report_id)),
-                _btn(locale.BTN_INTERP_DELETE, callbacks.history_interpret_del(report_id)),
-            ]
-        ]
-    )
+    """Fallback keyboard (narrative / deterministic reading sent whole): just refresh / delete."""
+    return InlineKeyboardMarkup(inline_keyboard=[_refresh_delete_row(report_id)])
 
 
-async def _send_analysis(message: Message, summary_text: str, report_id: int) -> None:
-    await answer_chunked(
-        message,
-        render_interpretation_html(summary_text),
-        reply_markup=_analysis_actions(report_id),
-        parse_mode=ParseMode.HTML,
-    )
+def _analysis_keyboard(report_id: int, sections: dict[str, str], idx: int) -> InlineKeyboardMarkup:
+    """Drill-down navigation. On the overview (idx 0): a button for each OTHER present section
+    plus the refresh / delete row. On a section (idx >= 1): '🩺 Огляд' first, then the other
+    sections — so you hop between sections without scrolling back. Buttons two per row."""
+    current_key = SECTION_KEYS[idx]
+    nav = [
+        _btn(_ANALYSIS_LABELS[key], callbacks.history_interpret_view(report_id, target))
+        for target, key in enumerate(SECTION_KEYS)
+        if key in sections and key != current_key
+    ]
+    rows = [nav[i : i + 2] for i in range(0, len(nav), 2)]
+    if idx == 0:
+        rows.append(_refresh_delete_row(report_id))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _render_analysis_view(
+    summary_text: str, report_id: int, idx: int
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """Render one section (idx 0 = overview/Загалом) + its nav keyboard, or None when the text
+    is not the canonical 4-section shape (caller then sends it whole)."""
+    sections = split_interpretation(summary_text)
+    if "overall" not in sections:
+        return None
+    key = SECTION_KEYS[idx] if SECTION_KEYS[idx] in sections else "overall"
+    idx = SECTION_KEYS.index(key)
+    return render_interpretation_html(sections[key]), _analysis_keyboard(report_id, sections, idx)
+
+
+async def send_analysis(message: Message, summary_text: str, report_id: int) -> None:
+    """Deliver the analysis as a navigable overview (Загалом + per-section buttons). A reading
+    without the canonical sections falls back to the whole text with refresh / delete."""
+    view = _render_analysis_view(summary_text, report_id, 0)
+    if view is None:
+        await answer_chunked(
+            message,
+            render_interpretation_html(summary_text),
+            reply_markup=_analysis_actions(report_id),
+            parse_mode=ParseMode.HTML,
+        )
+        return
+    text, keyboard = view
+    await answer_chunked(message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 
 async def _generate_analysis(message: Message, *, report_id: int, telegram_id: int) -> None:
@@ -416,7 +467,7 @@ async def _generate_analysis(message: Message, *, report_id: int, telegram_id: i
         )
         report.summary = summary.text
         await session.commit()
-    await _send_analysis(message, summary.text, report_id)
+    await send_analysis(message, summary.text, report_id)
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERPRET + ":"))
@@ -437,9 +488,37 @@ async def on_history_interpret(callback: CallbackQuery) -> None:
         await callback.message.answer(locale.HIST_FILE_GONE)
         return
     if cached:
-        await _send_analysis(callback.message, cached, report_id)  # instant, from the DB
+        await send_analysis(callback.message, cached, report_id)  # instant, from the DB
     else:
         await _generate_analysis(callback.message, report_id=report_id, telegram_id=tg)
+
+
+@router.callback_query(F.data.startswith(callbacks.HIST_INTERP_VIEW + ":"))
+async def on_history_interpret_view(callback: CallbackQuery) -> None:
+    """Drill-down: pull ONE section of the stored analysis (idx 0 = overview). Stateless —
+    the section content is re-derived from the stored summary, so it survives a restart."""
+    parsed = callbacks.parse_history_interpret_view(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, idx = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+        summary = report.summary if report is not None else None
+    if not summary:
+        await callback.message.answer(locale.HIST_FILE_GONE)
+        return
+    view = _render_analysis_view(summary, report_id, idx)
+    if view is None:  # summary lost its canonical shape (e.g. regenerated as a fallback)
+        await answer_chunked(
+            callback.message, render_interpretation_html(summary), parse_mode=ParseMode.HTML
+        )
+        return
+    text, keyboard = view
+    await answer_chunked(callback.message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERP_REFRESH + ":"))
