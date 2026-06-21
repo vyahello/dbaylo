@@ -141,9 +141,13 @@ class LabResult(Base):
     report_id: Mapped[int] = mapped_column(ForeignKey("lab_reports.id", ondelete="CASCADE"))
     analyte: Mapped[str] = mapped_column()
     value: Mapped[float | None] = mapped_column(Float, default=None)
+    # Qualitative result as printed ("негативно", "не виявлено", "++") when there is no number.
+    value_text: Mapped[str | None] = mapped_column(default=None)
     unit: Mapped[str | None] = mapped_column(default=None)
     ref_low: Mapped[float | None] = mapped_column(Float, default=None)
     ref_high: Mapped[float | None] = mapped_column(Float, default=None)
+    # The reference VERBATIM as printed (kept even when ref_low/ref_high are derived from it).
+    ref_text: Mapped[str | None] = mapped_column(default=None)
     flag: Mapped[ResultFlag] = mapped_column(SAEnum(ResultFlag), default=ResultFlag.UNKNOWN)
     # Stage 5: the lab's own out-of-range indicator (or a numeric value outside its
     # reference). Drives the ⚠️/✅ marker (a flag-free row is shown as ✅, "ok").

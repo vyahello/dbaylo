@@ -63,6 +63,27 @@ def test_parse_qualitative_value_goes_to_text() -> None:
     assert report.results[0].value_text == "не виявлено"
 
 
+def test_parse_derives_numeric_bounds_from_ref_text() -> None:
+    # A one-sided range the model left as free text -> numeric bound recovered (so a chart can
+    # draw the band). The verbatim ref_text is preserved.
+    report = parse_extraction(
+        '{"results": [{"analyte": "Холестерин", "value": 5.85,'
+        ' "ref_low": null, "ref_high": null, "ref_text": "< 5.2"}]}'
+    )
+    assert report is not None
+    row = report.results[0]
+    assert row.ref_high == 5.2 and row.ref_low is None and row.ref_text == "< 5.2"
+
+
+def test_parse_keeps_explicit_numeric_refs_over_ref_text() -> None:
+    report = parse_extraction(
+        '{"results": [{"analyte": "Глюкоза", "value": 5.0,'
+        ' "ref_low": 3.9, "ref_high": 6.1, "ref_text": "3.9-6.1"}]}'
+    )
+    assert report is not None
+    assert report.results[0].ref_low == 3.9 and report.results[0].ref_high == 6.1
+
+
 def test_parse_conclusion_and_out_of_range() -> None:
     report = parse_extraction(
         '{"conclusion": "Нормозооспермія", "results": ['

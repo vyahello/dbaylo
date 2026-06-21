@@ -217,8 +217,8 @@ async def find_interrupted_analyses(session: AsyncSession) -> list[LabReport]:
 def reconstruct_report(report: LabReport, results: list[LabResult]) -> ExtractedReport:
     """Rebuild an ``ExtractedReport`` from stored rows so a confirmed report can be re-interpreted
     (e.g. after an analysis was interrupted by a restart). The lab's own out-of-range mark is
-    ``flagged``; ``ref_text`` and qualitative ``value_text`` are not persisted, so the numeric
-    flags drive the re-reading. A narrative report carries its findings text instead of rows."""
+    ``flagged``; ``value_text`` / ``ref_text`` are now persisted, so qualitative results and the
+    printed reference survive. A narrative report carries its findings text instead of rows."""
     if report.kind == ReportKind.NARRATIVE:
         return ExtractedReport(
             results=[],
@@ -233,9 +233,11 @@ def reconstruct_report(report: LabReport, results: list[LabResult]) -> Extracted
             ExtractedAnalyte(
                 analyte=r.analyte,
                 value=r.value,
+                value_text=r.value_text,
                 unit=r.unit,
                 ref_low=r.ref_low,
                 ref_high=r.ref_high,
+                ref_text=r.ref_text,
                 out_of_range=r.flagged,
                 section=r.section,
             )
@@ -477,10 +479,10 @@ _INLINE_NORMAL_MAX = 5
 
 
 def _result_line(r: LabResult, marker: str = "") -> str:
-    value = f"{r.value:g}" if r.value is not None else "—"
+    value = f"{r.value:g}" if r.value is not None else (r.value_text or "—")
     if r.unit:
         value = f"{value} {r.unit}"
-    ref = _ref_text(r.ref_low, r.ref_high)
+    ref = _ref_text(r.ref_low, r.ref_high) if (r.ref_low or r.ref_high) else (r.ref_text or "—")
     return f"• {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {marker}".rstrip()
 
 
@@ -568,10 +570,14 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
                         lines.append("")
                     lines.append(locale.LAB_SECTION_HEADER.format(section=r.section))
             emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
-            value = f"{r.value:g}" if r.value is not None else "—"
+            value = f"{r.value:g}" if r.value is not None else (r.value_text or "—")
             if r.unit:
                 value = f"{value} {r.unit}"
-            ref = _ref_text(r.ref_low, r.ref_high)
+            ref = (
+                _ref_text(r.ref_low, r.ref_high)
+                if (r.ref_low or r.ref_high)
+                else (r.ref_text or "—")
+            )
             lines.append(
                 f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
             )

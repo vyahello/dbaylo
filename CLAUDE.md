@@ -164,7 +164,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. Series are
   grouped by a normalized analyte name + small `ANALYTE_ALIASES` map (known limitation: extend it).
   `classify()` adds a conservative **qualitative** flag (value vs ref text, NORMAL only on a clear
-  match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker.
+  match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker. **References &
+  qualitative values are persisted** (migration 0011: `LabResult.value_text`/`ref_text`): the model
+  often leaves a one-sided range as free text, so `labs/refparse.parse_ref_range` derives numeric
+  bounds at extraction ("< 5.2"→high=5.2, "до 50"→high=50, "X-Y"→both) — without this ~40% of rows
+  had no `ref_low/ref_high` and the chart could draw no norm band. **Trend charts honour the lab's
+  own flag**: a point is red when `LabPoint.flagged` (the lab's out-of-range mark, reliable even with
+  no numeric ref) OR numerically out of band, so a flagged value shows red even when the band is
+  absent (`charts.render_trend_chart`). The **dynamics browser lists only analytes with a real numeric
+  trend** (≥2 numeric measurements) — qualitative urine analytes (0 numeric values) are seen
+  per-report in `/history`, not in the trends browser. NOTE: existing rows predate 0011, so the band
+  fully returns only on re-upload / re-extraction.
 - **Humanize / interpret** (`labs/humanize.py`): `humanize()` writes the trend summary; **Stage 5
   `interpret()`** gives an expert-level reading of a confirmed report — overall verdict (in DATA
   terms) **incl. how serious it looks**, per-flag "що може означати / до чого призведе" **+ a concern
@@ -360,7 +370,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history·grouping · intake)
-migrations/  Alembic 0001..0010   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0011   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands

@@ -23,6 +23,7 @@ from pathlib import Path
 from dbaylo.config import get_settings
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pdf_split import is_multipage_pdf, split_into_chunks
+from dbaylo.labs.refparse import parse_ref_range
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable, run_claude
 
@@ -61,9 +62,11 @@ EXTRACTION_PERSONA = (
     '      "value": number | null,       // dot decimal; convert "3,5" -> 3.5\n'
     '      "value_text": string | null,  // qualitative result e.g. "не виявлено"\n'
     '      "unit": string | null,\n'
-    '      "ref_low": number | null,\n'
-    '      "ref_high": number | null,\n'
-    '      "ref_text": string | null,    // range as printed if not simple low-high\n'
+    '      "ref_low": number | null,     // ALWAYS fill numeric bounds when the range is\n'
+    '      "ref_high": number | null,    // numeric: "3.9-6.1"->low=3.9,high=6.1; "< 5.2" or\n'
+    "                                    // 'до 5.2'->high=5.2; '> 0.9' or 'від 0.9'->low=0.9\n"
+    '      "ref_text": string | null,    // the range VERBATIM as printed; for a NON-numeric\n'
+    "                                    // reference ('негативно', 'не виявлено') use this only\n"
     '      "out_of_range": boolean | null // TRUE if the LAB ITSELF marks this row as\n'
     "                                    // outside the reference / in an attention zone\n"
     "                                    // (boxed, highlighted, bold, asterisk, colour),\n"
@@ -350,14 +353,22 @@ def _coerce_analyte(item: object) -> ExtractedAnalyte | None:
         if isinstance(raw_value, str) and raw_value.strip():
             value_text = raw_value.strip()
 
+    ref_text = _coerce_str(item.get("ref_text"))
+    ref_low = _coerce_float(item.get("ref_low"))
+    ref_high = _coerce_float(item.get("ref_high"))
+    if ref_low is None and ref_high is None and ref_text:
+        # The model left a one-sided/odd range as free text ("< 5.2", "до 50") — recover the
+        # numeric bound so the trend chart can still draw the norm band.
+        ref_low, ref_high = parse_ref_range(ref_text)
+
     return ExtractedAnalyte(
         analyte=name,
         value=value,
         value_text=value_text,
         unit=_coerce_str(item.get("unit")),
-        ref_low=_coerce_float(item.get("ref_low")),
-        ref_high=_coerce_float(item.get("ref_high")),
-        ref_text=_coerce_str(item.get("ref_text")),
+        ref_low=ref_low,
+        ref_high=ref_high,
+        ref_text=ref_text,
         out_of_range=_coerce_bool(item.get("out_of_range")),
         section=_coerce_str(item.get("section")),
     )
