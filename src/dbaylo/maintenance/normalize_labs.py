@@ -3,8 +3,10 @@
 ``normalize_lab()`` runs on write and on read, but rows saved before a normalizer change keep
 whatever the extractor first wrote (e.g. ``Синево (Synevo), Львів``). This one-off rewrites them
 to the canonical spelling (``Сінево, Львів``) so the history list and the dynamics / lab filters
-are consistent at the data level too. Idempotent (a second run finds nothing); the nightly
-off-box backup is the safety net.
+are consistent at the data level too. It also fills in a MISSING city from the most common city
+of the same brand (``Сінево`` → ``Сінево, Львів`` when that lab's other reports say Львів), so a
+report where the lab printed no city still groups with the rest. Idempotent (a second run finds
+nothing); the nightly off-box backup is the safety net.
 
     python -m dbaylo.maintenance.normalize_labs --dry-run   # show changes, write nothing
     python -m dbaylo.maintenance.normalize_labs             # apply + commit
@@ -15,6 +17,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import sys
+from collections import Counter, defaultdict
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,14 +27,36 @@ from dbaylo.db.models import LabReport
 from dbaylo.labs.labnames import normalize_lab
 
 
+def _split(lab: str) -> tuple[str, str]:
+    """Brand (before the first comma) and city (after), both trimmed; city may be empty."""
+    brand, _, rest = lab.partition(",")
+    return brand.strip(), rest.strip()
+
+
 async def find_relabels(session: AsyncSession) -> list[tuple[LabReport, str]]:
-    """Reports whose stored lab is not yet canonical, paired with the canonical value. Read-only."""
+    """Reports whose stored lab is not yet canonical, paired with the target value. Read-only.
+
+    Target = canonical brand (``normalize_lab``), then — when the brand carries no city — the most
+    common city seen for that same brand (per user), so ``Сінево`` becomes ``Сінево, Львів``.
+    """
     reports = (await session.scalars(select(LabReport).where(LabReport.lab.is_not(None)))).all()
+    canon = {r.id: (normalize_lab(r.lab) or r.lab or "") for r in reports}
+
+    # Most common city per (user, canonical brand), from the reports that DO carry a city.
+    cities: dict[tuple[int, str], Counter[str]] = defaultdict(Counter)
+    for r in reports:
+        brand, city = _split(canon[r.id])
+        if city:
+            cities[(r.user_id, brand)][city] += 1
+
     changes: list[tuple[LabReport, str]] = []
-    for report in reports:
-        canon = normalize_lab(report.lab)
-        if canon is not None and canon != report.lab:
-            changes.append((report, canon))
+    for r in reports:
+        target = canon[r.id]
+        brand, city = _split(target)
+        if not city and (counter := cities.get((r.user_id, brand))):
+            target = f"{brand}, {counter.most_common(1)[0][0]}"
+        if target and target != r.lab:
+            changes.append((r, target))
     return changes
 
 
