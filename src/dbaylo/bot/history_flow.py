@@ -420,12 +420,13 @@ async def on_history_dynamics(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith(callbacks.CHART_OPEN + ":"))
 async def on_chart_open(callback: CallbackQuery) -> None:
-    """Open the charts picker (the post-confirm chain's 'обрати показник' entry)."""
+    """Accept the post-confirm charts offer: consume its buttons, then open the picker."""
     report_id = callbacks.parse_chart_open(callback.data or "")
     tg = _telegram_id(callback)
     if report_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
+    await clear_inline_keyboard(callback)  # consume the offer's Так/Ні
     await callback.answer()
     await open_charts_picker(callback.message, telegram_id=tg, report_id=report_id)
 

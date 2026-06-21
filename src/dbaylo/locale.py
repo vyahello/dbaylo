@@ -404,7 +404,11 @@ BTN_SHOW_CHARTS = "📈 Показати графіки"
 LAB_CHARTS_EMPTY = (
     "Поки немає динаміки для графіків — потрібно ще принаймні два виміри в різні дати."
 )
-# Charts PICKER (one button per trending analyte → its single chart) instead of a wall of images.
+# Charts are OFFERED (yes/no), never auto-opened — then the picker shows one button per trending
+# analyte → its single chart, instead of a wall of images.
+LAB_CHARTS_PROMPT = "📈 Показати динаміку показників у часі?"
+BTN_CHARTS_SHOW = "📈 Так, показати"
+BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 BTN_CHART_ALL = "📊 Показати всі графіки"
 CHART_FLAGGED_PREFIX = "⚠️ "  # marks an out-of-range analyte in the picker (listed first)

@@ -35,7 +35,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked
-from dbaylo.bot.history_flow import open_charts_picker, send_analysis
+from dbaylo.bot.history_flow import send_analysis
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
 from dbaylo.companion import callbacks, history, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -77,6 +77,9 @@ _CB_REPEAT_OTHER = "lab:rep:oth"
 _CB_REPEAT_NO = "lab:rep:no"
 _CB_CONCERN_YES = "lab:con:y"
 _CB_CONCERN_NO = "lab:con:n"
+_CB_CHART_NO = (
+    "lab:chart:no"  # decline the charts offer (the picker opens via callbacks.chart_open)
+)
 
 
 def _rid_cb(prefix: str, report_id: int) -> str:
@@ -733,12 +736,40 @@ async def _advance_after_repeat(answer_to: Message, *, owner_tg: int, report_id:
         await _advance_after_concern(answer_to, owner_tg=owner_tg, report_id=report_id)
 
 
-async def _advance_after_concern(answer_to: Message, *, owner_tg: int, report_id: int) -> None:
-    """The final step: the charts picker — shown only if the report has a real trend, and silent
-    otherwise (no dead-end 'no charts' note at the tail of the chain)."""
-    await open_charts_picker(
-        answer_to, telegram_id=owner_tg, report_id=report_id, silent_if_empty=True
+def _charts_offer_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_CHARTS_SHOW, callback_data=callbacks.chart_open(report_id)
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_CHARTS_SKIP, callback_data=_rid_cb(_CB_CHART_NO, report_id)
+                ),
+            ]
+        ]
     )
+
+
+async def _advance_after_concern(answer_to: Message, *, owner_tg: int, report_id: int) -> None:
+    """The final step: OFFER the charts (yes/no) — never auto-open a big picker. Shown only if the
+    report has a real trend; tapping 'Так' opens the picker (`callbacks.chart_open`)."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=owner_tg)
+        has_trend = bool(
+            await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        )
+    if has_trend:
+        await answer_to.answer(
+            locale.LAB_CHARTS_PROMPT, reply_markup=_charts_offer_keyboard(report_id)
+        )
+
+
+@router.callback_query(F.data.startswith(_CB_CHART_NO + ":"))
+async def on_charts_no(callback: CallbackQuery) -> None:
+    """Decline the charts offer — consume the buttons, end the chain cleanly."""
+    await clear_inline_keyboard(callback)
+    await callback.answer()
 
 
 @router.callback_query(F.data.startswith("lab:rep:"))
