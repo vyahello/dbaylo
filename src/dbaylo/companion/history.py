@@ -325,7 +325,9 @@ async def list_report_trends(
     for r in ordered_results(report):
         key = normalize_analyte(r.analyte)
         points = series.get(key)
-        if not points or len({p.taken_on for p in points}) < 2:  # a same-day re-upload is no trend
+        # Need NUMERIC values on >=2 distinct dates — a qualitative analyte (urine bacteria, all
+        # value=None) has nothing to chart, so it must not appear in the picker (an empty graph).
+        if not points or len({p.taken_on for p in points if p.value is not None}) < 2:
             continue
         prev = items.get(key)
         items[key] = TrendChartItem(

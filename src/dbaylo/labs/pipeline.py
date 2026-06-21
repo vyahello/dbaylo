@@ -100,8 +100,10 @@ async def compute_report_summary(
 
 
 def _has_trend(points: list[LabPoint]) -> bool:
-    """A real trend needs measurements on at least two different dates."""
-    return len({p.taken_on for p in points}) >= 2
+    """A real trend needs NUMERIC measurements on at least two different dates. A qualitative
+    analyte (urine bacteria/crystals — all value=None) has nothing to plot, so it is not a trend
+    even if it appears on several dates; charting it would draw an empty graph."""
+    return len({p.taken_on for p in points if p.value is not None}) >= 2
 
 
 async def render_one_chart(

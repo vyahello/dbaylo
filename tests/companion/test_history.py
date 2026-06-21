@@ -317,7 +317,7 @@ async def test_list_view_paginates_into_pages_of_eight(async_session: AsyncSessi
         if len(row) == 1 and (row[0].callback_data or "").startswith("hist_open")
     ]
     assert len(open_buttons) == 8  # one page
-    assert "1/2" in text  # 12 reports / 8 -> 2 pages
+    assert "сторінка 1 з 2" in text  # 12 reports / 8 -> 2 pages
     all_btns = [b for row in kb.inline_keyboard for b in row]
     assert any(b.text == locale.BTN_HIST_NEXT for b in all_btns)  # ▶ on page 0
     assert any(b.callback_data == callbacks.DYN_OPEN for b in all_btns)  # dynamics entry present
@@ -488,6 +488,29 @@ async def test_category_counts_includes_imaging_for_narratives(async_session: As
     items = await history.aggregate_indicators(async_session, user_id=user.id)  # no tabular rows
     counts = dict(history.category_counts(items, len(narratives)))
     assert counts == {grouping.IMAGING: 1}
+
+
+async def test_list_report_trends_skips_qualitative(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    last = None
+    for d in (date(2021, 1, 1), date(2021, 2, 1)):
+        # Бактерії is qualitative (no numeric value) on 2 dates; Глюкоза is numeric on 2 dates.
+        last = await _report(
+            async_session,
+            user_id=user.id,
+            on=d,
+            lab="A",
+            results=(("Бактерії", None, None, None), ("Глюкоза", 5.0, 3.9, 6.1)),
+        )
+    assert last is not None
+    keys = [
+        it.key
+        for it in await history.list_report_trends(
+            async_session, user_id=user.id, report_id=last.id
+        )
+    ]
+    assert "глюкоза" in keys  # numeric on 2 dates -> chartable
+    assert "бактерії" not in keys  # qualitative -> would draw an EMPTY chart, so excluded
 
 
 async def test_list_report_trends_multi_date_flagged_first(async_session: AsyncSession) -> None:

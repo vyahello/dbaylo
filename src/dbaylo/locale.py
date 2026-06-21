@@ -497,7 +497,7 @@ HIST_RESULTS_HEADER = "{date} · {lab}:"
 
 # Master-detail list: one tappable button per report; a card with actions on open.
 HIST_LIST_HEADER = "🗂 Твої аналізи ({n}). Обери, щоб переглянути:"
-HIST_PAGE_LABEL = "{page}/{pages}"
+HIST_PAGE_LABEL = "сторінка {page} з {pages}"
 HIST_BTN_REPORT = "🔬 {date} · {lab} · {count}{flags}"
 HIST_BTN_REPORT_DOC = "📄 {date} · {lab} · {report_type}"
 HIST_BTN_REPORT_DOC_NOLAB = "📄 {date} · {report_type}"  # imaging study with no lab brand
