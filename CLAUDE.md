@@ -162,8 +162,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   does it return the unified deterministic fallback. A **narrative** report keeps the single-call
   path (`_interpret_single`). Output carries light `*bold*`/`_italic_` markup → real `<b>`/`<i>` via
   `bot.formatting` (converted AFTER HTML-escaping; the guard reads the marker-stripped text so a
-  forbidden phrase can't hide behind one; `/history` shows it stripped). Rows are fed **grouped by
-  panel** (`ExtractedAnalyte.section`
+  forbidden phrase can't hide behind one; `/history` shows it stripped). **Delivery is a navigable
+  drill-down** (not a 4-message wall): `formatting.split_interpretation` (pure) splits the stored
+  summary on the canonical section headers, and `history_flow.send_analysis` shows ONLY the
+  🩺 `Загалом` overview first, with a button per other section
+  (`[⚠️ Показники][🌿 Що робити][🧑‍⚕️ До лікаря]`, `callbacks.history_interpret_view(report_id, idx)`)
+  + refresh/delete. Tapping a section pulls just that part (its own P.S.), nav buttons travel with it
+  (🩺 Огляд + the siblings). **Stateless** (re-derived from `LabReport.summary` by `report_id`, so it
+  survives a restart; same in post-confirm and `/history → 🔬 Розбір`, retroactive on cached
+  summaries). A narrative/deterministic reading lacks the 4-section shape → falls back to the whole
+  text. Rows are fed **grouped by panel** (`ExtractedAnalyte.section`
   / `LabResult.section`, migration 0009): a combined blood+urine report keeps its groups apart in the
   confirm view, `/history`, and the interpretation, so a name in two panels (Глюкоза, Лейкоцити) is
   never confused.
