@@ -21,6 +21,7 @@ from datetime import date
 from pathlib import Path
 
 from dbaylo.config import get_settings
+from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pdf_split import is_multipage_pdf, split_into_chunks
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable, run_claude
@@ -191,7 +192,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     return ExtractedReport(
         results=results,
         report_date=report_date,
-        lab=lab,
+        lab=normalize_lab(lab),
         report_type=report_type,
         conclusion=conclusion,
         narrative="\n\n".join(narratives) or None,
@@ -272,7 +273,7 @@ def parse_extraction(text: str) -> ExtractedReport | None:
     return ExtractedReport(
         results=analytes,
         report_date=_coerce_date(data.get("report_date")),
-        lab=_coerce_str(data.get("lab")),
+        lab=normalize_lab(_coerce_str(data.get("lab"))),
         conclusion=_coerce_str(data.get("conclusion")),
         report_type=_coerce_str(data.get("report_type")),
         narrative=_coerce_str(data.get("narrative")),

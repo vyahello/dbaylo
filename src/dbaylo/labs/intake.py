@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.config import Settings, get_settings
 from dbaylo.db.models import LabReport, LabResult, ReportKind, ReportStatus, User
+from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.schema import ExtractedAnalyte
 from dbaylo.labs.trends import classify, is_out_of_range
 
@@ -113,7 +114,7 @@ async def persist_confirmed(
     A narrative document (``narrative`` set, no analytes) is stored as kind=NARRATIVE.
     """
     report.report_date = report_date
-    report.lab = lab
+    report.lab = normalize_lab(lab)
     report.conclusion = conclusion
     report.report_type = report_type
     report.narrative = narrative

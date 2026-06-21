@@ -201,7 +201,8 @@ async def test_known_labs(async_session: AsyncSession) -> None:
     await _report(async_session, user_id=user.id, on=date(2026, 1, 1), lab="Synevo")
     await _report(async_session, user_id=user.id, on=date(2026, 2, 1), lab="Synevo")
     await _report(async_session, user_id=user.id, on=date(2026, 3, 1), lab=None)
-    assert await history.known_labs(async_session, user_id=user.id) == ("Synevo",)
+    # known_labs canonicalizes + dedupes, so "Synevo" surfaces as the printed "Сінево".
+    assert await history.known_labs(async_session, user_id=user.id) == ("Сінево",)
 
 
 # --- Rendering ------------------------------------------------------------------
@@ -218,7 +219,7 @@ async def test_render_report_line_flags_and_results(async_session: AsyncSession)
     )
     results = history.ordered_results(report)
     line = history.render_report_line(report, results)
-    assert "2026-05-12" in line and "Synevo" in line
+    assert "2026-05-12" in line and "Сінево" in line  # "Synevo" canonicalized on render
     assert "2 показників" in line and "⚠️" in line  # one out-of-range analyte
 
     body = history.render_report_results(report, results)
@@ -314,7 +315,7 @@ async def test_reconstruct_report_rebuilds_an_extracted_report(async_session: As
     await async_session.flush()
 
     extracted = history.reconstruct_report(report, history.ordered_results(report))
-    assert extracted.lab == "Synevo" and extracted.conclusion == "висновок"
+    assert extracted.lab == "Сінево" and extracted.conclusion == "висновок"
     assert len(extracted.results) == 2
     alt = extracted.results[0]
     assert alt.analyte == "АЛТ" and alt.value == 63.0

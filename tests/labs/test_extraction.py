@@ -37,7 +37,7 @@ def test_parse_good_json() -> None:
     report = parse_extraction(GOOD_JSON)
     assert report is not None
     assert report.report_date == date(2026, 5, 12)
-    assert report.lab == "Synevo"
+    assert report.lab == "Сінево"  # "Synevo" canonicalized to the printed Ukrainian brand
     assert len(report.results) == 2
     assert report.results[1].value == pytest.approx(9.1)  # comma decimal coerced
 
@@ -51,7 +51,7 @@ def test_parse_strips_code_fences() -> None:
 def test_parse_brace_substring_fallback() -> None:
     noisy = "Ось результати:\n" + GOOD_JSON.strip() + "\nГотово."
     report = parse_extraction(noisy)
-    assert report is not None and report.lab == "Synevo"
+    assert report is not None and report.lab == "Сінево"
 
 
 def test_parse_qualitative_value_goes_to_text() -> None:

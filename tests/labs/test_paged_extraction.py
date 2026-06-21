@@ -89,7 +89,8 @@ def test_merge_concats_rows_and_takes_first_metadata() -> None:
     merged = merge_reports([p1, p2])
     assert [a.analyte for a in merged.results] == ["Глюкоза", "Гемоглобін"]
     assert merged.report_date == date(2026, 6, 1)  # first non-null
-    assert merged.lab == "Синево, Львів"  # most complete lab name across chunks wins
+    # most complete lab name across chunks wins, then canonicalized ("Синево" -> "Сінево")
+    assert merged.lab == "Сінево, Львів"
     assert merged.conclusion == "OK"  # picked up from the chunk that printed it
 
 

@@ -107,7 +107,7 @@ async def test_pending_then_confirmed_flow(async_session) -> None:
         lab="Synevo",
     )
     assert report.status == ReportStatus.CONFIRMED
-    assert report.lab == "Synevo"
+    assert report.lab == "Сінево"  # canonicalized on write
     assert len(results) == 1
     assert results[0].flag == ResultFlag.HIGH  # 7.0 > 6.1, computed deterministically
 

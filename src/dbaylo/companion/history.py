@@ -32,6 +32,7 @@ from dbaylo.db.models import (
     ReportStatus,
 )
 from dbaylo.labs.charts import render_trend_chart
+from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import build_series, compute_trend, normalize_analyte
@@ -143,8 +144,12 @@ def parse_history_query(text: str, *, known_labs: tuple[str, ...] = ()) -> Histo
 
 
 def _matches(report: LabReport, filt: HistoryFilter) -> bool:
-    if filt.lab and filt.lab.casefold() not in (report.lab or "").casefold():
-        return False
+    if filt.lab:
+        # Canonicalize both sides so a filter typed in either spelling (Синево / Сінево /
+        # Synevo) still matches the stored report.
+        needle = (normalize_lab(filt.lab) or "").casefold()
+        if needle not in (normalize_lab(report.lab) or "").casefold():
+            return False
     d = report.report_date
     if filt.year and (d is None or d.year != filt.year):
         return False
@@ -199,7 +204,7 @@ def reconstruct_report(report: LabReport, results: list[LabResult]) -> Extracted
         return ExtractedReport(
             results=[],
             report_date=report.report_date,
-            lab=report.lab,
+            lab=normalize_lab(report.lab),
             conclusion=report.conclusion,
             report_type=report.report_type,
             narrative=report.narrative,
@@ -218,7 +223,7 @@ def reconstruct_report(report: LabReport, results: list[LabResult]) -> Extracted
             for r in results
         ],
         report_date=report.report_date,
-        lab=report.lab,
+        lab=normalize_lab(report.lab),
         conclusion=report.conclusion,
     )
 
@@ -235,7 +240,12 @@ async def known_labs(session: AsyncSession, *, user_id: int) -> tuple[str, ...]:
         .where(LabReport.user_id == user_id, LabReport.status == ReportStatus.CONFIRMED)
         .distinct()
     )
-    return tuple(name for name in rows.all() if name)
+    seen: list[str] = []
+    for name in rows.all():
+        canon = normalize_lab(name)
+        if canon and canon not in seen:
+            seen.append(canon)
+    return tuple(seen)
 
 
 # --- Rendering (deterministic) --------------------------------------------------
@@ -273,7 +283,7 @@ def flagged_keys(results: list[LabResult]) -> set[str]:
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     """The one-line button label for a report in the master list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
         return locale.HIST_BTN_REPORT_DOC.format(
             date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
@@ -288,7 +298,7 @@ def report_button_label(report: LabReport, results: list[LabResult]) -> str:
 def render_card(report: LabReport, results: list[LabResult]) -> str:
     """The per-report 'card' shown when a report is opened from the list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
         return locale.HIST_CARD_DOC.format(
             date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
@@ -307,7 +317,7 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
     """Focused results view: the lab conclusion + ONLY the out-of-range rows (grouped by panel),
     then an aggregate line for the normal ones — never an 85-row dump."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
     if report.kind == ReportKind.NARRATIVE:
         if report.report_type:
@@ -343,7 +353,7 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
 
 def render_report_line(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
         line = locale.HIST_REPORT_LINE_DOC.format(
             date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
@@ -358,7 +368,7 @@ def render_report_line(report: LabReport, results: list[LabResult]) -> str:
 
 def render_report_results(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
+    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
     if report.kind == ReportKind.NARRATIVE:
         if report.report_type:
