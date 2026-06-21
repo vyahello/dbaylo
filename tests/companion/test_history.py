@@ -243,6 +243,12 @@ async def test_report_button_label_and_card_show_flag_count(async_session: Async
     assert "⚠️ 1 поза нормою" in history.render_card(report, results)
 
 
+def test_short_type_truncates_long_study_names() -> None:
+    assert history.short_type("МРТ головного мозку") == "МРТ головного мозку"  # short -> unchanged
+    out = history.short_type("КТ сечовивідної системи з внутрішньовенним контрастуванням")
+    assert out.endswith("…") and len(out) <= 34 and out.startswith("КТ сечовивідної")
+
+
 async def test_render_problems_lists_few_in_range_by_name(
     async_session: AsyncSession,
 ) -> None:

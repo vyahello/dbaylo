@@ -420,12 +420,23 @@ async def list_narratives(session: AsyncSession, *, user_id: int) -> list[LabRep
     return list((await session.scalars(stmt)).all())
 
 
+# Narrative study types can be long ("КТ … з внутрішньовенним контрастуванням"); truncate them on
+# a LIST BUTTON so the row stays tidy. The full type is shown on the card when the report is opened.
+_LABEL_TYPE_MAX = 34
+
+
+def short_type(report_type: str | None) -> str:
+    """A narrative study type, shortened (…) to fit a one-line list button."""
+    text = report_type or locale.LAB_DOC_GENERIC
+    return text if len(text) <= _LABEL_TYPE_MAX else text[: _LABEL_TYPE_MAX - 1].rstrip() + "…"
+
+
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     """The one-line button label for a report in the master list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
-        rtype = report.report_type or locale.LAB_DOC_GENERIC
+        rtype = short_type(report.report_type)  # truncate the long study name on the button
         if report.lab:  # an imaging study often has no lab brand — then its type IS its identity
             return locale.HIST_BTN_REPORT_DOC.format(date=date_txt, lab=lab_txt, report_type=rtype)
         return locale.HIST_BTN_REPORT_DOC_NOLAB.format(date=date_txt, report_type=rtype)

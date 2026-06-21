@@ -547,7 +547,7 @@ def _dyn_imaging_view(narratives: list[LabReport]) -> tuple[str, InlineKeyboardM
     rows: list[list[InlineKeyboardButton]] = []
     for r in narratives:
         date_txt = r.report_date.isoformat() if r.report_date else locale.HIST_NO_DATE
-        rtype = r.report_type or locale.LAB_DOC_GENERIC
+        rtype = history.short_type(r.report_type)  # keep the long study name button on one line
         rows.append([_btn(f"📄 {date_txt} · {rtype}", callbacks.history_results(r.id))])
     rows.append([_btn(locale.DYN_BTN_BACK, callbacks.DYN_HOME)])
     return locale.DYN_IMAGING_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
