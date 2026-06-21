@@ -412,6 +412,10 @@ BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 BTN_CHART_ALL = "📊 Показати всі графіки"
 CHART_FLAGGED_PREFIX = "⚠️ "  # marks an out-of-range analyte in the picker (listed first)
+# Trend-chart legend (the only user-facing text drawn onto the chart besides the title/unit).
+CHART_LEGEND_RANGE = "норма"
+CHART_LEGEND_OK = "у нормі"
+CHART_LEGEND_OUT = "поза нормою"
 
 LAB_REPEAT_OFFER = "Нагадати повторити аналізи згодом?"
 BTN_REPEAT_1M = "Через місяць"
