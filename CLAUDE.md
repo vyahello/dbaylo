@@ -371,6 +371,7 @@ venv/bin/python -m dbaylo.companion.checkin --dry-run          # print the check
 venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg      # extract only, no DB/Telegram
 venv/bin/python -m dbaylo.navigator.pipeline --dry-run парацетамол   # price a drug from a fixture
 venv/bin/python -m dbaylo.maintenance.cleanup_phantoms --dry-run     # list phantom rows, delete nothing
+venv/bin/python -m dbaylo.maintenance.normalize_labs --dry-run       # canonicalize stored lab names
 ```
 
 After any model change: regenerate a migration and run `alembic check` (must report no drift).

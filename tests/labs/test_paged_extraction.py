@@ -99,7 +99,9 @@ def test_merge_keeps_the_brand_over_a_bare_facility_line() -> None:
         ExtractedReport(results=[ExtractedAnalyte("A", value=1.0)], lab="Лабораторія Львів"),
         ExtractedReport(results=[ExtractedAnalyte("B", value=2.0)], lab="Синево (Synevo), Львів"),
     ]
-    assert merge_reports(chunks).lab == "Синево (Synevo), Львів"
+    # The branded chunk wins over the bare facility line, then the brand is canonicalized
+    # (и -> і, parenthetical alternate stripped).
+    assert merge_reports(chunks).lab == "Сінево, Львів"
 
 
 def test_merge_drops_exact_duplicate_rows() -> None:

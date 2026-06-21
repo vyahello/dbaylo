@@ -15,12 +15,21 @@ from dbaylo.labs.labnames import normalize_lab
         ("Synevo", "Сінево"),
         ("Синево, Львів", "Сінево, Львів"),  # city suffix preserved
         ("  синево , Київ", "Сінево, Київ"),  # brand trimmed, suffix kept
+        ("Сінево (Synevo), Львів", "Сінево, Львів"),  # parenthetical alternate stripped
+        ("Синево (Synevo), Львів", "Сінево, Львів"),  # ... and the и -> і drift too
+        ("Synevo (Сінево)", "Сінево"),  # parens, no city
         ("dila", "ДІЛА"),
         ("Інвітро", "Інвітро"),
     ],
 )
 def test_known_brands_canonicalized(raw: str, expected: str) -> None:
     assert normalize_lab(raw) == expected
+
+
+def test_idempotent_on_compound_brand() -> None:
+    once = normalize_lab("Синево (Synevo), Львів")
+    assert once == "Сінево, Львів"
+    assert normalize_lab(once) == once
 
 
 @pytest.mark.parametrize("value", [None, "", "Лабораторія Львів", "Якась нова лабораторія"])

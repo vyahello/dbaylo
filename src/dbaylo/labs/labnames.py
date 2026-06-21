@@ -13,6 +13,8 @@ Pure: no LLM/DB/network. Extend ``_LAB_CANON`` as new labs appear.
 
 from __future__ import annotations
 
+import re
+
 # Lowercased brand variant -> canonical Ukrainian spelling. The Synevo network prints
 # "Сінево" (з "і") on its reports; extraction often mis-reads it as "Синево".
 _LAB_CANON: dict[str, str] = {
@@ -27,16 +29,22 @@ _LAB_CANON: dict[str, str] = {
     "esculab": "Ескулаб",
 }
 
+# A parenthetical alternate spelling the lab prints alongside the brand, e.g.
+# "Сінево (Synevo), Львів" — stripped before the lookup so the compound form normalizes too.
+_PARENS_RE = re.compile(r"\([^)]*\)")
+
 
 def normalize_lab(lab: str | None) -> str | None:
     """Return ``lab`` with a known brand canonicalized, keeping any ", city" suffix.
 
-    A ``None``/blank value or an unknown brand passes through unchanged.
+    Tolerates a parenthetical alternate on the brand (``Сінево (Synevo), Львів`` →
+    ``Сінево, Львів``). A ``None``/blank value or an unknown brand passes through unchanged.
     """
     if not lab:
         return lab
     brand, sep, rest = lab.partition(",")
-    canon = _LAB_CANON.get(brand.strip().casefold())
+    core = _PARENS_RE.sub("", brand).strip()  # drop "(Synevo)" etc. before the lookup
+    canon = _LAB_CANON.get(core.casefold())
     if canon is None:
         return lab
     return f"{canon}{sep}{rest}" if sep else canon
