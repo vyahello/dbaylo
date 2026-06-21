@@ -142,6 +142,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   ⚠️-marked) as one button each (paginated, `chart_pick`/`chart_page`), tapping one renders just THAT
   chart (`pipeline.render_one_chart`); `📊 Показати всі` (`chart_all`) stays as an opt-in dump. The
   picker is shared with `/history` (the card's 📈 → same `open_charts_picker`) — no flood anywhere.
+  **Every chart reads the same way** (`charts.render_trend_chart`): a green band = acceptable range +
+  red band(s) = out of range (drawn the SAME for two-sided / ≤X / ≥X), each point a green ● (in range)
+  or red ✕ (out — labelled with its value, shape+colour so it survives colour-blindness), a
+  legend (норма / у нормі / поза нормою), and the y-axis always spans the reference bounds (the band
+  is never cut off; a flat series is not over-zoomed). Legend text is in `locale.CHART_LEGEND_*`.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes
