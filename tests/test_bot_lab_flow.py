@@ -53,25 +53,38 @@ def test_render_confirmation_is_problems_first() -> None:
     text = render_confirmation_text(_report())
     assert "2026-05-12" in text and "Synevo" in text  # bold header, date · lab
     assert "норма" in text
-    assert "1. Глюкоза" in text  # 7.0 > 6.1 -> out of range -> surfaced in full
+    assert "1. Глюкоза" in text  # 7.0 > 6.1 -> out of range -> the attention group
     assert "⚠️" in text
-    # Кетони ("не виявлено") is in range -> collapsed into the aggregate, NOT listed.
-    assert "2. Кетони" not in text
-    assert "у межах норми" in text  # the aggregate line for the hidden row
+    # Only a couple of rows, so the in-range Кетони is listed by name under the "у межах норми"
+    # header — NOT hidden, and with NO green ✅ on the row itself (rail #4).
+    assert "2. Кетони" in text
+    assert "У межах норми" in text
     assert "Звір" in text  # the verify prompt (there are rows to check)
-    # No green ✅ on a normal row (rail #4): the only ✅ is on the aggregate line.
-    assert text.count("✅") == 1
+    assert text.count("✅") == 1  # only the "✅ У межах норми:" header, never per-row
 
 
-def test_render_all_in_range_shows_aggregate_not_rows() -> None:
+def test_render_few_in_range_listed_by_name() -> None:
+    # The single-analyte ДІЛА case: one in-range result must be shown by name, not hidden behind
+    # "✅ Усі 1 — у межах норми".
     report = ExtractedReport(
         report_date=date(2026, 5, 12),
-        results=[ExtractedAnalyte("Калій", value=4.0, ref_low=3.5, ref_high=5.1)],
+        results=[ExtractedAnalyte("Натрій", value=135.0, ref_low=132.0, ref_high=146.0)],
     )
     text = render_confirmation_text(report)
-    assert "Усі 1 — у межах норми" in text
+    assert "Натрій" in text and "135" in text  # the one result is named
+    assert "У межах норми" in text
     assert "Усе правильно?" in text
-    assert "Калій" not in text  # in range -> not listed in the compact view
+    assert "Усі 1 — у межах норми" not in text  # no opaque aggregate for a single row
+
+
+def test_render_many_in_range_collapses_to_aggregate() -> None:
+    report = ExtractedReport(
+        results=[ExtractedAnalyte(f"A{i}", value=4.0, ref_low=3.5, ref_high=5.1) for i in range(7)]
+    )
+    text = render_confirmation_text(report)
+    assert "Усі 7 — у межах норми" in text  # too many to list -> collapsed
+    assert "A0" not in text  # individual in-range rows are hidden
+    assert _CB_SHOW_ALL in _cb_datas(confirmation_keyboard(report))  # ... behind the expand button
 
 
 def test_render_surfaces_unreadable_row_with_question_mark() -> None:
@@ -84,7 +97,7 @@ def test_render_surfaces_unreadable_row_with_question_mark() -> None:
     text = render_confirmation_text(report)
     assert "1. Гемоглобін" in text and "❔" in text  # surfaced for a look (rail #5)
     assert "потребують уваги" in text  # summary umbrella when a row is unreadable
-    assert "Решта 1 — у межах норми" in text
+    assert "Калій" in text and "У межах норми" in text  # the one in-range row is listed by name
 
 
 def test_render_handles_unknown_date_and_lab() -> None:
@@ -159,12 +172,19 @@ def test_state_round_trip_preserves_data() -> None:
     assert restored.results[1].value_text == "не виявлено"
 
 
-def test_confirmation_keyboard_offers_expand_when_rows_hidden() -> None:
-    # _report(): one out-of-range row + one in-range row -> the in-range one is collapsed,
-    # so the "show all" expand button is offered, plus the quick-edit date/lab buttons.
-    datas = _cb_datas(confirmation_keyboard(_report()))
+def test_confirmation_keyboard_offers_expand_when_many_in_range() -> None:
+    # one out-of-range row + several in-range rows -> the in-range ones collapse, so the "show
+    # all" expand button is offered, plus the quick-edit date/lab buttons.
+    rows = [ExtractedAnalyte("Bad", value=10.0, ref_low=1.0, ref_high=5.0)]
+    rows += [ExtractedAnalyte(f"Ok{i}", value=3.0, ref_low=1.0, ref_high=5.0) for i in range(6)]
+    datas = _cb_datas(confirmation_keyboard(ExtractedReport(results=rows)))
     assert _CB_SHOW_ALL in datas
     assert _CB_EDIT_DATE in datas and _CB_EDIT_LAB in datas
+
+
+def test_confirmation_keyboard_no_expand_for_a_small_report() -> None:
+    # A few in-range rows are listed inline, so nothing is hidden -> no expand button.
+    assert _CB_SHOW_ALL not in _cb_datas(confirmation_keyboard(_report()))
 
 
 def test_confirmation_keyboard_hides_expand_when_nothing_collapsed() -> None:

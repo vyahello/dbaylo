@@ -196,18 +196,32 @@ def _render_narrative_confirmation(report: ExtractedReport) -> str:
     return "\n".join(lines)
 
 
+# Collapsing in-range rows into an aggregate only helps when there are MANY of them; a
+# handful (e.g. a single-analyte ДІЛА report) is better shown by name than hidden behind
+# "✅ Усі N — у межах норми". At/below this count, the in-range rows are listed.
+_INLINE_NORMAL_MAX = 5
+
+
+def _collapses_normal(report: ExtractedReport) -> bool:
+    """True when there are more in-range rows than we inline — they get the aggregate + the
+    '📋 Усі показники' expand. A few in-range rows are shown by name instead."""
+    return sum(1 for a in report.results if not _needs_check(a)) > _INLINE_NORMAL_MAX
+
+
 def render_confirmation_text(report: ExtractedReport) -> str:
-    """Problems-first confirmation view (Telegram HTML): header + summary + ONLY the rows
-    that need a look (out of range / unreadable), with the in-range rows collapsed into an
-    aggregate. The full table is one tap away (``render_confirmation_full``), so every value
-    is still verifiable before saving (rail #5). A narrative document keeps its prose view."""
+    """Problems-first confirmation view (Telegram HTML): header + summary + the rows that need a
+    look (out of range / unreadable). In-range rows are listed by name when there are only a few,
+    or collapsed into an aggregate (with a '📋 Усі показники' expand, rail #5) when there are many.
+    A narrative document keeps its prose view."""
     if report.is_narrative:
         return _render_narrative_confirmation(report)
     indexed = list(enumerate(report.results, 1))
     attention = [(i, a) for i, a in indexed if _needs_check(a)]
+    normal = [(i, a) for i, a in indexed if not _needs_check(a)]
     n_oor = sum(1 for a in report.results if _is_oor(a))
     n_unread = sum(1 for a in report.results if _is_unread(a))
     total = len(report.results)
+    collapse = _collapses_normal(report)
 
     lines = [_confirm_header(report), _summary_line(total, n_oor, n_unread)]
     if report.conclusion:
@@ -215,12 +229,18 @@ def render_confirmation_text(report: ExtractedReport) -> str:
     if attention:
         lines += ["", locale.LAB_CONFIRM_ATT_HEADER.format(n=len(attention))]
         lines += _grouped_rows(attention)
-        normal = total - len(attention)
-        if normal:
-            lines += ["", locale.LAB_CONFIRM_NORMAL_AGG.format(n=normal)]
+        if normal and collapse:
+            lines += ["", locale.LAB_CONFIRM_NORMAL_AGG.format(n=len(normal))]
+        elif normal:
+            lines += ["", locale.LAB_CONFIRM_NORMAL_HEADER]
+            lines += _grouped_rows(normal)
         lines += ["", locale.LAB_CONFIRM_VERIFY]
-    else:
+    elif collapse:  # all in range, but too many to list
         lines += ["", locale.LAB_CONFIRM_ALL_NORMAL.format(n=total), "", locale.LAB_CONFIRM_PROMPT]
+    else:  # all in range, few enough to name (e.g. the single-analyte report the user hit)
+        lines += ["", locale.LAB_CONFIRM_NORMAL_HEADER]
+        lines += _grouped_rows(normal)
+        lines += ["", locale.LAB_CONFIRM_PROMPT]
     return "\n".join(lines)
 
 
@@ -240,8 +260,7 @@ def confirmation_keyboard(report: ExtractedReport, *, full: bool = False) -> Inl
         [InlineKeyboardButton(text=locale.BTN_CONFIRM_ALL, callback_data=_CB_CONFIRM)]
     ]
     n_total = len(report.results)
-    n_attention = sum(1 for a in report.results if _needs_check(a))
-    if not full and n_total and n_attention < n_total:
+    if not full and _collapses_normal(report):  # expand only when in-range rows are hidden
         rows.append(
             [
                 InlineKeyboardButton(

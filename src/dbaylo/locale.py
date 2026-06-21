@@ -194,6 +194,7 @@ LAB_CONFIRM_ATTENTION = "⚠️ {n} потребують уваги"  # used whe
 LAB_CONFIRM_ATT_HEADER = "⚠️ Перевір ці значення ({n}):"
 LAB_CONFIRM_NORMAL_AGG = "✅ Решта {n} — у межах норми"
 LAB_CONFIRM_ALL_NORMAL = "✅ Усі {n} — у межах норми"
+LAB_CONFIRM_NORMAL_HEADER = "✅ У межах норми:"  # when a few in-range rows are listed by name
 LAB_CONFIRM_VERIFY = "Звір позначені значення з бланком. Усе правильно?"
 LAB_CONFIRM_FULL_HEADER = "📋 Усі показники:"
 LAB_NORM_LABEL = "норма"
@@ -491,6 +492,7 @@ BTN_HIST_NEXT = "▶"
 # Problems-first results (only the out-of-range rows; normal ones aggregated).
 HIST_PROBLEMS_HEADER = "⚠️ Поза нормою ({n}):"
 HIST_PROBLEMS_NORMAL_AGG = "✅ Решта {n} — у межах норми."
+HIST_PROBLEMS_NORMAL_HEADER = "✅ У межах норми:"  # when a few in-range rows are listed by name
 HIST_NO_PROBLEMS = "✅ Усі показники — в межах норми."
 HIST_DYNAMICS_EMPTY = (
     "Поки немає динаміки проблемних показників — потрібен ще один аналіз в інший день. "

@@ -242,7 +242,7 @@ async def test_report_button_label_and_card_show_flag_count(async_session: Async
     assert "⚠️ 1 поза нормою" in history.render_card(report, results)
 
 
-async def test_render_problems_shows_only_flagged_plus_aggregate(
+async def test_render_problems_lists_few_in_range_by_name(
     async_session: AsyncSession,
 ) -> None:
     user = await _user(async_session)
@@ -254,10 +254,24 @@ async def test_render_problems_shows_only_flagged_plus_aggregate(
         results=(("АЛТ", 63.0, None, 50.0), ("Калій", 4.0, 3.5, 5.1), ("Глюкоза", 5.0, 3.9, 6.1)),
     )
     body = history.render_problems(report, history.ordered_results(report))
-    assert "АЛТ" in body  # the out-of-range row is shown
-    assert "Калій" not in body and "Глюкоза" not in body  # normal rows are NOT listed
-    assert "Решта 2" in body  # aggregated instead
+    assert "АЛТ" in body  # the out-of-range row (with ⚠️)
+    assert "Калій" in body and "Глюкоза" in body  # only a couple in range -> listed by name
+    assert "У межах норми" in body
     assert "P.S." in body  # disclaimer on every health view
+
+
+async def test_render_problems_collapses_many_in_range(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    results = (("АЛТ", 63.0, None, 50.0),) + tuple(
+        (f"N{i}", 4.0, 3.5, 5.1) for i in range(6)
+    )  # 1 flagged + 6 in range
+    report = await _report(
+        async_session, user_id=user.id, on=date(2021, 8, 6), lab="A", results=results
+    )
+    body = history.render_problems(report, history.ordered_results(report))
+    assert "АЛТ" in body
+    assert "Решта 6" in body  # too many in-range rows -> aggregated
+    assert "N0" not in body
 
 
 async def test_full_table_has_ps_and_omits_the_summary(async_session: AsyncSession) -> None:

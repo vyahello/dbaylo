@@ -348,9 +348,35 @@ def _ps(text: str) -> str:
     return f"{text}\n\n{locale.HIST_PS_BLOCK}"
 
 
+# Collapsing in-range rows into an aggregate helps only when there are many; a handful is shown
+# by name (a single-analyte report should never hide its one result behind "Усі N в нормі").
+_INLINE_NORMAL_MAX = 5
+
+
+def _result_line(r: LabResult, marker: str = "") -> str:
+    value = f"{r.value:g}" if r.value is not None else "—"
+    if r.unit:
+        value = f"{value} {r.unit}"
+    ref = _ref_text(r.ref_low, r.ref_high)
+    return f"• {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {marker}".rstrip()
+
+
+def _grouped_result_lines(results: list[LabResult], marker: str) -> list[str]:
+    out: list[str] = []
+    prev_section: object = _NO_SECTION
+    for r in results:
+        if r.section != prev_section:
+            prev_section = r.section
+            if r.section:
+                out.append(locale.LAB_SECTION_HEADER.format(section=r.section))
+        out.append(_result_line(r, marker))
+    return out
+
+
 def render_problems(report: LabReport, results: list[LabResult]) -> str:
-    """Focused results view: the lab conclusion + ONLY the out-of-range rows (grouped by panel),
-    then an aggregate line for the normal ones — never an 85-row dump."""
+    """Focused results view: the lab conclusion + the out-of-range rows (grouped by panel). The
+    in-range rows are listed by name when there are only a few, or collapsed into an aggregate
+    when there are many — never an 85-row dump."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     lines = [locale.HIST_RESULTS_HEADER.format(date=date_txt, lab=lab_txt)]
@@ -365,24 +391,18 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
     if report.conclusion:
         lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {report.conclusion}")
     flagged = [r for r in results if r.flagged]
-    if not flagged:
+    normal = [r for r in results if not r.flagged]
+    collapse = len(normal) > _INLINE_NORMAL_MAX
+    if flagged:
+        lines += ["", locale.HIST_PROBLEMS_HEADER.format(n=len(flagged))]
+        lines += _grouped_result_lines(flagged, locale.FLAG_ATTENTION)
+    if normal and collapse:
+        lines += ["", locale.HIST_PROBLEMS_NORMAL_AGG.format(n=len(normal))]
+    elif normal:
+        lines += ["", locale.HIST_PROBLEMS_NORMAL_HEADER]
+        lines += _grouped_result_lines(normal, "")
+    elif not flagged:  # no rows at all (defensive)
         lines += ["", locale.HIST_NO_PROBLEMS]
-        return assert_safe_output(_ps("\n".join(lines)))
-    lines += ["", locale.HIST_PROBLEMS_HEADER.format(n=len(flagged))]
-    prev_section: object = _NO_SECTION
-    for r in flagged:
-        if r.section != prev_section:
-            prev_section = r.section
-            if r.section:
-                lines.append(locale.LAB_SECTION_HEADER.format(section=r.section))
-        value = f"{r.value:g}" if r.value is not None else "—"
-        if r.unit:
-            value = f"{value} {r.unit}"
-        ref = _ref_text(r.ref_low, r.ref_high)
-        lines.append(f"• {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) ⚠️".rstrip())
-    normal = len(results) - len(flagged)
-    if normal:
-        lines += ["", locale.HIST_PROBLEMS_NORMAL_AGG.format(n=normal)]
     return assert_safe_output(_ps("\n".join(lines)))
 
 
