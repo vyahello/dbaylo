@@ -37,6 +37,17 @@ def test_render_one_sided_upper_bound() -> None:
     assert png.startswith(_PNG_MAGIC)
 
 
+def test_render_flagged_point_without_a_numeric_reference() -> None:
+    # The lab flagged a measurement but no numeric ref was captured — the chart must still render
+    # (the flagged point shows red even with no band), so a flagged ref-less analyte isn't blank.
+    pts = [
+        LabPoint("X", date(2026, 1, 1), 5.0, "од", None, None, flagged=False),
+        LabPoint("X", date(2026, 2, 1), 9.0, "од", None, None, flagged=True),
+    ]
+    png = render_trend_chart(pts, title="X")
+    assert png.startswith(_PNG_MAGIC)
+
+
 @pytest.mark.parametrize(
     ("value", "lo", "hi", "expected"),
     [

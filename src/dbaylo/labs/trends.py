@@ -33,6 +33,9 @@ class LabPoint:
     unit: str | None = None
     ref_low: float | None = None
     ref_high: float | None = None
+    # The lab's OWN out-of-range mark for this measurement — the reliable verdict even when the
+    # numeric reference was not captured (many rows have flagged=True but no ref_low/ref_high).
+    flagged: bool = False
 
 
 class TrendDirection(Enum):

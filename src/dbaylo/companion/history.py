@@ -377,12 +377,17 @@ async def aggregate_indicators(session: AsyncSession, *, user_id: int) -> list[I
         group.sort(key=lambda r: r.report_date)
         latest = group[-1]
         dated: set[date] = {r.report_date for r in group if r.value is not None}
+        if len(dated) < 2:
+            # No chartable numeric trend (a qualitative analyte like urine crystals has 0 numeric
+            # values; a one-off has 1). The dynamics browser is for trends, so skip it — tapping it
+            # would only say "замало даних". Such results are still seen per-report in /history.
+            continue
         items.append(
             IndicatorItem(
                 name=latest.analyte,
                 key=key,
                 category=grouping.categorize(latest.section, latest.analyte),
-                has_trend=len(dated) >= 2,
+                has_trend=True,
                 last_flagged=bool(latest.flagged),
             )
         )
@@ -615,9 +620,15 @@ async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str
         analyte=summary.analyte, value=value, movement=movement, n=summary.n_points
     )
     chart = render_trend_chart(pts, title=summary.analyte) if summary.n_points >= 2 else None
-    if chart is None:
-        text = f"{text}\n{locale.TREND_INSUFFICIENT}"
-    return TrendView(found=True, text=f"{assert_safe_output(text)}\n\n{DISCLAIMER}", chart=chart)
+    text = assert_safe_output(text)
+    if chart is not None:
+        return TrendView(
+            found=True, text=text, chart=chart
+        )  # caption: no disclaimer on a data chart
+    # Text-only (insufficient data) keeps the disclaimer, like every other plain health reply.
+    return TrendView(
+        found=True, text=f"{text}\n{locale.TREND_INSUFFICIENT}\n\n{DISCLAIMER}", chart=None
+    )
 
 
 # --- Delete (with Tier 1.1 coupling cleanup) ------------------------------------

@@ -426,31 +426,46 @@ async def test_find_interrupted_analyses_only_pending(async_session: AsyncSessio
 
 async def test_aggregate_indicators_groups_by_category(async_session: AsyncSession) -> None:
     user = await _user(async_session)
+    # Each analyte on TWO dates (the dynamics browser only lists analytes with a numeric trend).
     await _report(
         async_session,
         user_id=user.id,
         on=date(2021, 1, 1),
         lab="Synevo",
-        results=(("Гемоглобін", 140.0, 130.0, 160.0),),
+        results=(("Гемоглобін", 140.0, 130.0, 160.0), ("Натрій", 140.0, 132.0, 146.0)),
     )
     await _report(
         async_session,
         user_id=user.id,
         on=date(2021, 3, 1),
         lab="Synevo",
-        # Гемоглобін on a 2nd date -> a trend; Натрій once, 150 > 146 -> last out of range.
-        results=(("Гемоглобін", 145.0, 130.0, 160.0), ("Натрій", 150.0, 132.0, 146.0)),
+        results=(("Гемоглобін", 145.0, 130.0, 160.0), ("Натрій", 150.0, 132.0, 146.0)),  # 150 > 146
     )
     items = await history.aggregate_indicators(async_session, user_id=user.id)
     by_key = {it.key: it for it in items}
     assert by_key["гемоглобін"].category == grouping.BLOOD and by_key["гемоглобін"].has_trend
     assert by_key["натрій"].category == grouping.BIOCHEM  # name-based (no section in the fixture)
-    assert not by_key["натрій"].has_trend and by_key["натрій"].last_flagged
+    assert by_key["натрій"].last_flagged  # latest value out of range
 
     counts = dict(history.category_counts(items, 0))
     assert counts[grouping.BLOOD] == 1 and counts[grouping.BIOCHEM] == 1
     # Flagged sorts first within a category; here biochem has just Натрій.
     assert [it.name for it in history.indicators_in(items, grouping.BIOCHEM)] == ["Натрій"]
+
+
+async def test_aggregate_indicators_skips_qualitative_analytes(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    # A qualitative urine analyte (no numeric value) on two dates -> 0 numeric -> not chartable,
+    # so it must NOT appear in the dynamics browser (tapping it would only say "замало даних").
+    for d in (date(2021, 1, 1), date(2021, 2, 1)):
+        await _report(
+            async_session,
+            user_id=user.id,
+            on=d,
+            lab="A",
+            results=(("Кристали оксалату", None, None, None),),
+        )
+    assert await history.aggregate_indicators(async_session, user_id=user.id) == []
 
 
 async def test_category_counts_includes_imaging_for_narratives(async_session: AsyncSession) -> None:

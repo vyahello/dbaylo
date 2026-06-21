@@ -62,8 +62,13 @@ def render_trend_chart(points: list[LabPoint], *, title: str) -> bytes:
 def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
     xs = [mdates.date2num(p.taken_on) for p in numeric]
     ys = [p.value for p in numeric if p.value is not None]
-    latest = numeric[-1]
-    lo, hi = latest.ref_low, latest.ref_high  # the reference band (point colours match it)
+    # The band: the most RECENT point that actually has a reference (older reports may have captured
+    # it even when the latest did not), so a missing latest ref doesn't drop the whole band.
+    ref_pt = next(
+        (p for p in reversed(numeric) if p.ref_low is not None or p.ref_high is not None),
+        numeric[-1],
+    )
+    lo, hi = ref_pt.ref_low, ref_pt.ref_high
 
     # Y-limits include the data AND the reference bounds, with padding — so the band is always
     # visible and a flat series (e.g. ШОЕ ≡ 2) is not zoomed to a meaningless sliver.
@@ -90,7 +95,9 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
 
     # Neutral connecting line; the meaning is carried by the status-coloured markers.
     ax.plot(xs, ys, "-", color=_LINE, linewidth=1.5, zorder=2)
-    flags = [_out_of_range(y, lo, hi) for y in ys]
+    # A point is out of norm if the LAB flagged it (reliable even with no numeric ref) OR it is
+    # numerically outside the band — so a flagged value still shows red even without a band.
+    flags = [p.flagged or _out_of_range(y, lo, hi) for p, y in zip(numeric, ys, strict=True)]
     in_x = [x for x, bad in zip(xs, flags, strict=True) if not bad]
     in_y = [y for y, bad in zip(ys, flags, strict=True) if not bad]
     out_x = [x for x, bad in zip(xs, flags, strict=True) if bad]
@@ -115,8 +122,8 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
                 fontweight="bold",
             )
 
-    if latest.unit:
-        ax.set_ylabel(latest.unit)
+    if numeric[-1].unit:
+        ax.set_ylabel(numeric[-1].unit)
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
     fig.autofmt_xdate()
