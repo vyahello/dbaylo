@@ -76,7 +76,11 @@ EXTRACTION_PERSONA = (
     "Preserve analyte names exactly as printed. If a field is missing or illegible "
     "use null — never guess or invent values. Report ONLY what the document shows (incl. its "
     "own out-of-range marks); do not diagnose, interpret, or comment. A document with no "
-    "analyte table is 'narrative' — capture its report_type, narrative findings, and conclusion."
+    "analyte table is 'narrative' — capture its report_type, narrative findings, and conclusion. "
+    "An imaging / descriptive study (МРТ/КТ/УЗД/рентген/висновок/опис/виписка) is ALWAYS "
+    "kind='narrative' with results=[] — put its sentences in 'narrative', NEVER turn them, the "
+    "patient details, or the device specs into result rows. Use 'results' ONLY for an actual "
+    "analyte table with measured values."
 )
 
 _DEFAULT_MODELS: tuple[str, ...] = ("sonnet", "opus")
@@ -250,6 +254,15 @@ async def extract_document(
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
+def _has_real_rows(analytes: list[ExtractedAnalyte]) -> bool:
+    """True if any row is a real measurement (a number, a reference, or a qualitative result) —
+    not just stray text the extractor lifted from a non-table document (patient / device info)."""
+    return any(
+        a.value is not None or a.ref_low is not None or a.ref_high is not None or a.value_text
+        for a in analytes
+    )
+
+
 def parse_extraction(text: str) -> ExtractedReport | None:
     """Parse model output into an ExtractedReport, tolerating common messiness.
 
@@ -270,13 +283,30 @@ def parse_extraction(text: str) -> ExtractedReport | None:
         if analyte is not None:
             analytes.append(analyte)
 
+    kind = (_coerce_str(data.get("kind")) or "").strip().casefold()
+    report_type = _coerce_str(data.get("report_type"))
+    narrative = _coerce_str(data.get("narrative"))
+
+    # Narrative detection, robust to LLM variance (the bug behind the МРТ "send the table again"):
+    # an imaging/descriptive document is narrative when the model SAYS so (kind), OR it carries a
+    # findings body / study type and NONE of its rows is a real measurement. A stray patient/device
+    # "row" the extractor lifts from a non-table doc has no value/ref, so it can no longer discard a
+    # captured narrative into an empty 'tabular' report.
+    is_narrative = kind == "narrative" or (
+        bool(narrative or report_type) and not _has_real_rows(analytes)
+    )
+    if is_narrative:
+        analytes = []  # a narrative document carries no analyte rows
+    else:
+        narrative = report_type = None  # a tabular document carries no findings body / study type
+
     return ExtractedReport(
         results=analytes,
         report_date=_coerce_date(data.get("report_date")),
         lab=normalize_lab(_coerce_str(data.get("lab"))),
         conclusion=_coerce_str(data.get("conclusion")),
-        report_type=_coerce_str(data.get("report_type")),
-        narrative=_coerce_str(data.get("narrative")),
+        report_type=report_type,
+        narrative=narrative,
     )
 
 

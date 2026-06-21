@@ -68,13 +68,15 @@ class ExtractedReport:
 
     @property
     def is_narrative(self) -> bool:
-        """A narrative document carries findings text and (typically) no analyte rows."""
-        return bool(self.narrative) and not self.results
+        """A narrative document (МРТ/КТ/УЗД/висновок): findings text and/or a study type, and no
+        analyte rows. ``report_type`` counts too, so an imaging study whose body the model put in
+        the conclusion (not the narrative field) is still routed as narrative, never tabular."""
+        return (bool(self.narrative) or bool(self.report_type)) and not self.results
 
     @property
     def is_usable(self) -> bool:
-        """Something worth confirming: analyte rows, or a narrative body."""
-        return bool(self.results) or bool(self.narrative)
+        """Something worth confirming: analyte rows, or a narrative document."""
+        return bool(self.results) or self.is_narrative
 
     def flagged_results(self) -> list[ExtractedAnalyte]:
         """Rows the lab marked out of range (its own attention indicator)."""

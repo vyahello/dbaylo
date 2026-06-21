@@ -100,6 +100,41 @@ def test_parse_narrative_tolerates_missing_results() -> None:
     assert report is not None and report.is_narrative
 
 
+def test_parse_narrative_wins_over_stray_rows() -> None:
+    # The МРТ bug: the model captured the findings narrative but ALSO emitted stray "rows" from
+    # the patient/device info (no value/ref). The narrative must win, not be discarded.
+    report = parse_extraction(
+        '{"kind": "narrative", "report_type": "МРТ головного мозку",'
+        ' "narrative": "Без вогнищевих змін.", "conclusion": "Без патології",'
+        ' "results": [{"analyte": "Пацієнт", "value": null},'
+        ' {"analyte": "Пристрій", "value": null}]}'
+    )
+    assert report is not None
+    assert report.is_narrative and not report.results  # stray rows dropped
+    assert report.narrative == "Без вогнищевих змін."
+
+
+def test_parse_narrative_inferred_when_kind_missing_and_no_real_rows() -> None:
+    # Even without an explicit "kind", a report_type/narrative + only stray rows -> narrative.
+    report = parse_extraction(
+        '{"report_type": "КТ органів грудної клітки", "narrative": "Норма.",'
+        ' "results": [{"analyte": "Дата", "value": null}]}'
+    )
+    assert report is not None and report.is_narrative and not report.results
+
+
+def test_parse_real_table_stays_tabular_even_with_a_stray_narrative() -> None:
+    # A genuine analyte table (rows WITH measured values) must stay tabular, keeping its rows,
+    # even if the model also filled a narrative field.
+    report = parse_extraction(
+        '{"kind": "tabular", "narrative": "побічна нотатка",'
+        ' "results": [{"analyte": "Глюкоза", "value": 5.4, "ref_low": 3.9, "ref_high": 6.1}]}'
+    )
+    assert report is not None
+    assert not report.is_narrative and len(report.results) == 1  # rows kept, narrative dropped
+    assert report.narrative is None
+
+
 async def test_extract_succeeds_on_narrative(tmp_path) -> None:
     f = tmp_path / "doc.pdf"
     f.write_bytes(b"x")

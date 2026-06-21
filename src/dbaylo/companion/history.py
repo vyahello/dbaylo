@@ -320,9 +320,10 @@ def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
-        return locale.HIST_BTN_REPORT_DOC.format(
-            date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
-        )
+        rtype = report.report_type or locale.LAB_DOC_GENERIC
+        if report.lab:  # an imaging study often has no lab brand — then its type IS its identity
+            return locale.HIST_BTN_REPORT_DOC.format(date=date_txt, lab=lab_txt, report_type=rtype)
+        return locale.HIST_BTN_REPORT_DOC_NOLAB.format(date=date_txt, report_type=rtype)
     n_flagged = flagged_count(results)
     flags = locale.HIST_FLAGS_SUFFIX.format(n=n_flagged) if n_flagged else ""
     return locale.HIST_BTN_REPORT.format(
@@ -335,9 +336,10 @@ def render_card(report: LabReport, results: list[LabResult]) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
     lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
     if report.kind == ReportKind.NARRATIVE:
-        return locale.HIST_CARD_DOC.format(
-            date=date_txt, lab=lab_txt, report_type=report.report_type or locale.LAB_DOC_GENERIC
-        )
+        rtype = report.report_type or locale.LAB_DOC_GENERIC
+        if report.lab:
+            return locale.HIST_CARD_DOC.format(date=date_txt, lab=lab_txt, report_type=rtype)
+        return locale.HIST_CARD_DOC_NOLAB.format(date=date_txt, report_type=rtype)
     n_flagged = flagged_count(results)
     status = locale.HIST_CARD_FLAGGED.format(n=n_flagged) if n_flagged else locale.HIST_CARD_NORMAL
     return locale.HIST_CARD.format(date=date_txt, lab=lab_txt, count=len(results), status=status)
