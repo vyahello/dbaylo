@@ -53,6 +53,19 @@ def test_pdf_text_strips_emoji_keeps_punctuation() -> None:
     assert _pdf_text("• pH") == "• pH"
 
 
+def test_pdf_wrap_keeps_text_inside_the_card() -> None:
+    from dbaylo.labs.charts import _clip, _wrap
+
+    # A long note must hard-wrap (matplotlib's own wrap ran off the page edge before).
+    note = "Дріжджеподібні гриби в осаді сечі — це сигнал можливого грибкового запалення."
+    wrapped = _wrap(note * 2, width=40)
+    assert "\n" in wrapped and all(len(line) <= 44 for line in wrapped.split("\n"))
+    assert _wrap("перший\n\nдругий") == "перший\n\nдругий"  # blank line between paragraphs kept
+    # A long header title is clipped to one line.
+    assert _clip("x" * 60).endswith("…") and len(_clip("x" * 60)) <= 42
+    assert _clip("Лейкоцити") == "Лейкоцити"
+
+
 def test_render_trends_pdf_is_a_valid_multipage_pdf() -> None:
     pts = [
         LabPoint("pH", date(2026, 1, 1), 5.0, "", 5.0, 7.0),

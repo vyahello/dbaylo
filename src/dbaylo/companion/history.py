@@ -453,7 +453,7 @@ async def report_trend_charts(
         cat_key = grouping.categorize(r.section, summary.analyte)
         out.append(
             TrendChartData(
-                title=summary.analyte,
+                title=_strip_section_prefix(summary.analyte, r.section),
                 category=locale.CATEGORY_NAMES.get(cat_key, cat_key),
                 points=pts,
                 dynamics=chart_dynamics_caption(summary),

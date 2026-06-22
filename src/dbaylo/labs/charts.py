@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import io
 import re
+import textwrap
 from dataclasses import dataclass
 from typing import Any
 
@@ -212,6 +213,19 @@ def _pdf_text(text: str) -> str:
     return re.sub(r"  +", " ", _PDF_EMOJI_RE.sub("", text)).strip()
 
 
+def _wrap(text: str, width: int = 80) -> str:
+    """Hard-wrap each paragraph to a character width that fits the description card. matplotlib's
+    own ``wrap=True`` wraps to the FIGURE edge (past the card), so a long note ran off the page —
+    we wrap to the card instead, preserving blank lines between paragraphs."""
+    lines = [textwrap.fill(p, width=width) if p.strip() else "" for p in text.split("\n")]
+    return "\n".join(lines)
+
+
+def _clip(text: str, limit: int = 42) -> str:
+    """Keep a header title on one line in the band."""
+    return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
+
+
 def _load_avatar() -> Any:
     """The Дбайло avatar (the README icon), bundled as package data, as an image array. None if it
     can't be read, so the PDF still renders without it."""
@@ -272,15 +286,16 @@ def _cover(pdf: PdfPages, *, heading: str, subtitle: str, breakdown: str, n: int
             weight="bold",
         )
         if breakdown:
-            fig.text(0.5, 0.385, _pdf_text(breakdown), ha="center", fontsize=12, color=_INK)
+            fig.text(
+                0.5, 0.385, _wrap(_pdf_text(breakdown), 80), ha="center", fontsize=12, color=_INK
+            )
         fig.text(
             0.5,
             0.085,
-            _pdf_text(locale.DISCLAIMER),
+            _wrap(_pdf_text(locale.DISCLAIMER), 95),
             ha="center",
             fontsize=9,
             color=_MUTED,
-            wrap=True,
         )
         pdf.savefig(fig)
     finally:
@@ -291,26 +306,33 @@ def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> 
     numeric = sorted((p for p in chart.points if p.value is not None), key=lambda p: p.taken_on)
     fig = plt.figure(figsize=_A4)
     try:
-        # Header band with the marker name + its panel, and the avatar in the corner.
+        # Header band with the marker name + its panel.
         fig.patches.append(
             Rectangle((0, 0.90), 1, 0.10, transform=fig.transFigure, color=_BRAND, zorder=0)
         )
-        fig.text(0.08, 0.945, _pdf_text(chart.title), fontsize=18, color="white", weight="bold")
+        fig.text(
+            0.08, 0.945, _clip(_pdf_text(chart.title)), fontsize=18, color="white", weight="bold"
+        )
         if chart.subtitle:
             fig.text(0.08, 0.915, _pdf_text(chart.subtitle), fontsize=11, color="#dcfce7")
-        _place_avatar(fig, (0.85, 0.905, 0.09, 0.09))
 
         ax = fig.add_axes((0.10, 0.42, 0.82, 0.42))
         if numeric:
             _draw(ax, fig, numeric)
         ax.grid(True, alpha=0.3, zorder=0)
 
-        # Description in a soft card.
+        # Description in a soft card (text wrapped to the card, not the page edge).
         fig.patches.append(
-            Rectangle((0.07, 0.12), 0.86, 0.22, transform=fig.transFigure, color=_PANEL, zorder=0)
+            Rectangle((0.07, 0.10), 0.86, 0.24, transform=fig.transFigure, color=_PANEL, zorder=0)
         )
         fig.text(
-            0.10, 0.31, _pdf_text(chart.caption), ha="left", va="top", fontsize=11.5, color=_INK
+            0.10,
+            0.315,
+            _wrap(_pdf_text(chart.caption)),
+            ha="left",
+            va="top",
+            fontsize=11,
+            color=_INK,
         )
         fig.text(0.93, 0.045, f"{page_no}/{total}", ha="right", fontsize=9, color=_MUTED)
         fig.text(0.07, 0.045, "Дбайло", ha="left", fontsize=9, color=_MUTED)
