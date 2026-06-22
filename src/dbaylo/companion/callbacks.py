@@ -201,7 +201,8 @@ def parse_history_interpret_view(data: str) -> tuple[int, int] | None:
 CHART_OPEN = "chart_open"  # open the picker for a report (page 0)
 CHART_PAGE = "chart_page"  # paginate the picker
 CHART_PICK = "chart_pick"  # render ONE analyte's chart (by index into the trend list)
-CHART_ALL = "chart_all"  # opt-in: render them all
+CHART_ALL = "chart_all"  # opt-in: a single text report of all trends
+CHART_PDF = "chart_pdf"  # opt-in: one PDF with every chart + a short description
 
 
 def chart_open(report_id: int) -> str:
@@ -218,6 +219,14 @@ def chart_all(report_id: int) -> str:
 
 def parse_chart_all(data: str) -> int | None:
     return _parse(CHART_ALL, data)
+
+
+def chart_pdf(report_id: int) -> str:
+    return _make(CHART_PDF, report_id)
+
+
+def parse_chart_pdf(data: str) -> int | None:
+    return _parse(CHART_PDF, data)
 
 
 def chart_page(report_id: int, page: int) -> str:

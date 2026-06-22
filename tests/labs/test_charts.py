@@ -6,7 +6,14 @@ from datetime import date
 
 import pytest
 
-from dbaylo.labs.charts import _out_of_range, _readable_ticks, render_trend_chart
+from dbaylo.labs.charts import (
+    PdfChart,
+    _out_of_range,
+    _pdf_text,
+    _readable_ticks,
+    render_trend_chart,
+    render_trends_pdf,
+)
 from dbaylo.labs.trends import LabPoint
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -37,6 +44,26 @@ def test_readable_ticks_thins_a_time_cluster_between_two_far_dates() -> None:
     assert ticks[0] == 0.0 and ticks[-1] == 330.0
     in_cluster = [t for t in ticks if 100.0 <= t <= 106.0]
     assert len(in_cluster) <= 2  # the smear is gone
+
+
+def test_pdf_text_strips_emoji_keeps_punctuation() -> None:
+    # matplotlib's PDF font has no emoji glyphs; strip them but keep the dash, middle dot, bullet.
+    assert _pdf_text("📈 6 — норма · вимірів: 2") == "6 — норма · вимірів: 2"
+    assert _pdf_text("⚠️ Лейкоцити") == "Лейкоцити"
+    assert _pdf_text("• pH") == "• pH"
+
+
+def test_render_trends_pdf_is_a_valid_multipage_pdf() -> None:
+    pts = [
+        LabPoint("pH", date(2026, 1, 1), 5.0, "", 5.0, 7.0),
+        LabPoint("pH", date(2026, 2, 1), 6.0, "", 5.0, 7.0),
+    ]
+    pages = [
+        PdfChart(title="📈 pH (сеча)", points=pts, caption="📈 6 — тримається в межах норми"),
+        PdfChart(title="Лейкоцити", points=pts, caption="📈 6 — норма\n\nЛейкоцити — клітини."),
+    ]
+    pdf = render_trends_pdf(pages, heading="Динаміка показників")
+    assert pdf[:5] == b"%PDF-" and len(pdf) > 1000
 
 
 def test_render_returns_png_with_reference_band() -> None:

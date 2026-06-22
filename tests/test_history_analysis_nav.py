@@ -114,7 +114,9 @@ def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:
     assert locale.CHART_PICK_HEADER.split(" ")[0] in text  # the picker header
     datas = _datas(kb)
     assert callbacks.chart_pick(5, 0) in datas and callbacks.chart_pick(5, 1) in datas
-    assert callbacks.chart_all(5) in datas  # opt-in "show all"
+    assert callbacks.chart_all(5) in datas  # opt-in text report
+    assert callbacks.chart_pdf(5) in datas  # opt-in one-PDF export
+    assert callbacks.parse_chart_pdf(callbacks.chart_pdf(5)) == 5
     assert callbacks.history_open(5, 0) in datas  # '◀ Назад' back to the report card
     # The flagged analyte carries the ⚠️ prefix on its button.
     labels = [b.text for row in kb.inline_keyboard for b in row]

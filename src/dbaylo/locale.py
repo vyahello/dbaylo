@@ -425,6 +425,7 @@ BTN_CHARTS_SHOW = "📈 Так, показати"
 BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 BTN_CHART_ALL = "📋 Звіт по динаміці"  # one scannable text report, not a flood of chart images
+BTN_CHART_PDF = "📄 PDF з усіма графіками"  # one PDF: every chart + a short description
 CHART_FLAGGED_PREFIX = "⚠️ "  # marks an out-of-range analyte in the picker (listed first)
 DYN_TREND_PREFIX = "📈 "  # marks an analyte that has a multi-date trend
 
@@ -577,6 +578,13 @@ CHART_REPORT_FLAGGED_HEADER = "⚠️ Поза нормою:"
 CHART_REPORT_OK_HEADER = "✅ У межах норми / покращення:"
 CHART_REPORT_ROW = "• {analyte}: {value} — {movement}"
 CHART_REPORT_HINT = "Щоб побачити графік — обери показник вище 👆"
+
+# One-PDF export: every chart + a short description, saved as a file.
+CHART_PDF_HEADING = "Динаміка показників — Дбайло"
+CHART_PDF_SUBTITLE = "{n} показників"
+CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
+CHART_PDF_EMPTY = "Поки нема графіків для PDF — потрібно щонайменше два виміри одного показника."
+CHART_PDF_FILENAME = "dbaylo-dynamika.pdf"
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 

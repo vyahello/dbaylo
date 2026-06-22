@@ -19,6 +19,7 @@ only model call is the companion fallback, which re-enters through the gate.
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import re
 from datetime import datetime
@@ -48,8 +49,10 @@ from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.companion import callbacks, grouping, history
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
+from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
+from dbaylo.labs.charts import PdfChart, render_trends_pdf
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.pipeline import compute_report_summary, render_chart_and_summary
@@ -438,6 +441,7 @@ def _charts_picker_view(
     if nav:
         rows.append(nav)
     rows.append([_btn(locale.BTN_CHART_ALL, callbacks.chart_all(report_id))])
+    rows.append([_btn(locale.BTN_CHART_PDF, callbacks.chart_pdf(report_id))])
     rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0))])
     header = locale.CHART_PICK_HEADER
     if pages > 1:
@@ -562,6 +566,46 @@ async def on_chart_all(callback: CallbackQuery) -> None:
         return
     await answer_chunked(
         callback.message, render_interpretation_html(report), parse_mode=ParseMode.HTML
+    )
+
+
+def _pdf_caption(dynamics: str, note: str) -> str:
+    """One PDF page's description: the deterministic dynamics line, plus the educational note when
+    there is one."""
+    return f"{dynamics}\n\n{note}" if note else dynamics
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_PDF + ":"))
+async def on_chart_pdf(callback: CallbackQuery) -> None:
+    """Build ONE PDF with every trending chart + a short, sample-specific description, and send it
+    as a file. Notes are generated concurrently (bounded) and cached."""
+    report_id = callbacks.parse_chart_pdf(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        data = await history.report_trend_charts(session, user_id=user.id, report_id=report_id)
+    if not data:
+        await callback.message.answer(locale.CHART_PDF_EMPTY)
+        return
+    await callback.message.answer(locale.CHART_PDF_PREPARING)
+    sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
+
+    async def _note(d: history.TrendChartData) -> str:
+        async with sem:
+            return await describe_indicator(d.title, specimen=d.specimen)
+
+    notes = await asyncio.gather(*(_note(d) for d in data))
+    pages = [
+        PdfChart(title=d.title, points=d.points, caption=_pdf_caption(d.dynamics, note))
+        for d, note in zip(data, notes, strict=True)
+    ]
+    pdf = await asyncio.to_thread(render_trends_pdf, pages, heading=locale.CHART_PDF_HEADING)
+    await callback.message.answer_document(
+        BufferedInputFile(pdf, filename=locale.CHART_PDF_FILENAME)
     )
 
 

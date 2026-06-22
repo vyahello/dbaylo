@@ -14,6 +14,8 @@ never cut off and a flat series is never over-zoomed.
 from __future__ import annotations
 
 import io
+import re
+from dataclasses import dataclass
 
 import matplotlib
 
@@ -22,6 +24,7 @@ matplotlib.use("Agg")  # headless: must be set before pyplot is imported.
 import matplotlib.dates as mdates  # noqa: E402
 import matplotlib.pyplot as plt  # noqa: E402
 from matplotlib.axes import Axes  # noqa: E402
+from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
 from matplotlib.patches import Patch  # noqa: E402
@@ -181,3 +184,75 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
         )
     if handles:
         ax.legend(handles=handles, fontsize=8, loc="best", framealpha=0.9)
+
+
+# --- One PDF with every chart + a short description (on-demand export) ------------
+
+_A4 = (8.27, 11.69)  # inches, portrait
+
+# matplotlib's PDF font (DejaVu Sans) has no emoji glyphs — they render as tofu boxes. Strip emoji /
+# symbol / arrow / variation-selector chars from PDF text, keeping normal Cyrillic + punctuation
+# (em dash —, ellipsis …, middle dot ·) which DejaVu does have.
+_PDF_EMOJI_RE = re.compile(
+    "[\U0001f000-\U0001faff"  # emoji
+    "☀-➿"  # miscellaneous symbols + dingbats
+    "←-⇿"  # arrows
+    "⬀-⯿"  # misc symbols & arrows
+    "️⃣]"  # emoji variation selector + combining keycap
+)
+
+
+def _pdf_text(text: str) -> str:
+    return re.sub(r"  +", " ", _PDF_EMOJI_RE.sub("", text)).strip()
+
+
+@dataclass(frozen=True)
+class PdfChart:
+    """One page of the PDF export: an analyte's series, its title, and a short description."""
+
+    title: str
+    points: list[LabPoint]
+    caption: str
+
+
+def render_trends_pdf(charts: list[PdfChart], *, heading: str) -> bytes:
+    """A single PDF: a cover, then ONE trend chart per page with a short description underneath —
+    the 'save everything' counterpart to the per-chart picker. Same chart language as the PNGs."""
+    buffer = io.BytesIO()
+    with PdfPages(buffer) as pdf:
+        cover = plt.figure(figsize=_A4)
+        try:
+            cover.text(0.5, 0.6, heading, ha="center", va="center", fontsize=20, wrap=True)
+            cover.text(
+                0.5, 0.52, locale.CHART_PDF_SUBTITLE.format(n=len(charts)), ha="center", fontsize=12
+            )
+            cover.text(
+                0.5, 0.12, locale.DISCLAIMER, ha="center", va="bottom", fontsize=9, wrap=True
+            )
+            pdf.savefig(cover)
+        finally:
+            plt.close(cover)
+        for chart in charts:
+            numeric = sorted(
+                (p for p in chart.points if p.value is not None), key=lambda p: p.taken_on
+            )
+            fig = plt.figure(figsize=_A4)
+            try:
+                ax = fig.add_axes((0.10, 0.42, 0.82, 0.48))
+                if numeric:
+                    _draw(ax, fig, numeric)
+                ax.set_title(_pdf_text(chart.title), fontsize=14)
+                ax.grid(True, alpha=0.3, zorder=0)
+                fig.text(
+                    0.10,
+                    0.34,
+                    _pdf_text(chart.caption),
+                    ha="left",
+                    va="top",
+                    fontsize=11,
+                    wrap=True,
+                )
+                pdf.savefig(fig)
+            finally:
+                plt.close(fig)
+    return buffer.getvalue()

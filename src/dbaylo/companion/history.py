@@ -38,6 +38,7 @@ from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
 from dbaylo.labs.trends import (
+    LabPoint,
     TrendSummary,
     build_series,
     compute_trend,
@@ -413,6 +414,51 @@ async def render_dynamics_report(
     _block(locale.CHART_REPORT_OK_HEADER, ok_rows)
     lines.extend(["", locale.CHART_REPORT_HINT])
     return assert_safe_output(_ps("\n".join(lines)))
+
+
+@dataclass(frozen=True)
+class TrendChartData:
+    """Deterministic per-analyte chart data for the PDF export: the series, its title, the dynamics
+    line, the specimen (so the note is sample-specific), and whether it is out of range."""
+
+    title: str
+    points: list[LabPoint]
+    dynamics: str
+    specimen: str | None
+    flagged: bool
+
+
+async def report_trend_charts(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[TrendChartData]:
+    """Every trending analyte of a report (flagged first), as chart data — for the one-PDF export.
+    Deterministic, no LLM; the handler adds the educational note per analyte."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    out: list[TrendChartData] = []
+    seen: set[str] = set()
+    for r in ordered_results(report):
+        key = series_key(r.section, r.analyte)
+        if key in seen:
+            continue
+        pts = series.get(key)
+        if not pts or len({p.taken_on for p in pts if p.value is not None}) < 2:
+            continue
+        seen.add(key)
+        summary = compute_trend(pts)
+        out.append(
+            TrendChartData(
+                title=summary.analyte,
+                points=pts,
+                dynamics=chart_dynamics_caption(summary),
+                specimen=specimen(pts[-1].section, summary.analyte),
+                flagged=bool(r.flagged) or pts[-1].flagged,
+            )
+        )
+    out.sort(key=lambda d: (not d.flagged, d.title.casefold()))
+    return out
 
 
 # --- Cross-lab dynamics browser: indicators grouped by clinical category --------
