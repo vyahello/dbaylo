@@ -89,25 +89,28 @@ def _chart_filename(name: str) -> str:
 _CAPTION_MAX = 1024  # Telegram photo-caption limit
 
 
-async def _chart_caption(dynamics: str, analyte: str, specimen: str | None) -> str:
-    """The chart caption: the deterministic dynamics line, plus a short guard-checked educational
-    note about the marker (cached, specific to the sample type) and a micro-disclaimer. Falls back
-    to the dynamics line alone if the note is empty or the whole thing would overflow the limit."""
-    note = await describe_indicator(analyte, specimen=specimen)
-    if not note:
-        return dynamics
-    full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
-    return full if len(full) <= _CAPTION_MAX else dynamics
+async def _show_uploading(message: Message) -> None:
+    """Native 'sending a photo…' indicator, so the brief chart render isn't a blank wait. Best
+    effort — never let a failed chat-action break the flow."""
+    with contextlib.suppress(Exception):
+        await message.bot.send_chat_action(message.chat.id, "upload_photo")  # type: ignore[union-attr]
 
 
 async def _send_chart(
     message: Message, *, png: bytes, dynamics: str, analyte: str, specimen: str | None
 ) -> None:
-    """Send a trend chart with the unified caption (dynamics + sample-specific educational note)."""
-    caption = await _chart_caption(dynamics, analyte, specimen)
-    await message.answer_photo(
-        BufferedInputFile(png, filename=_chart_filename(analyte)), caption=caption
+    """Send the chart IMMEDIATELY with the deterministic dynamics caption, then fill in the
+    sample-specific educational note by editing the caption — so a cache-miss note (~several
+    seconds) never leaves the user staring at a blank screen waiting for the chart."""
+    sent = await message.answer_photo(
+        BufferedInputFile(png, filename=_chart_filename(analyte)), caption=dynamics
     )
+    note = await describe_indicator(analyte, specimen=specimen)
+    if note:
+        full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
+        if len(full) <= _CAPTION_MAX:
+            with contextlib.suppress(TelegramBadRequest):
+                await sent.edit_caption(caption=full)
 
 
 def _list_view(
@@ -253,6 +256,7 @@ async def on_history_query(message: Message) -> None:
 
 
 async def _send_trend(message: Message, *, telegram_id: int, analyte: str) -> None:
+    await _show_uploading(message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         view = await history.trend_for_analyte(session, user_id=user.id, analyte=analyte)
@@ -528,6 +532,7 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
         return
     report_id, index = parsed
     await callback.answer()
+    await _show_uploading(callback.message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
@@ -787,6 +792,7 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
         return
     category, index = parsed
     await callback.answer()
+    await _show_uploading(callback.message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         items = await history.aggregate_indicators(session, user_id=user.id)
