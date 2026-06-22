@@ -522,9 +522,12 @@ BTN_HIST_RESULTS_ALL = "📋 Усі показники"
 BTN_HIST_DYNAMICS = "📈 Динаміка"
 BTN_HIST_INTERPRET = "🔬 Розбір"
 BTN_HIST_DELETE = "🗑 Видалити"
+# Two different navigations must never be confused: the TRIANGLE "◀ Назад" goes UP a level (to the
+# card / list), while the LONG arrows ⬅️/➡️ + words page WITHIN the current list. Distinct glyph
+# (triangle vs long arrow) AND a word, so the user always knows what each does.
 BTN_HIST_BACK = "◀ Назад"
-BTN_HIST_PREV = "◀"
-BTN_HIST_NEXT = "▶"
+BTN_HIST_PREV = "⬅️ Попередні"
+BTN_HIST_NEXT = "Наступні ➡️"
 
 # Problems-first results (only the out-of-range rows; normal ones aggregated).
 HIST_PROBLEMS_HEADER = "⚠️ Поза нормою ({n}):"

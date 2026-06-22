@@ -429,9 +429,11 @@ async def list_narratives(session: AsyncSession, *, user_id: int) -> list[LabRep
     return list((await session.scalars(stmt)).all())
 
 
-# Narrative study types can be long ("КТ … з внутрішньовенним контрастуванням"); truncate them so a
-# LIST BUTTON fits ONE line (like the tabular rows). The full type is shown on the card when opened.
-_LABEL_TYPE_MAX = 26
+# Narrative study types can be long ("КТ … з внутрішньовенним контрастуванням"). A Telegram button
+# wraps to ~two lines, so we allow more than one line's worth before cutting (on a word boundary) —
+# most study names now show in full instead of an early "…"; only a truly long one is trimmed, with
+# the complete type always on the opened card.
+_LABEL_TYPE_MAX = 44
 
 
 def short_type(report_type: str | None) -> str:

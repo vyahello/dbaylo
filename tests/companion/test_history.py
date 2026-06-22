@@ -247,10 +247,13 @@ async def test_report_button_label_and_card_show_flag_count(async_session: Async
 
 def test_short_type_truncates_long_study_names() -> None:
     assert history.short_type("МРТ головного мозку") == "МРТ головного мозку"  # short -> unchanged
-    out = history.short_type("КТ сечовивідної системи з внутрішньовенним контрастуванням")
-    assert out.endswith("…") and len(out) <= 27
-    assert out == "КТ сечовивідної системи…"  # cut on a WORD boundary, never mid-word
-    assert not out.rstrip("…").endswith(" ")  # no dangling space before the ellipsis
+    long = "КТ сечовивідної системи з внутрішньовенним контрастуванням"
+    out = history.short_type(long)
+    kept = out.rstrip("…")
+    assert out.endswith("…") and len(out) <= history._LABEL_TYPE_MAX + 1  # bounded
+    assert long.startswith(kept) and not kept.endswith(" ")  # a real prefix, no dangling space
+    assert long[len(kept)] == " "  # cut on a WORD boundary, never mid-word
+    assert len(kept) > 26  # the wider (2-line) cap shows more of the name than the old limit
 
 
 async def test_render_problems_lists_few_in_range_by_name(
