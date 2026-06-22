@@ -606,6 +606,7 @@ async def on_chart_nav(callback: CallbackQuery) -> None:
         return
     report_id, index = parsed
     await callback.answer()
+    await _show_uploading(callback.message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)

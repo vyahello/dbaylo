@@ -13,6 +13,8 @@ DB access reuses :func:`dbaylo.labs.intake.ensure_user`. The free-text handler i
 
 from __future__ import annotations
 
+import contextlib
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -134,9 +136,17 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
 # --- Symptom intake (history-taking) --------------------------------------------
 
 
+async def _typing(message: Message) -> None:
+    """Show the native 'typing…' indicator while the companion LLM thinks, so a multi-second reply
+    isn't a silent wait. Best effort — never let a failed chat action break the turn."""
+    with contextlib.suppress(Exception):
+        await message.bot.send_chat_action(message.chat.id, "typing")  # type: ignore[union-attr]
+
+
 async def _run_intake_turn(
     message: Message, state: FSMContext, transcript: list[dict[str, str]]
 ) -> None:
+    await _typing(message)
     reply = await intake.advance(transcript)
     transcript.append({"role": "assistant", "text": reply.text})
     if reply.done:
@@ -172,5 +182,6 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
         await _run_intake_turn(message, state, [{"role": "user", "text": text}])
         return
     # Otherwise — ordinary companion chat.
+    await _typing(message)
     reply = await generate_reply(text)
     await message.answer(reply.text)

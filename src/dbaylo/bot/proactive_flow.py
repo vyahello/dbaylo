@@ -17,7 +17,7 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard, remove_button_row
+from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
 from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -39,14 +39,6 @@ class MedStates(StatesGroup):
 
 def _telegram_id(event: Message | CallbackQuery) -> int | None:
     return event.from_user.id if event.from_user else None
-
-
-def _off_keyboard(callback_data: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=locale.BTN_REMINDER_OFF, callback_data=callback_data)]
-        ]
-    )
 
 
 def _fmt_when(when: datetime | None) -> str:
@@ -101,30 +93,30 @@ async def _add_problem(message: Message, name: str, scheduler: ReminderScheduler
 
 
 async def open_problems(message: Message, telegram_id: int) -> None:
-    """List active concerns with their resolve/rename buttons (from /problems or menu)."""
+    """List active concerns in ONE message — a row per concern (✅ resolve · ✏️ rename) — instead of
+    a separate message each. Resolving removes just that row (the name lives in the button)."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         active = await concerns.list_active(session, user_id=user.id)
     if not active:
         await message.answer(locale.PROBLEM_LIST_EMPTY)
         return
-    await message.answer(locale.PROBLEM_LIST_HEADER)
-    for condition in active:
-        keyboard = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_RESOLVED,
-                        callback_data=callbacks.problem_resolve(condition.id),
-                    ),
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_RENAME,
-                        callback_data=callbacks.problem_rename(condition.id),
-                    ),
-                ]
-            ]
-        )
-        await message.answer(f"• {condition.name}", reply_markup=keyboard)
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
+                callback_data=callbacks.problem_resolve(condition.id),
+            ),
+            InlineKeyboardButton(
+                text=locale.BTN_PROBLEM_RENAME_SHORT,
+                callback_data=callbacks.problem_rename(condition.id),
+            ),
+        ]
+        for condition in active
+    ]
+    await message.answer(
+        locale.PROBLEM_LIST_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
 
 
 @router.message(Command("problems"))
@@ -176,7 +168,8 @@ async def on_problem_new_name(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     condition_id = data.get("condition_id")
     await state.clear()
-    if not isinstance(condition_id, int):
+    if not isinstance(condition_id, int):  # state lost (e.g. a restart mid-rename) — say so
+        await message.answer(locale.NOTHING_SAVED)
         return
     async with get_session() as session:
         await concerns.rename(session, condition_id, (message.text or "").strip())
@@ -235,17 +228,26 @@ async def on_medication_times(
 
 
 async def open_medications(message: Message, telegram_id: int) -> None:
-    """List the user's medications, each with the existing per-medication turn-off."""
+    """List the user's medications in ONE message — a tappable turn-off per medication (the name is
+    in the button, so turning one off removes just that row) instead of a message each."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         meds = await medications.list_medications(session, user_id=user.id)
     if not meds:
         await message.answer(locale.MED_LIST_EMPTY)
         return
-    await message.answer(locale.MED_LIST_HEADER)
-    for med in meds:
-        text = locale.MED_LIST_ITEM.format(name=med.name, times=med.schedule or "?")
-        await message.answer(text, reply_markup=_off_keyboard(callbacks.medication_off(med.id)))
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_MED_OFF_NAMED.format(name=med.name, times=med.schedule or "?"),
+                callback_data=callbacks.medication_off(med.id),
+            )
+        ]
+        for med in meds
+    ]
+    await message.answer(
+        locale.MED_LIST_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    )
 
 
 # --- Reminder management --------------------------------------------------------
@@ -262,7 +264,7 @@ async def open_reminders(message: Message, telegram_id: int, scheduler: Reminder
         return
 
     next_run = {job.id: job.next_run for job in scheduler.list_jobs()}
-    await message.answer(locale.REMINDERS_HEADER)
+    kb_rows: list[list[InlineKeyboardButton]] = []
     shown_medications: set[int] = set()
     for reminder in rows:
         when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
@@ -271,19 +273,22 @@ async def open_reminders(message: Message, telegram_id: int, scheduler: Reminder
                 continue  # one row per medication; its turn-off removes all its jobs
             shown_medications.add(reminder.medication_id)
             med = meds.get(reminder.medication_id)
-            text = locale.REMINDER_ITEM_MEDICATION.format(
+            label = locale.REMINDER_ITEM_MEDICATION.format(
                 name=med.name if med else (reminder.payload or "?"),
                 times=med.schedule if med else "?",
                 when=when,
             )
-            keyboard = _off_keyboard(callbacks.medication_off(reminder.medication_id))
+            data = callbacks.medication_off(reminder.medication_id)
         elif reminder.type == reminders.TYPE_CHECKIN:
-            text = locale.REMINDER_ITEM_CHECKIN.format(when=when)
-            keyboard = _off_keyboard(callbacks.reminder_off(reminder.id))
+            label = locale.REMINDER_ITEM_CHECKIN.format(when=when)
+            data = callbacks.reminder_off(reminder.id)
         else:  # repeat_lab
-            text = locale.REMINDER_ITEM_REPEAT_LAB.format(name=reminder.payload or "?", when=when)
-            keyboard = _off_keyboard(callbacks.reminder_off(reminder.id))
-        await message.answer(text, reply_markup=keyboard)
+            label = locale.REMINDER_ITEM_REPEAT_LAB.format(name=reminder.payload or "?", when=when)
+            data = callbacks.reminder_off(reminder.id)
+        kb_rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+    await message.answer(
+        locale.REMINDERS_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    )
 
 
 @router.message(Command("reminders"))
@@ -300,7 +305,7 @@ async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderS
     if reminder_id is None:
         await callback.answer()
         return
-    await clear_inline_keyboard(callback)  # this reminder is off — consume its button
+    await remove_button_row(callback)  # this reminder is off — consume just its row
     async with get_session() as session:
         reminder = await session.get(Reminder, reminder_id)
         if reminder is not None:
@@ -319,7 +324,7 @@ async def on_medication_off(callback: CallbackQuery, reminder_scheduler: Reminde
     if medication_id is None:
         await callback.answer()
         return
-    await clear_inline_keyboard(callback)  # this medication is off — consume its button
+    await remove_button_row(callback)  # this medication is off — consume just its row
     async with get_session() as session:
         await proactive.turn_off_medication(
             session, medication_id=medication_id, scheduler=reminder_scheduler

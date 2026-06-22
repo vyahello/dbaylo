@@ -14,7 +14,7 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot import menu_flow
+from dbaylo.bot import menu_flow, proactive_flow
 from dbaylo.bot.keyboards import (
     cancel_keyboard,
     clear_inline_keyboard,
@@ -176,6 +176,32 @@ async def test_menu_reminders_delegates_to_open_reminders(monkeypatch) -> None:
     scheduler = object()
     await menu_flow.menu_reminders(message, scheduler)
     assert seen["args"] == (message, 4242, scheduler)
+
+
+async def test_open_problems_is_one_message_with_a_row_per_concern(monkeypatch) -> None:
+    # No flood: the problems list is ONE message, one [✅ name][✏️] row per concern (so resolving
+    # removes just that row), instead of a separate message per concern.
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_session():
+        yield object()
+
+    concerns = [SimpleNamespace(id=1, name="Болить спина"), SimpleNamespace(id=2, name="Тиск")]
+    monkeypatch.setattr(proactive_flow, "get_session", fake_session)
+    monkeypatch.setattr(
+        proactive_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=concerns))
+    message = AsyncMock()
+    await proactive_flow.open_problems(message, telegram_id=4242)
+    message.answer.assert_awaited_once()  # ONE message, not one per concern
+    _, kwargs = message.answer.call_args
+    rows = kwargs["reply_markup"].inline_keyboard
+    assert len(rows) == 2  # one row per concern
+    datas = [b.callback_data for row in rows for b in row]
+    assert callbacks.problem_resolve(1) in datas and callbacks.problem_resolve(2) in datas
+    assert "Болить спина" in rows[0][0].text  # the name is IN the resolve button
 
 
 # --- Section inline-button callbacks (delegate to reused helpers) ---------------
