@@ -108,11 +108,16 @@ def test_chart_filename_strips_control_chars() -> None:
 def test_chart_nav_keyboard_lets_you_flip_without_scrolling_up() -> None:
     from dbaylo.bot.history_flow import _chart_nav_keyboard
 
-    # Middle of 5: both arrows present + a jump back to the list.
-    datas = _datas(_chart_nav_keyboard(report_id=7, index=2, total=5))
+    # Middle of 5: one row — ⬅️ / 📋 i/n / ➡️.
+    kb = _chart_nav_keyboard(report_id=7, index=2, total=5)
+    assert len(kb.inline_keyboard) == 1  # single row, no separate list button
+    datas = _datas(kb)
     assert callbacks.chart_nav(7, 1) in datas  # ⬅️ prev
     assert callbacks.chart_nav(7, 3) in datas  # ➡️ next
-    assert callbacks.history_dynamics(7) in datas  # 📋 back to the picker
+    # The position counter IS the back-to-list button — exactly once, not duplicated.
+    assert datas.count(callbacks.history_dynamics(7)) == 1
+    middle = next(b for row in kb.inline_keyboard for b in row if "/" in b.text)
+    assert "3/5" in middle.text  # 1-based position (index 2 of 5)
     # First chart has no prev arrow; last has no next arrow.
     first = _datas(_chart_nav_keyboard(report_id=7, index=0, total=5))
     assert callbacks.chart_nav(7, -1) not in first and callbacks.chart_nav(7, 1) in first

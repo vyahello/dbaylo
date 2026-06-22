@@ -99,24 +99,20 @@ async def _show_uploading(message: Message) -> None:
 
 def _chart_nav_keyboard(report_id: int, index: int, total: int) -> InlineKeyboardMarkup:
     """Carousel nav shown UNDER each chart photo so you flip indicators in place instead of
-    scrolling back up to the picker: ⬅️ / position / ➡️, then a jump back to the full list."""
-    arrows: list[InlineKeyboardButton] = []
+    scrolling back up to the picker. ONE row: ⬅️ / a combined position-and-list button (📋 i/n,
+    which shows where you are AND taps back to the full list) / ➡️ — no duplicate buttons."""
+    row: list[InlineKeyboardButton] = []
     if index > 0:
-        arrows.append(_btn(locale.BTN_CHART_PREV, callbacks.chart_nav(report_id, index - 1)))
-    arrows.append(
+        row.append(_btn(locale.BTN_CHART_PREV, callbacks.chart_nav(report_id, index - 1)))
+    row.append(
         _btn(
             locale.CHART_NAV_POSITION.format(i=index + 1, n=total),
-            callbacks.history_dynamics(report_id),  # tap the counter -> reopen the list
+            callbacks.history_dynamics(report_id),  # the counter IS the back-to-list button
         )
     )
     if index < total - 1:
-        arrows.append(_btn(locale.BTN_CHART_NEXT, callbacks.chart_nav(report_id, index + 1)))
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            arrows,
-            [_btn(locale.BTN_CHART_LIST, callbacks.history_dynamics(report_id))],
-        ]
-    )
+        row.append(_btn(locale.BTN_CHART_NEXT, callbacks.chart_nav(report_id, index + 1)))
+    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
 async def _chart_full_caption(dynamics: str, analyte: str, specimen: str | None) -> str | None:
