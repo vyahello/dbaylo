@@ -351,10 +351,14 @@ async def on_history_results(callback: CallbackQuery) -> None:
                     [
                         _btn(locale.BTN_HIST_RESULTS_ALL, callbacks.history_results_all(report_id)),
                         _btn(locale.BTN_HIST_DYNAMICS, callbacks.history_dynamics(report_id)),
-                    ]
+                    ],
+                    [_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0))],
                 ]
             )
-    await answer_chunked(callback.message, text, reply_markup=keyboard, parse_mode=parse_mode)
+    if keyboard is not None:  # edit the card in place; '◀ Назад' returns to it
+        await _show_view(callback.message, text, keyboard, edit=True)
+    else:
+        await answer_chunked(callback.message, text, parse_mode=parse_mode)
     await callback.answer()
 
 
@@ -405,6 +409,7 @@ def _charts_picker_view(
     if nav:
         rows.append(nav)
     rows.append([_btn(locale.BTN_CHART_ALL, callbacks.chart_all(report_id))])
+    rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0))])
     header = locale.CHART_PICK_HEADER
     if pages > 1:
         header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
@@ -412,10 +417,16 @@ def _charts_picker_view(
 
 
 async def open_charts_picker(
-    message: Message, *, telegram_id: int, report_id: int, silent_if_empty: bool = False
+    message: Message,
+    *,
+    telegram_id: int,
+    report_id: int,
+    silent_if_empty: bool = False,
+    edit: bool = False,
 ) -> None:
     """Show the charts picker for a report (used by /history and the post-confirm chain). When
-    there is no trend yet, say so — unless called silently as the last step of the confirm chain."""
+    there is no trend yet, say so — unless called silently as the last step of the confirm chain.
+    From the card (``edit``) it replaces the card in place; '◀ Назад' returns to it."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
@@ -424,7 +435,7 @@ async def open_charts_picker(
             await message.answer(locale.HIST_DYNAMICS_EMPTY)
         return
     text, keyboard = _charts_picker_view(items, report_id, 0)
-    await message.answer(text, reply_markup=keyboard)
+    await _show_view(message, text, keyboard, edit=edit)
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_DYNAMICS + ":"))
@@ -436,7 +447,7 @@ async def on_history_dynamics(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     await callback.answer()
-    await open_charts_picker(callback.message, telegram_id=tg, report_id=report_id)
+    await open_charts_picker(callback.message, telegram_id=tg, report_id=report_id, edit=True)
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_OPEN + ":"))
@@ -703,10 +714,14 @@ def _analysis_actions(report_id: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[_refresh_delete_row(report_id)])
 
 
-def _analysis_keyboard(report_id: int, sections: dict[str, str], idx: int) -> InlineKeyboardMarkup:
+def _analysis_keyboard(
+    report_id: int, sections: dict[str, str], idx: int, *, back_page: int | None = None
+) -> InlineKeyboardMarkup:
     """Drill-down navigation. On the overview (idx 0): a button for each OTHER present section
     plus the refresh / delete row. On a section (idx >= 1): '🩺 Огляд' first, then the other
-    sections — so you hop between sections without scrolling back. Buttons two per row."""
+    sections — so you hop between sections without scrolling back. Buttons two per row. When
+    ``back_page`` is given (the /history flow), a '◀ Назад' returns to the report card so you are
+    never stranded in a section with no way back."""
     current_key = SECTION_KEYS[idx]
     nav = [
         _btn(_ANALYSIS_LABELS[key], callbacks.history_interpret_view(report_id, target))
@@ -716,11 +731,13 @@ def _analysis_keyboard(report_id: int, sections: dict[str, str], idx: int) -> In
     rows = [nav[i : i + 2] for i in range(0, len(nav), 2)]
     if idx == 0:
         rows.append(_refresh_delete_row(report_id))
+    if back_page is not None:
+        rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, back_page))])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _render_analysis_view(
-    summary_text: str, report_id: int, idx: int
+    summary_text: str, report_id: int, idx: int, *, back_page: int | None = None
 ) -> tuple[str, InlineKeyboardMarkup] | None:
     """Render one section (idx 0 = overview/Загалом) + its nav keyboard, or None when the text
     is not the canonical 4-section shape (caller then sends it whole)."""
@@ -729,13 +746,38 @@ def _render_analysis_view(
         return None
     key = SECTION_KEYS[idx] if SECTION_KEYS[idx] in sections else "overall"
     idx = SECTION_KEYS.index(key)
-    return render_interpretation_html(sections[key]), _analysis_keyboard(report_id, sections, idx)
+    keyboard = _analysis_keyboard(report_id, sections, idx, back_page=back_page)
+    return render_interpretation_html(sections[key]), keyboard
 
 
-async def send_analysis(message: Message, summary_text: str, report_id: int) -> None:
-    """Deliver the analysis as a navigable overview (Загалом + per-section buttons). A reading
-    without the canonical sections falls back to the whole text with refresh / delete."""
-    view = _render_analysis_view(summary_text, report_id, 0)
+async def _show_view(
+    message: Message, text: str, keyboard: InlineKeyboardMarkup, *, edit: bool
+) -> None:
+    """Render a drill-down view in place (master-detail, no message spam) when ``edit`` is set,
+    falling back to a fresh chunked message when the edit can't apply (content too long / the
+    message isn't editable)."""
+    if edit:
+        try:
+            await message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+            return
+        except TelegramBadRequest:
+            pass  # too long / not a text message — send a fresh one below
+    await answer_chunked(message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+
+
+async def send_analysis(
+    message: Message,
+    summary_text: str,
+    report_id: int,
+    *,
+    back_page: int | None = None,
+    edit: bool = False,
+) -> None:
+    """Deliver the analysis as a navigable overview (Загалом + per-section buttons). In the
+    /history flow it edits the card message in place and carries a '◀ Назад' to the card
+    (``back_page`` set, ``edit`` true); the post-confirm flow sends it fresh with no card to
+    return to. A reading without the canonical sections falls back to the whole text."""
+    view = _render_analysis_view(summary_text, report_id, 0, back_page=back_page)
     if view is None:
         await answer_chunked(
             message,
@@ -745,11 +787,24 @@ async def send_analysis(message: Message, summary_text: str, report_id: int) -> 
         )
         return
     text, keyboard = view
-    await answer_chunked(message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    await _show_view(message, text, keyboard, edit=edit)
 
 
-async def _generate_analysis(message: Message, *, report_id: int, telegram_id: int) -> None:
-    await message.answer(locale.LAB_INTERPRET_WORKING)
+async def _generate_analysis(
+    message: Message,
+    *,
+    report_id: int,
+    telegram_id: int,
+    back_page: int | None = None,
+    edit: bool = False,
+) -> None:
+    # In the /history flow we own the card message: edit it to a working note, then to the result,
+    # so generation stays in ONE message instead of stacking new ones.
+    if edit:
+        with contextlib.suppress(TelegramBadRequest):
+            await message.edit_text(locale.LAB_INTERPRET_WORKING)
+    else:
+        await message.answer(locale.LAB_INTERPRET_WORKING)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
@@ -766,7 +821,7 @@ async def _generate_analysis(message: Message, *, report_id: int, telegram_id: i
         )
         report.summary = summary.text
         await session.commit()
-    await send_analysis(message, summary.text, report_id)
+    await send_analysis(message, summary.text, report_id, back_page=back_page, edit=edit)
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERPRET + ":"))
@@ -786,10 +841,12 @@ async def on_history_interpret(callback: CallbackQuery) -> None:
     if gone:
         await callback.message.answer(locale.HIST_FILE_GONE)
         return
-    if cached:
-        await send_analysis(callback.message, cached, report_id)  # instant, from the DB
+    if cached:  # instant, from the DB — edit the card in place so '◀ Назад' returns to it
+        await send_analysis(callback.message, cached, report_id, back_page=0, edit=True)
     else:
-        await _generate_analysis(callback.message, report_id=report_id, telegram_id=tg)
+        await _generate_analysis(
+            callback.message, report_id=report_id, telegram_id=tg, back_page=0, edit=True
+        )
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERP_VIEW + ":"))
@@ -810,14 +867,14 @@ async def on_history_interpret_view(callback: CallbackQuery) -> None:
     if not summary:
         await callback.message.answer(locale.HIST_FILE_GONE)
         return
-    view = _render_analysis_view(summary, report_id, idx)
+    view = _render_analysis_view(summary, report_id, idx, back_page=0)
     if view is None:  # summary lost its canonical shape (e.g. regenerated as a fallback)
         await answer_chunked(
             callback.message, render_interpretation_html(summary), parse_mode=ParseMode.HTML
         )
         return
     text, keyboard = view
-    await answer_chunked(callback.message, text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
+    await _show_view(callback.message, text, keyboard, edit=True)  # hop sections in place
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERP_REFRESH + ":"))
@@ -829,7 +886,9 @@ async def on_history_interpret_refresh(callback: CallbackQuery) -> None:
         return
     await clear_inline_keyboard(callback)  # consume the old refresh/delete row
     await callback.answer()
-    await _generate_analysis(callback.message, report_id=report_id, telegram_id=tg)
+    await _generate_analysis(
+        callback.message, report_id=report_id, telegram_id=tg, back_page=0, edit=True
+    )
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_INTERP_DEL + ":"))

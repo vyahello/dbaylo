@@ -60,6 +60,22 @@ def test_section_view_offers_back_to_overview_and_other_sections() -> None:
     assert callbacks.history_interpret_refresh(3) not in datas
 
 
+def test_analysis_back_to_card_when_in_history_flow() -> None:
+    # In the /history flow (back_page set) every analysis view offers a '◀ Назад' to the card, so
+    # you are never stranded; the post-confirm flow (back_page None) shows none.
+    from dbaylo.bot.history_flow import _render_analysis_view
+
+    overview = _render_analysis_view(_SUMMARY, report_id=3, idx=0, back_page=0)
+    section = _render_analysis_view(_SUMMARY, report_id=3, idx=1, back_page=0)
+    assert overview is not None and section is not None
+    assert callbacks.history_open(3, 0) in _datas(overview[1])  # back to the report card
+    assert callbacks.history_open(3, 0) in _datas(section[1])
+    # Without a back_page (post-confirm) there is no back-to-card button.
+    no_back = _render_analysis_view(_SUMMARY, report_id=3, idx=0)
+    assert no_back is not None
+    assert callbacks.history_open(3, 0) not in _datas(no_back[1])
+
+
 def test_non_canonical_text_is_not_navigable() -> None:
     # A narrative reading / deterministic fallback (no section headers) -> caller sends it whole.
     assert _render_analysis_view(f"Вільний текст.\n\n{DISCLAIMER}", report_id=3, idx=0) is None
@@ -99,6 +115,7 @@ def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:
     datas = _datas(kb)
     assert callbacks.chart_pick(5, 0) in datas and callbacks.chart_pick(5, 1) in datas
     assert callbacks.chart_all(5) in datas  # opt-in "show all"
+    assert callbacks.history_open(5, 0) in datas  # '◀ Назад' back to the report card
     # The flagged analyte carries the ⚠️ prefix on its button.
     labels = [b.text for row in kb.inline_keyboard for b in row]
     assert any(lbl.startswith(locale.CHART_FLAGGED_PREFIX) and "АЛТ" in lbl for lbl in labels)
