@@ -418,10 +418,12 @@ async def render_dynamics_report(
 
 @dataclass(frozen=True)
 class TrendChartData:
-    """Deterministic per-analyte chart data for the PDF export: the series, its title, the dynamics
-    line, the specimen (so the note is sample-specific), and whether it is out of range."""
+    """Deterministic per-analyte chart data for the PDF export: the series, its title, the clinical
+    category (panel), the dynamics line, the specimen (so the note is sample-specific), and whether
+    it is out of range."""
 
     title: str
+    category: str  # display label, e.g. "🔬 Сеча"
     points: list[LabPoint]
     dynamics: str
     specimen: str | None
@@ -448,9 +450,11 @@ async def report_trend_charts(
             continue
         seen.add(key)
         summary = compute_trend(pts)
+        cat_key = grouping.categorize(r.section, summary.analyte)
         out.append(
             TrendChartData(
                 title=summary.analyte,
+                category=locale.CATEGORY_NAMES.get(cat_key, cat_key),
                 points=pts,
                 dynamics=chart_dynamics_caption(summary),
                 specimen=specimen(pts[-1].section, summary.analyte),

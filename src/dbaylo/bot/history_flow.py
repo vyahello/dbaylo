@@ -22,6 +22,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
+from collections import Counter
 from datetime import datetime
 
 from aiogram import F, Router
@@ -55,6 +56,7 @@ from dbaylo.db.models import LabReport
 from dbaylo.labs.charts import PdfChart, render_trends_pdf
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
+from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import compute_report_summary, render_chart_and_summary
 from dbaylo.labs.trends import series_key, specimen
 from dbaylo.safety import GateSource, screen
@@ -588,6 +590,7 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         data = await history.report_trend_charts(session, user_id=user.id, report_id=report_id)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
     if not data:
         await callback.message.answer(locale.CHART_PDF_EMPTY)
         return
@@ -600,13 +603,41 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
 
     notes = await asyncio.gather(*(_note(d) for d in data))
     pages = [
-        PdfChart(title=d.title, points=d.points, caption=_pdf_caption(d.dynamics, note))
+        PdfChart(
+            title=d.title,
+            subtitle=d.category,
+            points=d.points,
+            caption=_pdf_caption(d.dynamics, note),
+        )
         for d, note in zip(data, notes, strict=True)
     ]
-    pdf = await asyncio.to_thread(render_trends_pdf, pages, heading=locale.CHART_PDF_HEADING)
+    pdf = await asyncio.to_thread(
+        render_trends_pdf,
+        pages,
+        heading=locale.CHART_PDF_HEADING,
+        subtitle=_pdf_report_subtitle(report),
+        breakdown=_pdf_breakdown(data),
+    )
     await callback.message.answer_document(
         BufferedInputFile(pdf, filename=locale.CHART_PDF_FILENAME)
     )
+
+
+def _pdf_report_subtitle(report: LabReport | None) -> str:
+    """'Аналіз від <date> · <lab>' — so the cover says WHICH report these trends come from."""
+    if report is None:
+        return ""
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
+    return locale.CHART_PDF_REPORT_LINE.format(date=date_txt, lab=lab)
+
+
+def _pdf_breakdown(data: list[history.TrendChartData]) -> str:
+    """Which clinical groups the indicators belong to ('Кров: 8 · Сеча: 9'), in category order."""
+    counts = Counter(d.category for d in data)
+    ordered = [c for c in locale.CATEGORY_NAMES.values() if c in counts]
+    ordered += [c for c in counts if c not in ordered]  # any unmapped categories last
+    return " · ".join(locale.CHART_PDF_BREAKDOWN_ITEM.format(name=c, n=counts[c]) for c in ordered)
 
 
 # --- Dynamics browser: indicators grouped by clinical category, across all labs ------

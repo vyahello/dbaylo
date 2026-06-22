@@ -49,6 +49,9 @@ dbaylo-navigator = "dbaylo.navigator.pipeline:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+dbaylo = ["assets/*.png"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

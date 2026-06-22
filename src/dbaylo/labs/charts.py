@@ -16,6 +16,7 @@ from __future__ import annotations
 import io
 import re
 from dataclasses import dataclass
+from typing import Any
 
 import matplotlib
 
@@ -27,7 +28,7 @@ from matplotlib.axes import Axes  # noqa: E402
 from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from matplotlib.lines import Line2D  # noqa: E402
-from matplotlib.patches import Patch  # noqa: E402
+from matplotlib.patches import Circle, Patch, Rectangle  # noqa: E402
 
 from dbaylo import locale  # noqa: E402
 from dbaylo.labs.trends import LabPoint  # noqa: E402
@@ -189,6 +190,11 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
 # --- One PDF with every chart + a short description (on-demand export) ------------
 
 _A4 = (8.27, 11.69)  # inches, portrait
+_BRAND = "#16a34a"  # the same green as the in-range chart marker
+_BRAND_DARK = "#14532d"
+_INK = "#0f172a"  # near-black text
+_MUTED = "#64748b"  # secondary text
+_PANEL = "#f1f5f9"  # light card background
 
 # matplotlib's PDF font (DejaVu Sans) has no emoji glyphs — they render as tofu boxes. Strip emoji /
 # symbol / arrow / variation-selector chars from PDF text, keeping normal Cyrillic + punctuation
@@ -206,53 +212,122 @@ def _pdf_text(text: str) -> str:
     return re.sub(r"  +", " ", _PDF_EMOJI_RE.sub("", text)).strip()
 
 
+def _load_avatar() -> Any:
+    """The Дбайло avatar (the README icon), bundled as package data, as an image array. None if it
+    can't be read, so the PDF still renders without it."""
+    try:
+        from importlib.resources import files
+
+        with files("dbaylo").joinpath("assets/dbaylo-avatar.png").open("rb") as fh:
+            return plt.imread(io.BytesIO(fh.read()), format="png")
+    except (FileNotFoundError, ModuleNotFoundError, OSError, ValueError):
+        return None
+
+
+_AVATAR: Any = _load_avatar()
+
+
+def _place_avatar(fig: Figure, rect: tuple[float, float, float, float]) -> None:
+    """Draw the circular avatar inside ``rect`` (figure coords), masked to a clean circle."""
+    if _AVATAR is None:
+        return
+    ax = fig.add_axes(rect)
+    ax.imshow(_AVATAR)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    circle = Circle((0.5, 0.5), 0.5, transform=ax.transAxes)
+    ax.images[0].set_clip_path(circle)
+
+
 @dataclass(frozen=True)
 class PdfChart:
-    """One page of the PDF export: an analyte's series, its title, and a short description."""
+    """One page of the PDF export: an analyte's series, its title/panel, and a short description."""
 
     title: str
+    subtitle: str  # the panel / clinical group this marker belongs to
     points: list[LabPoint]
     caption: str
 
 
-def render_trends_pdf(charts: list[PdfChart], *, heading: str) -> bytes:
-    """A single PDF: a cover, then ONE trend chart per page with a short description underneath —
-    the 'save everything' counterpart to the per-chart picker. Same chart language as the PNGs."""
+def _cover(pdf: PdfPages, *, heading: str, subtitle: str, breakdown: str, n: int) -> None:
+    fig = plt.figure(figsize=_A4)
+    try:
+        fig.patches.append(
+            Rectangle((0, 0.82), 1, 0.18, transform=fig.transFigure, color=_BRAND, zorder=0)
+        )
+        fig.patches.append(
+            Rectangle((0, 0), 1, 0.05, transform=fig.transFigure, color=_BRAND, zorder=0)
+        )
+        _place_avatar(fig, (0.5 - 0.16, 0.60, 0.32, 0.20))
+        fig.text(0.5, 0.52, _pdf_text(heading), ha="center", fontsize=26, color=_INK, weight="bold")
+        if subtitle:
+            fig.text(0.5, 0.475, _pdf_text(subtitle), ha="center", fontsize=13, color=_MUTED)
+        fig.text(
+            0.5,
+            0.42,
+            locale.CHART_PDF_SUBTITLE.format(n=n),
+            ha="center",
+            fontsize=12,
+            color=_BRAND_DARK,
+            weight="bold",
+        )
+        if breakdown:
+            fig.text(0.5, 0.385, _pdf_text(breakdown), ha="center", fontsize=12, color=_INK)
+        fig.text(
+            0.5,
+            0.085,
+            _pdf_text(locale.DISCLAIMER),
+            ha="center",
+            fontsize=9,
+            color=_MUTED,
+            wrap=True,
+        )
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
+
+
+def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> None:
+    numeric = sorted((p for p in chart.points if p.value is not None), key=lambda p: p.taken_on)
+    fig = plt.figure(figsize=_A4)
+    try:
+        # Header band with the marker name + its panel, and the avatar in the corner.
+        fig.patches.append(
+            Rectangle((0, 0.90), 1, 0.10, transform=fig.transFigure, color=_BRAND, zorder=0)
+        )
+        fig.text(0.08, 0.945, _pdf_text(chart.title), fontsize=18, color="white", weight="bold")
+        if chart.subtitle:
+            fig.text(0.08, 0.915, _pdf_text(chart.subtitle), fontsize=11, color="#dcfce7")
+        _place_avatar(fig, (0.85, 0.905, 0.09, 0.09))
+
+        ax = fig.add_axes((0.10, 0.42, 0.82, 0.42))
+        if numeric:
+            _draw(ax, fig, numeric)
+        ax.grid(True, alpha=0.3, zorder=0)
+
+        # Description in a soft card.
+        fig.patches.append(
+            Rectangle((0.07, 0.12), 0.86, 0.22, transform=fig.transFigure, color=_PANEL, zorder=0)
+        )
+        fig.text(
+            0.10, 0.31, _pdf_text(chart.caption), ha="left", va="top", fontsize=11.5, color=_INK
+        )
+        fig.text(0.93, 0.045, f"{page_no}/{total}", ha="right", fontsize=9, color=_MUTED)
+        fig.text(0.07, 0.045, "Дбайло", ha="left", fontsize=9, color=_MUTED)
+        pdf.savefig(fig)
+    finally:
+        plt.close(fig)
+
+
+def render_trends_pdf(
+    charts: list[PdfChart], *, heading: str, subtitle: str = "", breakdown: str = ""
+) -> bytes:
+    """A single, premium PDF: a branded cover (avatar + report context + category breakdown), then
+    ONE trend chart per page with a short description card. The 'save everything' counterpart to the
+    per-chart picker; same chart language as the PNGs."""
     buffer = io.BytesIO()
     with PdfPages(buffer) as pdf:
-        cover = plt.figure(figsize=_A4)
-        try:
-            cover.text(0.5, 0.6, heading, ha="center", va="center", fontsize=20, wrap=True)
-            cover.text(
-                0.5, 0.52, locale.CHART_PDF_SUBTITLE.format(n=len(charts)), ha="center", fontsize=12
-            )
-            cover.text(
-                0.5, 0.12, locale.DISCLAIMER, ha="center", va="bottom", fontsize=9, wrap=True
-            )
-            pdf.savefig(cover)
-        finally:
-            plt.close(cover)
-        for chart in charts:
-            numeric = sorted(
-                (p for p in chart.points if p.value is not None), key=lambda p: p.taken_on
-            )
-            fig = plt.figure(figsize=_A4)
-            try:
-                ax = fig.add_axes((0.10, 0.42, 0.82, 0.48))
-                if numeric:
-                    _draw(ax, fig, numeric)
-                ax.set_title(_pdf_text(chart.title), fontsize=14)
-                ax.grid(True, alpha=0.3, zorder=0)
-                fig.text(
-                    0.10,
-                    0.34,
-                    _pdf_text(chart.caption),
-                    ha="left",
-                    va="top",
-                    fontsize=11,
-                    wrap=True,
-                )
-                pdf.savefig(fig)
-            finally:
-                plt.close(fig)
+        _cover(pdf, heading=heading, subtitle=subtitle, breakdown=breakdown, n=len(charts))
+        for i, chart in enumerate(charts, 1):
+            _chart_page(pdf, chart, page_no=i, total=len(charts))
     return buffer.getvalue()

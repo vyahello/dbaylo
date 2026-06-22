@@ -580,8 +580,10 @@ CHART_REPORT_ROW = "• {analyte}: {value} — {movement}"
 CHART_REPORT_HINT = "Щоб побачити графік — обери показник вище 👆"
 
 # One-PDF export: every chart + a short description, saved as a file.
-CHART_PDF_HEADING = "Динаміка показників — Дбайло"
-CHART_PDF_SUBTITLE = "{n} показників"
+CHART_PDF_HEADING = "Динаміка показників"
+CHART_PDF_SUBTITLE = "{n} показників у динаміці"
+CHART_PDF_REPORT_LINE = "Аналіз від {date} · {lab}"  # the report this PDF is built from
+CHART_PDF_BREAKDOWN_ITEM = "{name}: {n}"  # one category chip, joined by " · "
 CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
 CHART_PDF_EMPTY = "Поки нема графіків для PDF — потрібно щонайменше два виміри одного показника."
 CHART_PDF_FILENAME = "dbaylo-dynamika.pdf"

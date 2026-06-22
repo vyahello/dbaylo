@@ -59,10 +59,25 @@ def test_render_trends_pdf_is_a_valid_multipage_pdf() -> None:
         LabPoint("pH", date(2026, 2, 1), 6.0, "", 5.0, 7.0),
     ]
     pages = [
-        PdfChart(title="📈 pH (сеча)", points=pts, caption="📈 6 — тримається в межах норми"),
-        PdfChart(title="Лейкоцити", points=pts, caption="📈 6 — норма\n\nЛейкоцити — клітини."),
+        PdfChart(
+            title="📈 pH (сеча)",
+            subtitle="🔬 Сеча",
+            points=pts,
+            caption="📈 6 — тримається в межах норми",
+        ),
+        PdfChart(
+            title="Лейкоцити",
+            subtitle="🩸 Кров",
+            points=pts,
+            caption="📈 6 — норма\n\nЛейкоцити — клітини.",
+        ),
     ]
-    pdf = render_trends_pdf(pages, heading="Динаміка показників")
+    pdf = render_trends_pdf(
+        pages,
+        heading="Динаміка показників",
+        subtitle="Аналіз від 2026-02-01 · Сінево",
+        breakdown="Сеча: 1 · Кров: 1",
+    )
     assert pdf[:5] == b"%PDF-" and len(pdf) > 1000
 
 
