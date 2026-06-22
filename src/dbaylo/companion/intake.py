@@ -25,7 +25,7 @@ import re
 from dataclasses import dataclass
 
 from dbaylo import locale
-from dbaylo.llm import ClaudeUnavailable, run_claude
+from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import GateSource, screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 from dbaylo.triage.types import Action
@@ -50,7 +50,7 @@ INTAKE_PERSONA = (
     "and must NEVER go below it or imply the user can skip care. NEVER give a definitive "
     "diagnosis, a medication or any dose, calorie/macro/fasting numbers, or fabricated sources. "
     "Do not use the phrases 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', "
-    "'нічого страшного'. Plain text only, no markdown."
+    "'нічого страшного'. Plain text only, no markdown.\n" + NATURAL_VOICE
 )
 
 

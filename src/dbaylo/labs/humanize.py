@@ -19,7 +19,7 @@ from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
 from dbaylo.labs.schema import ExtractedReport
 from dbaylo.labs.trends import TrendSummary, is_out_of_range, normalize_analyte
-from dbaylo.llm import ClaudeUnavailable, run_claude
+from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
 # Internal (English) persona telling the model how to write the Ukrainian summary.
@@ -30,7 +30,7 @@ HUMANIZE_PERSONA = (
     "interpret beyond what is given, and NEVER give a dose, a drug, or a treatment. "
     "Speak of changes relative to the reference range (e.g. 'наближається до норми'), never "
     "as 'покращується/погіршується'. Suggest discussing anything notable with a doctor. "
-    "Be brief: 2–4 short sentences. No markdown."
+    "Be brief: 2–4 short sentences. No markdown.\n" + NATURAL_VOICE
 )
 
 
@@ -96,7 +96,7 @@ INDICATOR_NOTE_PERSONA = (
     "diagnose the reader, use NO numbers, NO doses, NO drugs, NO diets or fasting, NO fabricated "
     "statistics, and NEVER say the reader is healthy or sick. It is general information a doctor "
     "interprets in context. If you do not recognize the marker, reply with NOTHING. Be concise; no "
-    "markdown."
+    "markdown.\n" + NATURAL_VOICE
 )
 
 _indicator_note_cache: dict[str, str] = {}
@@ -178,7 +178,8 @@ INTERPRET_PERSONA = (
     "statistics. NEVER tell the user not to worry or that they can skip a doctor, and do not use "
     "the phrases 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', "
     "'нічого страшного' — describe the data instead. Do NOT add your own disclaimer or any "
-    "'я не лікар' / 'це не медичний висновок' line — that is appended automatically."
+    "'я не лікар' / 'це не медичний висновок' line — that is appended automatically.\n"
+    + NATURAL_VOICE
 )
 
 
@@ -271,7 +272,8 @@ _SECTION_BASE_PERSONA = (
     "FOCUS: discuss ONLY the analytes marked ATTENTION (out of range). Do NOT describe or list "
     "in-range analytes one by one — refer to normal results only as a brief aggregate (e.g. "
     "'решта показників — у межах норми'), and only where it helps the reader.\n"
-    "THE SECTION TO WRITE — "
+    + NATURAL_VOICE
+    + "\nTHE SECTION TO WRITE — "
 )
 
 

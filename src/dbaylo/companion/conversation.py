@@ -20,7 +20,7 @@ from dataclasses import dataclass
 
 from dbaylo import locale
 from dbaylo.labs.extraction import Runner
-from dbaylo.llm import ClaudeUnavailable, run_claude
+from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
@@ -47,7 +47,7 @@ COMPANION_PERSONA = (
     "Encourage real-world connection and professional help where relevant. Never position "
     "yourself as the user's only support, and never manufacture streaks or compulsive "
     "engagement. You do NOT decide medical or eating-disorder escalation — that is handled "
-    "before you reach the user."
+    "before you reach the user.\n" + NATURAL_VOICE
 )
 
 
