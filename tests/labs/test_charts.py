@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from dbaylo.labs.charts import _out_of_range, render_trend_chart
+from dbaylo.labs.charts import _out_of_range, _readable_ticks, render_trend_chart
 from dbaylo.labs.trends import LabPoint
 
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -14,6 +14,29 @@ _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 def _pt(day: int, value: float, low=None, high=None):
     return LabPoint("Глюкоза", date(2026, 1, day), value, "ммоль/л", low, high)
+
+
+def test_readable_ticks_keeps_few_dates_and_thins_clusters() -> None:
+    # A handful of dates are all kept (every one is a real measurement).
+    assert _readable_ticks([1.0, 5.0, 9.0]) == [1.0, 5.0, 9.0]
+    # A long run on consecutive days is thinned, but always keeps the first and last and every
+    # kept tick is one of the real input dates (never an interpolated one).
+    days = [float(d) for d in range(1, 31)]  # 30 daily samples
+    ticks = _readable_ticks(days, max_ticks=7)
+    assert ticks[0] == 1.0 and ticks[-1] == 30.0
+    assert len(ticks) <= 8  # not one-per-day
+    assert all(t in days for t in ticks)
+
+
+def test_readable_ticks_thins_a_time_cluster_between_two_far_dates() -> None:
+    # The real bug: one early date, a dense 2023 cluster, one late date — the cluster must not
+    # contribute many overlapping labels.
+    cluster = [100.0 + i * 0.5 for i in range(12)]  # 12 dates within ~6 days
+    values = [0.0, *cluster, 330.0]
+    ticks = _readable_ticks(values, max_ticks=7)
+    assert ticks[0] == 0.0 and ticks[-1] == 330.0
+    in_cluster = [t for t in ticks if 100.0 <= t <= 106.0]
+    assert len(in_cluster) <= 2  # the smear is gone
 
 
 def test_render_returns_png_with_reference_band() -> None:

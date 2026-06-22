@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dbaylo import locale
-from dbaylo.bot.history_flow import _charts_picker_view, _render_analysis_view
+from dbaylo.bot.history_flow import _chart_filename, _charts_picker_view, _render_analysis_view
 from dbaylo.companion import callbacks
 from dbaylo.companion.history import TrendChartItem
+from dbaylo.labs.trends import series_key
 from dbaylo.triage.safety import DISCLAIMER
 
 _SUMMARY = (
@@ -72,6 +73,20 @@ def _items(n: int) -> list[TrendChartItem]:
     flagged = [TrendChartItem(name=f"Z-flag{i}", key=f"z{i}", flagged=True) for i in range(2)]
     normal = [TrendChartItem(name=f"A-norm{i}", key=f"a{i}", flagged=False) for i in range(n - 2)]
     return flagged + normal
+
+
+def test_chart_filename_strips_control_chars() -> None:
+    # The series key carries a \x1f separator; using it (or any name with control chars) as the
+    # attachment filename made aiohttp reject the upload ("Forbidden control character"), which
+    # silently killed every single-chart pick. The filename must be control-char-free.
+    key = series_key("Мікроскопія осаду сечі", "Неплаский епітелій")
+    assert "\x1f" in key  # the bug's source
+    fname = _chart_filename(key)
+    assert not any(ord(ch) < 0x20 for ch in fname)
+    assert fname.endswith(".png")
+    # A normal display name is preserved; an empty/blank name still yields a usable filename.
+    assert _chart_filename("Еритроцити") == "Еритроцити.png"
+    assert _chart_filename("\x1f\x00") == "chart.png"
 
 
 def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:

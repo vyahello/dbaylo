@@ -20,6 +20,7 @@ only model call is the companion fallback, which re-enters through the gate.
 from __future__ import annotations
 
 import contextlib
+import re
 from datetime import datetime
 
 from aiogram import F, Router
@@ -66,6 +67,17 @@ _PAGE_SIZE = 8
 
 def _btn(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
+
+
+_CTRL_RE = re.compile(r"[\x00-\x1f]")
+
+
+def _chart_filename(name: str) -> str:
+    """A safe attachment filename. The series KEY carries a ``\\x1f`` separator and analyte names
+    may hold other control chars; aiohttp rejects those in the Content-Disposition header
+    ('Forbidden control character'), which silently killed every single-chart pick."""
+    cleaned = _CTRL_RE.sub(" ", name).strip()
+    return f"{cleaned or 'chart'}.png"
 
 
 def _list_view(
@@ -479,7 +491,7 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
         png = await render_one_chart(session, user_id=user.id, key=item.key, title=item.name)
     if png is not None:
         await callback.message.answer_photo(
-            BufferedInputFile(png, filename=f"{item.key}.png"), caption=item.name
+            BufferedInputFile(png, filename=_chart_filename(item.name)), caption=item.name
         )
 
 
@@ -498,7 +510,9 @@ async def on_chart_all(callback: CallbackQuery) -> None:
         keys = {item.key for item in items}
         charts = await render_report_charts(session, user_id=user.id, analyte_keys=keys)
     for name, png in charts:
-        await callback.message.answer_photo(BufferedInputFile(png, filename=f"{name}.png"))
+        await callback.message.answer_photo(
+            BufferedInputFile(png, filename=_chart_filename(name)), caption=name
+        )
 
 
 # --- Dynamics browser: indicators grouped by clinical category, across all labs ------

@@ -41,6 +41,23 @@ def _out_of_range(value: float, lo: float | None, hi: float | None) -> bool:
     return (lo is not None and value < lo) or (hi is not None and value > hi)
 
 
+def _readable_ticks(values: list[float], *, max_ticks: int = 7) -> list[float]:
+    """A readable subset of the actual measurement dates for the x-axis. We tick only on real
+    dates (never an interpolated 'phantom' one), but when several samples fall close together in
+    TIME their labels collide into an unreadable smear — so we keep the first and last and add an
+    intermediate date only when it is far enough (in time) from the previously kept one."""
+    unique = sorted(set(values))
+    if len(unique) <= max_ticks:
+        return unique
+    min_gap = (unique[-1] - unique[0]) / max_ticks
+    kept = [unique[0]]
+    for v in unique[1:-1]:
+        if v - kept[-1] >= min_gap:
+            kept.append(v)
+    kept.append(unique[-1])
+    return kept
+
+
 def render_trend_chart(points: list[LabPoint], *, title: str) -> bytes:
     """Render a single analyte's series to PNG bytes (value vs date)."""
     numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
@@ -127,8 +144,9 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y-%m-%d"))
     # Tick ONLY on the dates we actually measured — otherwise matplotlib auto-fills "nice" dates
-    # (e.g. a 2022 tick between a 2021 and a 2023 sample) and reads as phantom measurements.
-    ax.set_xticks(sorted(set(xs)))
+    # (e.g. a 2022 tick between a 2021 and a 2023 sample) and reads as phantom measurements — but
+    # thin them so time-clustered samples don't overlap into an unreadable smear.
+    ax.set_xticks(_readable_ticks(xs))
     ax.margins(x=0.08)  # a little breathing room so the first/last marker isn't clipped
     fig.autofmt_xdate()
 
