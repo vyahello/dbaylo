@@ -35,6 +35,7 @@ from aiogram.types import (
     FSInputFile,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    InputMediaPhoto,
     Message,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -96,21 +97,59 @@ async def _show_uploading(message: Message) -> None:
         await message.bot.send_chat_action(message.chat.id, "upload_photo")  # type: ignore[union-attr]
 
 
+def _chart_nav_keyboard(report_id: int, index: int, total: int) -> InlineKeyboardMarkup:
+    """Carousel nav shown UNDER each chart photo so you flip indicators in place instead of
+    scrolling back up to the picker: ⬅️ / position / ➡️, then a jump back to the full list."""
+    arrows: list[InlineKeyboardButton] = []
+    if index > 0:
+        arrows.append(_btn(locale.BTN_CHART_PREV, callbacks.chart_nav(report_id, index - 1)))
+    arrows.append(
+        _btn(
+            locale.CHART_NAV_POSITION.format(i=index + 1, n=total),
+            callbacks.history_dynamics(report_id),  # tap the counter -> reopen the list
+        )
+    )
+    if index < total - 1:
+        arrows.append(_btn(locale.BTN_CHART_NEXT, callbacks.chart_nav(report_id, index + 1)))
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            arrows,
+            [_btn(locale.BTN_CHART_LIST, callbacks.history_dynamics(report_id))],
+        ]
+    )
+
+
+async def _chart_full_caption(dynamics: str, analyte: str, specimen: str | None) -> str | None:
+    """The dynamics line + the sample-specific educational note, or None if there is no note / it
+    would overflow the caption limit (the caller then keeps the dynamics line alone)."""
+    note = await describe_indicator(analyte, specimen=specimen)
+    if not note:
+        return None
+    full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
+    return full if len(full) <= _CAPTION_MAX else None
+
+
 async def _send_chart(
-    message: Message, *, png: bytes, dynamics: str, analyte: str, specimen: str | None
+    message: Message,
+    *,
+    png: bytes,
+    dynamics: str,
+    analyte: str,
+    specimen: str | None,
+    keyboard: InlineKeyboardMarkup | None = None,
 ) -> None:
     """Send the chart IMMEDIATELY with the deterministic dynamics caption, then fill in the
     sample-specific educational note by editing the caption — so a cache-miss note (~several
     seconds) never leaves the user staring at a blank screen waiting for the chart."""
     sent = await message.answer_photo(
-        BufferedInputFile(png, filename=_chart_filename(analyte)), caption=dynamics
+        BufferedInputFile(png, filename=_chart_filename(analyte)),
+        caption=dynamics,
+        reply_markup=keyboard,
     )
-    note = await describe_indicator(analyte, specimen=specimen)
-    if note:
-        full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
-        if len(full) <= _CAPTION_MAX:
-            with contextlib.suppress(TelegramBadRequest):
-                await sent.edit_caption(caption=full)
+    full = await _chart_full_caption(dynamics, analyte, specimen)
+    if full:
+        with contextlib.suppress(TelegramBadRequest):
+            await sent.edit_caption(caption=full, reply_markup=keyboard)
 
 
 def _list_view(
@@ -524,7 +563,8 @@ async def on_chart_page(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith(callbacks.CHART_PICK + ":"))
 async def on_chart_pick(callback: CallbackQuery) -> None:
-    """Render ONE analyte's chart (the picked button)."""
+    """Render ONE analyte's chart (the picked button), with carousel nav under it so the next
+    indicator is reachable WITHOUT scrolling back up to the picker."""
     parsed = callbacks.parse_chart_pick(callback.data or "")
     tg = _telegram_id(callback)
     if parsed is None or tg is None or not isinstance(callback.message, Message):
@@ -551,7 +591,45 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
             dynamics=history.chart_dynamics_caption(summary),
             analyte=item.name,
             specimen=spec,
+            keyboard=_chart_nav_keyboard(report_id, index, len(items)),
         )
+
+
+@router.callback_query(F.data.startswith(callbacks.CHART_NAV + ":"))
+async def on_chart_nav(callback: CallbackQuery) -> None:
+    """Carousel: flip to the prev/next indicator by editing the SAME photo in place, so browsing
+    many charts never floods the chat or buries the picker."""
+    parsed = callbacks.parse_chart_nav(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, index = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        if not 0 <= index < len(items):
+            return
+        item = items[index]
+        result = await render_chart_and_summary(
+            session, user_id=user.id, key=item.key, title=item.name
+        )
+    if result is None:
+        return
+    png, summary = result
+    spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
+    dynamics = history.chart_dynamics_caption(summary)
+    keyboard = _chart_nav_keyboard(report_id, index, len(items))
+    media = InputMediaPhoto(
+        media=BufferedInputFile(png, filename=_chart_filename(item.name)), caption=dynamics
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_media(media, reply_markup=keyboard)
+    full = await _chart_full_caption(dynamics, item.name, spec)
+    if full:
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_caption(caption=full, reply_markup=keyboard)
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_ALL + ":"))

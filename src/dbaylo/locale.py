@@ -426,6 +426,11 @@ BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 BTN_CHART_ALL = "📋 Звіт по динаміці"  # one scannable text report, not a flood of chart images
 BTN_CHART_PDF = "📄 PDF з усіма графіками"  # one PDF: every chart + a short description
+# Carousel nav UNDER each chart photo, so you flip indicators without scrolling back to the picker.
+BTN_CHART_PREV = "⬅️"
+BTN_CHART_NEXT = "➡️"
+BTN_CHART_LIST = "📋 Список показників"
+CHART_NAV_POSITION = "{i}/{n}"  # which indicator you're on, shown on the list button row
 CHART_FLAGGED_PREFIX = "⚠️ "  # marks an out-of-range analyte in the picker (listed first)
 DYN_TREND_PREFIX = "📈 "  # marks an analyte that has a multi-date trend
 

@@ -201,6 +201,7 @@ def parse_history_interpret_view(data: str) -> tuple[int, int] | None:
 CHART_OPEN = "chart_open"  # open the picker for a report (page 0)
 CHART_PAGE = "chart_page"  # paginate the picker
 CHART_PICK = "chart_pick"  # render ONE analyte's chart (by index into the trend list)
+CHART_NAV = "chart_nav"  # flip to the prev/next analyte's chart IN PLACE (carousel)
 CHART_ALL = "chart_all"  # opt-in: a single text report of all trends
 CHART_PDF = "chart_pdf"  # opt-in: one PDF with every chart + a short description
 
@@ -278,6 +279,18 @@ def parse_chart_pick(data: str) -> tuple[int, int] | None:
     head, _, rest = data.partition(_SEP)
     rid, _, idx = rest.partition(_SEP)
     if head == CHART_PICK and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
+    return None
+
+
+def chart_nav(report_id: int, index: int) -> str:
+    return f"{CHART_NAV}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_chart_nav(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == CHART_NAV and rid.isdigit() and idx.isdigit():
         return int(rid), int(idx)
     return None
 
