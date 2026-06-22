@@ -113,10 +113,19 @@ async def render_one_chart(
 ) -> bytes | None:
     """Render the trend chart (PNG) for a SINGLE analyte key, on demand from the picker — so the
     user sees one indicator at a time instead of a wall of images. None if it has no real trend."""
+    result = await render_chart_and_summary(session, user_id=user_id, key=key, title=title)
+    return result[0] if result is not None else None
+
+
+async def render_chart_and_summary(
+    session: AsyncSession, *, user_id: int, key: str, title: str
+) -> tuple[bytes, TrendSummary] | None:
+    """The chart PNG plus its computed trend summary (for the caption), or None if there is no real
+    trend. Single series build shared by the image and the deterministic caption line."""
     series = build_series(await load_series_points(session, user_id))
     points = series.get(key)
     if points and _has_trend(points):
-        return render_trend_chart(points, title=title)
+        return render_trend_chart(points, title=title), compute_trend(points)
     return None
 
 

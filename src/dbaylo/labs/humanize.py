@@ -18,7 +18,7 @@ from dbaylo import locale
 from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
 from dbaylo.labs.schema import ExtractedReport
-from dbaylo.labs.trends import TrendSummary, is_out_of_range
+from dbaylo.labs.trends import TrendSummary, is_out_of_range, normalize_analyte
 from dbaylo.llm import ClaudeUnavailable, run_claude
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
@@ -80,6 +80,57 @@ def deterministic_summary(summaries: list[TrendSummary]) -> str:
 def _finalize(body: str) -> str:
     """Attach the disclaimer; the body is assumed already safety-checked."""
     return f"{body}\n\n{DISCLAIMER}"
+
+
+# --- Per-marker educational note (trend-chart caption) ---------------------------
+
+# A tiny educational caption for ONE lab marker, shown under its trend chart. It is general
+# knowledge about the marker — independent of the user's values — so it is generated once and cached
+# in-process (regenerated after a restart). Guard-checked; "" on any failure so the caller falls
+# back to the deterministic dynamics line alone.
+INDICATOR_NOTE_PERSONA = (
+    "You write a TINY educational note for a single Ukrainian lab marker, shown under its trend "
+    "chart for a layperson. Given ONLY the marker name, reply EXCLUSIVELY in natural, correct "
+    "Ukrainian with AT MOST TWO short sentences: (1) what the marker reflects / which body system "
+    "it relates to, (2) what values OUTSIDE the norm can BROADLY indicate. Hard rules: do NOT "
+    "diagnose the reader, use NO numbers, NO doses, NO drugs, NO diets or fasting, NO fabricated "
+    "statistics, and NEVER say the reader is healthy or sick. It is general information a doctor "
+    "interprets in context. If you do not recognize the marker, reply with NOTHING. Be concise; no "
+    "markdown."
+)
+
+_indicator_note_cache: dict[str, str] = {}
+
+
+async def describe_indicator(
+    analyte: str, *, runner: Runner = run_claude, model: str | None = None
+) -> str:
+    """A short, guard-checked educational note for a marker's trend-chart caption. Cached in-process
+    per normalized name; returns "" on any failure / guard-trip / unrecognized marker (the caller
+    then shows only the deterministic dynamics line). Only a good note is cached, so a transient
+    failure is retried rather than poisoning the cache."""
+    key = normalize_analyte(analyte)
+    cached = _indicator_note_cache.get(key)
+    if cached is not None:
+        return cached
+    try:
+        result = await runner(
+            f"Показник: {analyte}",
+            append_system_prompt=INDICATOR_NOTE_PERSONA,
+            model=model,
+            timeout_s=get_settings().claude_interpret_timeout_s,
+        )
+    except ClaudeUnavailable:
+        return ""
+    if not result.ok or not result.text.strip():
+        return ""
+    body = strip_markup(result.text.strip())
+    try:
+        assert_safe_output(body)
+    except ValueError:
+        return ""
+    _indicator_note_cache[key] = body
+    return body
 
 
 # --- Stage 5: expert interpretation + recommendations ---------------------------

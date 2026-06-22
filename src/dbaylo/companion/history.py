@@ -37,7 +37,13 @@ from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import build_series, compute_trend, find_series, series_key
+from dbaylo.labs.trends import (
+    TrendSummary,
+    build_series,
+    compute_trend,
+    find_series,
+    series_key,
+)
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
 DEFAULT_LIMIT = 10
@@ -336,6 +342,66 @@ async def list_report_trends(
             flagged=bool(r.flagged) or (prev.flagged if prev else False),
         )
     return sorted(items.values(), key=lambda it: (not it.flagged, it.name.casefold()))
+
+
+def _trend_value(summary: TrendSummary) -> str:
+    latest = summary.latest
+    if latest is None or latest.value is None:
+        return "—"
+    return f"{latest.value:g} {summary.unit}".strip() if summary.unit else f"{latest.value:g}"
+
+
+def chart_dynamics_caption(summary: TrendSummary) -> str:
+    """The deterministic chart caption: latest value + range-relative movement + count. NO analyte
+    name (it is already the chart's title) — the caller may append a short educational note."""
+    movement = locale.TREND_PHRASES.get(summary.direction.name, "")
+    return locale.CHART_DYNAMICS_LINE.format(
+        value=_trend_value(summary), movement=movement, n=summary.n_points
+    )
+
+
+async def render_dynamics_report(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> str | None:
+    """ONE scannable text report of a report's trending analytes (problems first), each with its
+    latest value + range-relative movement — replaces dumping one chart image per analyte (a flood
+    at 85 indicators). Deterministic, no LLM. ``None`` when the report has no chartable trend."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return None
+    series = build_series(await load_series_points(session, user_id))
+    flagged_rows: list[tuple[str, str, str]] = []
+    ok_rows: list[tuple[str, str, str]] = []
+    seen: set[str] = set()
+    for r in ordered_results(report):
+        key = series_key(r.section, r.analyte)
+        if key in seen:
+            continue
+        pts = series.get(key)
+        if not pts or len({p.taken_on for p in pts if p.value is not None}) < 2:
+            continue
+        seen.add(key)
+        summary = compute_trend(pts)
+        movement = locale.TREND_PHRASES.get(summary.direction.name, "")
+        row = (summary.analyte, _trend_value(summary), movement)
+        (flagged_rows if (r.flagged or pts[-1].flagged) else ok_rows).append(row)
+    if not flagged_rows and not ok_rows:
+        return None
+    total = len(flagged_rows) + len(ok_rows)
+    lines = [_bold(locale.CHART_REPORT_HEADER.format(n=total))]
+
+    def _block(header: str, rows: list[tuple[str, str, str]]) -> None:
+        if not rows:
+            return
+        lines.extend(["", _bold(header)])
+        lines.extend(
+            locale.CHART_REPORT_ROW.format(analyte=a, value=v, movement=m) for a, v, m in rows
+        )
+
+    _block(locale.CHART_REPORT_FLAGGED_HEADER, flagged_rows)
+    _block(locale.CHART_REPORT_OK_HEADER, ok_rows)
+    lines.extend(["", locale.CHART_REPORT_HINT])
+    return assert_safe_output(_ps("\n".join(lines)))
 
 
 # --- Cross-lab dynamics browser: indicators grouped by clinical category --------
@@ -648,6 +714,7 @@ class TrendView:
     found: bool
     text: str
     chart: bytes | None
+    analyte: str = ""  # the canonical analyte name, so the caller can fetch its educational note
 
 
 async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str) -> TrendView:
@@ -658,23 +725,27 @@ async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str
         return TrendView(found=False, text=f"{locale.TREND_NOT_FOUND}\n\n{DISCLAIMER}", chart=None)
 
     summary = compute_trend(pts)
-    latest = summary.latest
-    value = "—"
-    if latest is not None and latest.value is not None:
-        value = f"{latest.value:g} {summary.unit}".strip()
-    movement = locale.TREND_PHRASES.get(summary.direction.name, "")
-    text = locale.TREND_LINE.format(
-        analyte=summary.analyte, value=value, movement=movement, n=summary.n_points
-    )
-    chart = render_trend_chart(pts, title=summary.analyte) if summary.n_points >= 2 else None
-    text = assert_safe_output(text)
-    if chart is not None:
+    if summary.n_points >= 2:
+        # Chart caption leads with the movement (the name is the chart title); the handler may add a
+        # short educational note. No disclaimer on a data chart caption.
+        chart = render_trend_chart(pts, title=summary.analyte)
         return TrendView(
-            found=True, text=text, chart=chart
-        )  # caption: no disclaimer on a data chart
-    # Text-only (insufficient data) keeps the disclaimer, like every other plain health reply.
+            found=True,
+            text=assert_safe_output(chart_dynamics_caption(summary)),
+            chart=chart,
+            analyte=summary.analyte,
+        )
+    # Text-only (insufficient data): no chart title, so keep the name, and the disclaimer like every
+    # other plain health reply.
+    movement = locale.TREND_PHRASES.get(summary.direction.name, "")
+    line = locale.TREND_LINE.format(
+        analyte=summary.analyte, value=_trend_value(summary), movement=movement, n=summary.n_points
+    )
     return TrendView(
-        found=True, text=f"{text}\n{locale.TREND_INSUFFICIENT}\n\n{DISCLAIMER}", chart=None
+        found=True,
+        text=f"{assert_safe_output(line)}\n{locale.TREND_INSUFFICIENT}\n\n{DISCLAIMER}",
+        chart=None,
+        analyte=summary.analyte,
     )
 
 

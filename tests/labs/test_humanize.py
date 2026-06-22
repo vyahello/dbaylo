@@ -41,6 +41,47 @@ def test_deterministic_summary_is_safe_and_mentions_values() -> None:
     assert "Глюкоза" in text and "Гемоглобін" in text
 
 
+async def test_describe_indicator_caches_a_safe_note() -> None:
+    from dbaylo.labs import humanize
+
+    humanize._indicator_note_cache.clear()
+    calls = {"n": 0}
+
+    def counting_runner(text: str):
+        async def run(*args, **kwargs) -> ClaudeResult:
+            calls["n"] += 1
+            return ClaudeResult(ok=True, text=text, raw_stdout=text, exit_code=0)
+
+        return run
+
+    note = await humanize.describe_indicator(
+        "pH",
+        runner=counting_runner("pH сечі відображає кислотність. Відхилення бувають при інфекції."),
+    )
+    assert "кислотність" in note and contains_forbidden_reassurance(note) is None
+    # Cached per normalized name: a second call does NOT hit the runner again.
+    again = await humanize.describe_indicator("pH", runner=counting_runner("ЗОВСІМ ІНШЕ"))
+    assert again == note and calls["n"] == 1
+
+
+async def test_describe_indicator_drops_unsafe_and_failed() -> None:
+    from dbaylo.labs import humanize
+
+    humanize._indicator_note_cache.clear()
+    # A guard-tripping note (forbidden reassurance) is dropped to "" and never cached.
+    unsafe = await humanize.describe_indicator(
+        "Лейкоцити", runner=_runner("Усе добре, до лікаря йти не треба.")
+    )
+    assert unsafe == ""
+    # A transient failure is "" and not cached, so a later good call still works.
+    failed = await humanize.describe_indicator("Креатинін", runner=_runner("", ok=False))
+    assert failed == ""
+    good = await humanize.describe_indicator(
+        "Креатинін", runner=_runner("Креатинін відображає роботу нирок.")
+    )
+    assert "нирок" in good
+
+
 async def test_humanize_uses_safe_model_text() -> None:
     body = "Твоя глюкоза повернулася в межі норми. Варто показати результати лікарю."
     out = await humanize(_summaries(), runner=_runner(body))

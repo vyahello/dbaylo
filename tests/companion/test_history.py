@@ -497,7 +497,36 @@ async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> No
     )
     view = await history.trend_for_analyte(async_session, user_id=user.id, analyte="Глюкоза")
     assert view.found and view.chart is not None and view.chart[:4] == b"\x89PNG"
-    assert "Глюкоза" in view.text
+    # The chart caption no longer repeats the name (it is the chart title) — it leads with the
+    # movement; the name travels in `analyte` so the caller can fetch the educational note.
+    assert view.analyte == "Глюкоза" and "Глюкоза" not in view.text
+    assert locale.TREND_PHRASES["RETURNED_TO_RANGE"] in view.text  # 5.0 back inside 3.9–6.1
+
+
+async def test_render_dynamics_report_groups_problems_first(async_session: AsyncSession) -> None:
+    # The "show all" replacement: ONE scannable text report, out-of-range analytes listed first.
+    user = await _user(async_session)
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 1, 1),
+        lab="A",
+        results=(("АЛТ", 70.0, None, 50.0), ("Калій", 4.0, 3.5, 5.1)),
+    )
+    latest = await _report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="A",
+        results=(("АЛТ", 63.0, None, 50.0), ("Калій", 4.2, 3.5, 5.1)),
+    )
+    report = await history.render_dynamics_report(
+        async_session, user_id=user.id, report_id=latest.id
+    )
+    assert report is not None
+    assert locale.CHART_REPORT_FLAGGED_HEADER in report and locale.CHART_REPORT_OK_HEADER in report
+    assert report.index("АЛТ") < report.index("Калій")  # flagged АЛТ before in-range Калій
+    assert DISCLAIMER in report
 
 
 async def test_find_interrupted_analyses_only_pending(async_session: AsyncSession) -> None:

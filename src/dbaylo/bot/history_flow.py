@@ -50,8 +50,9 @@ from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
+from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
-from dbaylo.labs.pipeline import compute_report_summary, render_one_chart, render_report_charts
+from dbaylo.labs.pipeline import compute_report_summary, render_chart_and_summary
 from dbaylo.labs.trends import series_key
 from dbaylo.safety import GateSource, screen
 
@@ -78,6 +79,28 @@ def _chart_filename(name: str) -> str:
     ('Forbidden control character'), which silently killed every single-chart pick."""
     cleaned = _CTRL_RE.sub(" ", name).strip()
     return f"{cleaned or 'chart'}.png"
+
+
+_CAPTION_MAX = 1024  # Telegram photo-caption limit
+
+
+async def _chart_caption(dynamics: str, analyte: str) -> str:
+    """The chart caption: the deterministic dynamics line, plus a short guard-checked educational
+    note about the marker (cached) and a micro-disclaimer. Falls back to the dynamics line alone if
+    the note is empty or the whole thing would overflow the caption limit."""
+    note = await describe_indicator(analyte)
+    if not note:
+        return dynamics
+    full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
+    return full if len(full) <= _CAPTION_MAX else dynamics
+
+
+async def _send_chart(message: Message, *, png: bytes, dynamics: str, analyte: str) -> None:
+    """Send a trend chart with the unified caption (dynamics + educational note)."""
+    caption = await _chart_caption(dynamics, analyte)
+    await message.answer_photo(
+        BufferedInputFile(png, filename=_chart_filename(analyte)), caption=caption
+    )
 
 
 def _list_view(
@@ -227,9 +250,7 @@ async def _send_trend(message: Message, *, telegram_id: int, analyte: str) -> No
         user = await ensure_user(session, telegram_id=telegram_id)
         view = await history.trend_for_analyte(session, user_id=user.id, analyte=analyte)
     if view.chart is not None:
-        await message.answer_photo(
-            BufferedInputFile(view.chart, filename="trend.png"), caption=view.text
-        )
+        await _send_chart(message, png=view.chart, dynamics=view.text, analyte=view.analyte)
     else:
         await message.answer(view.text)
 
@@ -499,16 +520,24 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
         if not 0 <= index < len(items):
             return
         item = items[index]
-        png = await render_one_chart(session, user_id=user.id, key=item.key, title=item.name)
-    if png is not None:
-        await callback.message.answer_photo(
-            BufferedInputFile(png, filename=_chart_filename(item.name)), caption=item.name
+        result = await render_chart_and_summary(
+            session, user_id=user.id, key=item.key, title=item.name
+        )
+    if result is not None:
+        png, summary = result
+        await _send_chart(
+            callback.message,
+            png=png,
+            dynamics=history.chart_dynamics_caption(summary),
+            analyte=item.name,
         )
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_ALL + ":"))
 async def on_chart_all(callback: CallbackQuery) -> None:
-    """Opt-in: render every trending chart at once (the old behaviour, now behind a button)."""
+    """A single scannable TEXT report of every trending analyte (problems first) — instead of
+    dumping one chart image per analyte (a flood at 85 indicators). A specific chart is one tap
+    away in the picker."""
     report_id = callbacks.parse_chart_all(callback.data or "")
     tg = _telegram_id(callback)
     if report_id is None or tg is None or not isinstance(callback.message, Message):
@@ -517,13 +546,8 @@ async def on_chart_all(callback: CallbackQuery) -> None:
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
-        keys = {item.key for item in items}
-        charts = await render_report_charts(session, user_id=user.id, analyte_keys=keys)
-    for name, png in charts:
-        await callback.message.answer_photo(
-            BufferedInputFile(png, filename=_chart_filename(name)), caption=name
-        )
+        report = await history.render_dynamics_report(session, user_id=user.id, report_id=report_id)
+    await answer_chunked(callback.message, report or locale.HIST_DYNAMICS_EMPTY)
 
 
 # --- Dynamics browser: indicators grouped by clinical category, across all labs ------
@@ -683,8 +707,8 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
             session, user_id=user.id, analyte=indicators[index].name
         )
     if view.chart is not None:
-        await callback.message.answer_photo(
-            BufferedInputFile(view.chart, filename="trend.png"), caption=view.text
+        await _send_chart(
+            callback.message, png=view.chart, dynamics=view.text, analyte=view.analyte
         )
     else:
         await callback.message.answer(view.text)
