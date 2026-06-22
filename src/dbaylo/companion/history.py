@@ -43,6 +43,7 @@ from dbaylo.labs.trends import (
     compute_trend,
     find_series,
     series_key,
+    specimen,
 )
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
@@ -351,6 +352,15 @@ def _trend_value(summary: TrendSummary) -> str:
     return f"{latest.value:g} {summary.unit}".strip() if summary.unit else f"{latest.value:g}"
 
 
+def _strip_section_prefix(analyte: str, section: str | None) -> str:
+    """Drop a redundant leading '<section>: ' from an analyte name (urine-microscopy rows store the
+    panel inside the name) so a compact list isn't 'Мікроскопія осаду сечі: Кристали …' on every
+    line. The panel is shown once as a group header instead."""
+    if section and analyte.casefold().startswith(f"{section.casefold()}: "):
+        return analyte[len(section) + 2 :].strip()
+    return analyte
+
+
 def chart_dynamics_caption(summary: TrendSummary) -> str:
     """The deterministic chart caption: latest value + range-relative movement + count. NO analyte
     name (it is already the chart's title) — the caller may append a short educational note."""
@@ -383,7 +393,8 @@ async def render_dynamics_report(
         seen.add(key)
         summary = compute_trend(pts)
         movement = locale.TREND_PHRASES.get(summary.direction.name, "")
-        row = (summary.analyte, _trend_value(summary), movement)
+        name = _strip_section_prefix(summary.analyte, r.section)
+        row = (name, _trend_value(summary), movement)
         (flagged_rows if (r.flagged or pts[-1].flagged) else ok_rows).append(row)
     if not flagged_rows and not ok_rows:
         return None
@@ -715,6 +726,7 @@ class TrendView:
     text: str
     chart: bytes | None
     analyte: str = ""  # the canonical analyte name, so the caller can fetch its educational note
+    specimen: str | None = None  # blood / urine / semen — so the note is sample-specific
 
 
 async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str) -> TrendView:
@@ -725,6 +737,7 @@ async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str
         return TrendView(found=False, text=f"{locale.TREND_NOT_FOUND}\n\n{DISCLAIMER}", chart=None)
 
     summary = compute_trend(pts)
+    spec = specimen(pts[-1].section, summary.analyte)
     if summary.n_points >= 2:
         # Chart caption leads with the movement (the name is the chart title); the handler may add a
         # short educational note. No disclaimer on a data chart caption.
@@ -734,6 +747,7 @@ async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str
             text=assert_safe_output(chart_dynamics_caption(summary)),
             chart=chart,
             analyte=summary.analyte,
+            specimen=spec,
         )
     # Text-only (insufficient data): no chart title, so keep the name, and the disclaimer like every
     # other plain health reply.
@@ -746,6 +760,7 @@ async def trend_for_analyte(session: AsyncSession, *, user_id: int, analyte: str
         text=f"{assert_safe_output(line)}\n{locale.TREND_INSUFFICIENT}\n\n{DISCLAIMER}",
         chart=None,
         analyte=summary.analyte,
+        specimen=spec,
     )
 
 

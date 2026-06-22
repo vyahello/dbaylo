@@ -64,6 +64,33 @@ async def test_describe_indicator_caches_a_safe_note() -> None:
     assert again == note and calls["n"] == 1
 
 
+async def test_describe_indicator_passes_specimen_and_keys_cache_by_it() -> None:
+    from dbaylo.labs import humanize
+
+    humanize._indicator_note_cache.clear()
+    seen: dict[str, str] = {}
+
+    def capturing(text: str):
+        async def run(prompt: str, **kwargs) -> ClaudeResult:
+            seen["prompt"] = prompt
+            return ClaudeResult(ok=True, text=text, raw_stdout=text, exit_code=0)
+
+        return run
+
+    urine = await humanize.describe_indicator(
+        "Еритроцити",
+        specimen="urine",
+        runner=capturing("Еритроцити в сечі бувають при запаленні чи камінні."),
+    )
+    assert "сеча" in seen["prompt"]  # the sample type is handed to the model, no hedging
+    assert urine
+    # The SAME analyte in blood is a separate cache entry, not the urine note.
+    blood = await humanize.describe_indicator(
+        "Еритроцити", specimen="blood", runner=capturing("Еритроцити крові переносять кисень.")
+    )
+    assert "кисень" in blood and blood != urine
+
+
 async def test_describe_indicator_drops_unsafe_and_failed() -> None:
     from dbaylo.labs import humanize
 

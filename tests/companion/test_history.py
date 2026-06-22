@@ -503,6 +503,17 @@ async def test_trend_two_points_renders_chart(async_session: AsyncSession) -> No
     assert locale.TREND_PHRASES["RETURNED_TO_RANGE"] in view.text  # 5.0 back inside 3.9–6.1
 
 
+def test_strip_section_prefix_compacts_microscopy_names() -> None:
+    assert (
+        history._strip_section_prefix(
+            "Мікроскопія осаду сечі: Кристали (загальні)", "Мікроскопія осаду сечі"
+        )
+        == "Кристали (загальні)"
+    )
+    assert history._strip_section_prefix("Глюкоза", "Біохімія") == "Глюкоза"  # no prefix -> as is
+    assert history._strip_section_prefix("Глюкоза", None) == "Глюкоза"
+
+
 async def test_render_dynamics_report_groups_problems_first(async_session: AsyncSession) -> None:
     # The "show all" replacement: ONE scannable text report, out-of-range analytes listed first.
     user = await _user(async_session)

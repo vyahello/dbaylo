@@ -89,33 +89,50 @@ def _finalize(body: str) -> str:
 # in-process (regenerated after a restart). Guard-checked; "" on any failure so the caller falls
 # back to the deterministic dynamics line alone.
 INDICATOR_NOTE_PERSONA = (
-    "You write a TINY educational note for a single Ukrainian lab marker, shown under its trend "
-    "chart for a layperson. Given ONLY the marker name, reply EXCLUSIVELY in natural, correct "
-    "Ukrainian with AT MOST TWO short sentences: (1) what the marker reflects / which body system "
-    "it relates to, (2) what values OUTSIDE the norm can BROADLY indicate. Hard rules: do NOT "
-    "diagnose the reader, use NO numbers, NO doses, NO drugs, NO diets or fasting, NO fabricated "
-    "statistics, and NEVER say the reader is healthy or sick. It is general information a doctor "
-    "interprets in context. If you do not recognize the marker, reply with NOTHING. Be concise; no "
-    "markdown.\n" + NATURAL_VOICE
+    "You write a TINY educational note for ONE Ukrainian lab marker, shown under its trend chart "
+    "for a layperson. You are given the marker name AND its sample type (blood / urine / semen). "
+    "Reply EXCLUSIVELY in natural Ukrainian, ONE or TWO VERY short sentences (about 200 characters "
+    "total, no more): what the marker reflects FOR THAT SAMPLE, and what a deviation can BROADLY "
+    "hint at. Answer for the given sample specifically — NEVER hedge like 'сечі або крові, залежно "
+    "від контексту'. Hard rules: do NOT diagnose the reader, use NO numbers, NO doses, NO drugs, "
+    "NO diets or fasting, NO fabricated statistics, and NEVER say the reader is healthy or sick. "
+    "It is general information a doctor interprets in context. If you do not recognize the marker, "
+    "reply with NOTHING. Be very concise; no markdown.\n" + NATURAL_VOICE
 )
+
+# Ukrainian sample-type context handed to the note generator so it never guesses urine vs blood.
+_SPECIMEN_UK: dict[str, str] = {
+    "blood": "кров",
+    "urine": "сеча",
+    "semen": "спермограма (еякулят)",
+}
 
 _indicator_note_cache: dict[str, str] = {}
 
 
 async def describe_indicator(
-    analyte: str, *, runner: Runner = run_claude, model: str | None = None
+    analyte: str,
+    *,
+    specimen: str | None = None,
+    runner: Runner = run_claude,
+    model: str | None = None,
 ) -> str:
-    """A short, guard-checked educational note for a marker's trend-chart caption. Cached in-process
-    per normalized name; returns "" on any failure / guard-trip / unrecognized marker (the caller
-    then shows only the deterministic dynamics line). Only a good note is cached, so a transient
-    failure is retried rather than poisoning the cache."""
-    key = normalize_analyte(analyte)
+    """A short, guard-checked educational note for a marker's trend-chart caption. The ``specimen``
+    (blood / urine / semen, from the series key) is passed so the note is specific instead of
+    hedging 'urine or blood'. Cached in-process per (specimen, normalized name); "" on any failure /
+    guard-trip / unrecognized marker. Only a good note is cached, so a transient failure is retried
+    rather than poisoning the cache."""
+    key = f"{specimen or ''}\x1f{normalize_analyte(analyte)}"
     cached = _indicator_note_cache.get(key)
     if cached is not None:
         return cached
+    prompt = f"Показник: {analyte}"
+    sample = _SPECIMEN_UK.get(specimen or "")
+    if sample:
+        prompt += f"\nТип зразка: {sample} — описуй саме для цього зразка"
     try:
         result = await runner(
-            f"Показник: {analyte}",
+            prompt,
             append_system_prompt=INDICATOR_NOTE_PERSONA,
             model=model,
             timeout_s=get_settings().claude_interpret_timeout_s,

@@ -53,7 +53,7 @@ from dbaylo.db.models import LabReport
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.pipeline import compute_report_summary, render_chart_and_summary
-from dbaylo.labs.trends import series_key
+from dbaylo.labs.trends import series_key, specimen
 from dbaylo.safety import GateSource, screen
 
 router = Router(name="history")
@@ -84,20 +84,22 @@ def _chart_filename(name: str) -> str:
 _CAPTION_MAX = 1024  # Telegram photo-caption limit
 
 
-async def _chart_caption(dynamics: str, analyte: str) -> str:
+async def _chart_caption(dynamics: str, analyte: str, specimen: str | None) -> str:
     """The chart caption: the deterministic dynamics line, plus a short guard-checked educational
-    note about the marker (cached) and a micro-disclaimer. Falls back to the dynamics line alone if
-    the note is empty or the whole thing would overflow the caption limit."""
-    note = await describe_indicator(analyte)
+    note about the marker (cached, specific to the sample type) and a micro-disclaimer. Falls back
+    to the dynamics line alone if the note is empty or the whole thing would overflow the limit."""
+    note = await describe_indicator(analyte, specimen=specimen)
     if not note:
         return dynamics
     full = f"{dynamics}\n\n{note}\n\n{locale.CHART_NOTE_DISCLAIMER}"
     return full if len(full) <= _CAPTION_MAX else dynamics
 
 
-async def _send_chart(message: Message, *, png: bytes, dynamics: str, analyte: str) -> None:
-    """Send a trend chart with the unified caption (dynamics + educational note)."""
-    caption = await _chart_caption(dynamics, analyte)
+async def _send_chart(
+    message: Message, *, png: bytes, dynamics: str, analyte: str, specimen: str | None
+) -> None:
+    """Send a trend chart with the unified caption (dynamics + sample-specific educational note)."""
+    caption = await _chart_caption(dynamics, analyte, specimen)
     await message.answer_photo(
         BufferedInputFile(png, filename=_chart_filename(analyte)), caption=caption
     )
@@ -250,7 +252,13 @@ async def _send_trend(message: Message, *, telegram_id: int, analyte: str) -> No
         user = await ensure_user(session, telegram_id=telegram_id)
         view = await history.trend_for_analyte(session, user_id=user.id, analyte=analyte)
     if view.chart is not None:
-        await _send_chart(message, png=view.chart, dynamics=view.text, analyte=view.analyte)
+        await _send_chart(
+            message,
+            png=view.chart,
+            dynamics=view.text,
+            analyte=view.analyte,
+            specimen=view.specimen,
+        )
     else:
         await message.answer(view.text)
 
@@ -525,11 +533,13 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
         )
     if result is not None:
         png, summary = result
+        spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
         await _send_chart(
             callback.message,
             png=png,
             dynamics=history.chart_dynamics_caption(summary),
             analyte=item.name,
+            specimen=spec,
         )
 
 
@@ -547,7 +557,12 @@ async def on_chart_all(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.render_dynamics_report(session, user_id=user.id, report_id=report_id)
-    await answer_chunked(callback.message, report or locale.HIST_DYNAMICS_EMPTY)
+    if report is None:
+        await callback.message.answer(locale.HIST_DYNAMICS_EMPTY)
+        return
+    await answer_chunked(
+        callback.message, render_interpretation_html(report), parse_mode=ParseMode.HTML
+    )
 
 
 # --- Dynamics browser: indicators grouped by clinical category, across all labs ------
@@ -708,7 +723,11 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
         )
     if view.chart is not None:
         await _send_chart(
-            callback.message, png=view.chart, dynamics=view.text, analyte=view.analyte
+            callback.message,
+            png=view.chart,
+            dynamics=view.text,
+            analyte=view.analyte,
+            specimen=view.specimen,
         )
     else:
         await callback.message.answer(view.text)
