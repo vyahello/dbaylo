@@ -60,7 +60,11 @@ EXTRACTION_PERSONA = (
     "                                    // 'Мікроскопія осаду сечі' (blood vs urine MUST differ)\n"
     '      "analyte": string,            // name exactly as printed (Ukrainian)\n'
     '      "value": number | null,       // dot decimal; convert "3,5" -> 3.5\n'
-    '      "value_text": string | null,  // qualitative result e.g. "не виявлено"\n'
+    '      "value_text": string | null,  // the printed result when it is a WORD, not a number:\n'
+    "                                    // 'не виявлено', 'виявлено', 'некласифіковані',\n"
+    "                                    // 'поодинокі', 'суцільно', 'негативно', '+++'. A boxed\n"
+    "                                    // or highlighted word is STILL the value — record it\n"
+    "                                    // here (and set out_of_range), never leave it blank\n"
     '      "unit": string | null,\n'
     '      "ref_low": number | null,     // ALWAYS fill numeric bounds when the range is\n'
     '      "ref_high": number | null,    // numeric: "3.9-6.1"->low=3.9,high=6.1; "< 5.2" or\n'
@@ -78,7 +82,10 @@ EXTRACTION_PERSONA = (
     "}\n"
     "Preserve analyte names exactly as printed. If a field is missing or illegible "
     "use null — never guess or invent values. Report ONLY what the document shows (incl. its "
-    "own out-of-range marks); do not diagnose, interpret, or comment. A document with no "
+    "own out-of-range marks); do not diagnose, interpret, or comment. A boxed / highlighted / "
+    "marked cell IS a result you must record: NEVER return a row with out_of_range=true while "
+    "BOTH value and value_text are null — put the marked text (e.g. 'некласифіковані') into "
+    "value_text so the user can see WHY it is flagged. A document with no "
     "analyte table is 'narrative' — capture its report_type, narrative findings, and conclusion. "
     "An imaging / descriptive study (МРТ/КТ/УЗД/рентген/висновок/опис/виписка) is ALWAYS "
     "kind='narrative' with results=[] — put its sentences in 'narrative', NEVER turn them, the "

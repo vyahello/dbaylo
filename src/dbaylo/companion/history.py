@@ -518,12 +518,21 @@ def _results_title(report: LabReport) -> str:
 _INLINE_NORMAL_MAX = 5
 
 
+def _value_display(r: LabResult) -> str:
+    """The printed value of a row: the number, else the qualitative word, else — for a row the
+    lab flagged but whose value was not captured — an honest 'lab-marked' note. A ⚠️ must never
+    be left with a bare '—' (the user can't see WHY it is flagged); legacy rows whose boxed
+    qualitative result wasn't extracted fall back to this until re-extraction recovers the word."""
+    if r.value is not None:
+        return f"{r.value:g}{f' {r.unit}' if r.unit else ''}"
+    if r.value_text:
+        return f"{r.value_text}{f' {r.unit}' if r.unit else ''}"
+    return locale.LAB_VALUE_MARKED if r.flagged else "—"
+
+
 def _result_line(r: LabResult, marker: str = "") -> str:
-    value = f"{r.value:g}" if r.value is not None else (r.value_text or "—")
-    if r.unit:
-        value = f"{value} {r.unit}"
     ref = _ref_text(r.ref_low, r.ref_high) if (r.ref_low or r.ref_high) else (r.ref_text or "—")
-    return f"• {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {marker}".rstrip()
+    return f"• {r.analyte} — {_value_display(r)} ({locale.LAB_NORM_LABEL} {ref}) {marker}".rstrip()
 
 
 def _grouped_result_lines(results: list[LabResult], marker: str) -> list[str]:
@@ -602,16 +611,14 @@ def render_report_results(report: LabReport, results: list[LabResult]) -> str:
                         lines.append("")
                     lines.append(locale.LAB_SECTION_HEADER.format(section=r.section))
             emoji = locale.FLAG_ATTENTION if r.flagged else locale.FLAG_EMOJI["normal"]
-            value = f"{r.value:g}" if r.value is not None else (r.value_text or "—")
-            if r.unit:
-                value = f"{value} {r.unit}"
             ref = (
                 _ref_text(r.ref_low, r.ref_high)
                 if (r.ref_low or r.ref_high)
                 else (r.ref_text or "—")
             )
             lines.append(
-                f"{i}. {r.analyte} — {value} ({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
+                f"{i}. {r.analyte} — {_value_display(r)} "
+                f"({locale.LAB_NORM_LABEL} {ref}) {emoji}".rstrip()
             )
     # The expert reading is a SEPARATE view now (🔬 Розбір) — the full table is just the data.
     return assert_safe_output(_ps("\n".join(lines)))

@@ -202,6 +202,9 @@ LAB_CONFIRM_NORMAL_HEADER = "✅ У межах норми:"  # when a few in-ran
 LAB_CONFIRM_VERIFY = "Звір позначені значення з бланком. Усе правильно?"
 LAB_CONFIRM_FULL_HEADER = "📋 Усі показники:"
 LAB_NORM_LABEL = "норма"
+# Honest fallback when the lab flagged a row but its value (often a boxed qualitative word)
+# wasn't captured — so a ⚠️ is never shown with a bare "—". Re-extraction recovers the word.
+LAB_VALUE_MARKED = "поза нормою (позначено лабораторією)"
 # Header before each panel's rows (combined reports: blood vs urine stay visually apart).
 LAB_SECTION_HEADER = "▸ {section}"
 LAB_DATE_LABEL = "Дата"

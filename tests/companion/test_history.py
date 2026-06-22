@@ -276,6 +276,52 @@ async def test_render_problems_lists_few_in_range_by_name(
     assert f"P.S. <i>{DISCLAIMER}</i>" in html  # one consistent italic P.S. everywhere
 
 
+def test_value_display_flagged_without_value_is_explained() -> None:
+    # A row the lab BOXED (flagged) but whose qualitative value was not captured must never
+    # render as a bare "—": a ⚠️ has to say WHY. This is the legacy fallback until re-extraction
+    # recovers the boxed word.
+    silent = LabResult(
+        analyte="Бактерії (диференціювання)", value=None, value_text=None, flagged=True
+    )
+    assert history._value_display(silent) == locale.LAB_VALUE_MARKED
+    # A captured qualitative word is shown verbatim (the real reason).
+    qual = LabResult(
+        analyte="Бактерії (диференціювання)", value=None, value_text="некласифіковані", flagged=True
+    )
+    assert history._value_display(qual) == "некласифіковані"
+    # An in-range row with no value is still just "—" (no false alarm).
+    blank = LabResult(analyte="Слиз", value=None, value_text=None, flagged=False)
+    assert history._value_display(blank) == "—"
+    # A numeric value keeps its unit.
+    num = LabResult(analyte="АЛТ", value=63.0, unit="Од/л", flagged=True)
+    assert history._value_display(num) == "63 Од/л"
+
+
+async def test_render_problems_explains_a_silently_flagged_row(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = LabReport(
+        user_id=user.id,
+        report_date=date(2023, 11, 4),
+        lab="Сінево",
+        status=ReportStatus.CONFIRMED,
+        kind=ReportKind.TABULAR,
+        results=[
+            LabResult(
+                analyte="Бактерії (диференціювання)",
+                section="Мікроскопія осаду сечі",
+                value=None,
+                value_text=None,
+                flagged=True,
+            )
+        ],
+    )
+    async_session.add(report)
+    await async_session.flush()
+    body = history.render_problems(report, history.ordered_results(report))
+    assert locale.LAB_VALUE_MARKED in body  # the ⚠️ is explained, not a bare "—"
+    assert "Бактерії (диференціювання)" in body
+
+
 async def test_render_problems_collapses_many_in_range(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     results = (("АЛТ", 63.0, None, 50.0),) + tuple(
