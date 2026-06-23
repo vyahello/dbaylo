@@ -64,9 +64,13 @@ def _readable_ticks(values: list[float], *, max_ticks: int = 7) -> list[float]:
     return kept
 
 
-def render_qual_table_png(title: str, rows: list[tuple[str, str, bool]]) -> bytes:
+def render_qual_table_png(
+    title: str, rows: list[tuple[str, str, bool]], *, highlight_date: str | None = None
+) -> bytes:
     """A single qualitative indicator's Дата|Значення timeline as a PNG table, so it browses in the
-    SAME carousel as the numeric charts. Header on a green band, zebra rows, flagged values red."""
+    SAME carousel as the numeric charts. Header on a green band, zebra rows, flagged values red.
+    The ``highlight_date`` row (the report the table was opened from) is ringed as 'цей аналіз' —
+    the table equivalent of the chart's highlighted point."""
     shown = rows[-8:]  # keep it readable; recent history is what matters
     fig, ax = plt.subplots(figsize=(7, 1.2 + 0.42 * (len(shown) + 1)), dpi=120)
     try:
@@ -77,7 +81,7 @@ def render_qual_table_png(title: str, rows: list[tuple[str, str, bool]]) -> byte
             colLabels=[locale.CHART_PDF_QUAL_COL_DATE, locale.CHART_PDF_QUAL_COL_VALUE],
             cellLoc="left",
             loc="center",
-            colWidths=[0.32, 0.68],
+            colWidths=[0.42, 0.58],
         )
         table.auto_set_font_size(False)
         table.set_fontsize(11)
@@ -86,11 +90,20 @@ def render_qual_table_png(title: str, rows: list[tuple[str, str, bool]]) -> byte
         for col in (0, 1):  # header row
             cells[(0, col)].set_facecolor(_GREEN_ZONE)
             cells[(0, col)].set_text_props(weight="bold", color="#0f172a")
-        for i, (_, _, flagged) in enumerate(shown, start=1):
+        for i, (d, _, flagged) in enumerate(shown, start=1):
+            is_here = highlight_date is not None and d == highlight_date
             for col in (0, 1):
                 cells[(i, col)].set_facecolor("#f1f5f9" if i % 2 == 0 else "white")
             if flagged:
                 cells[(i, 1)].set_text_props(color=_OUT)
+            if is_here:  # the report this table was opened from — mark it "цей аналіз"
+                for col in (0, 1):
+                    cells[(i, col)].set_facecolor("#dcfce7")
+                    cells[(i, col)].set_edgecolor(_BRAND_DARK)
+                    cells[(i, col)].set_linewidth(2.0)
+                cells[(i, 0)].get_text().set_text(f"▶ {_pdf_text(d)}")
+                cells[(i, 0)].set_text_props(weight="bold", color=_BRAND_DARK)
+                cells[(i, 1)].set_text_props(weight="bold")
         buffer = io.BytesIO()
         fig.savefig(buffer, format="png", bbox_inches="tight")
         return buffer.getvalue()
@@ -392,6 +405,7 @@ class PdfQualTrend:
     rows: tuple[tuple[str, str, bool], ...]  # (date, text, flagged) — chronological
     note: str = ""
     changed: bool = False
+    highlight_date: str = ""  # the report this PDF is built from — that row is marked "цей аналіз"
 
 
 def _cover(pdf: PdfPages, cover: PdfCover) -> None:
@@ -497,9 +511,16 @@ _QT_ZEBRA = "#f1f5f9"  # alternating data-row shade
 _QT_BORDER = "#cbd5e1"  # thin grid lines
 
 
-def _qual_table(fig: Figure, top: float, rows: list[tuple[str, str, bool]]) -> float:
+def _qual_table(
+    fig: Figure,
+    top: float,
+    rows: list[tuple[str, str, bool]],
+    *,
+    highlight_date: str = "",
+) -> float:
     """Draw a 2-column (Дата | Значення) table whose TOP edge is at ``top``; return its bottom y.
-    Flagged values are red; data rows alternate shading; a header sits on a light-green band."""
+    Flagged values are red; data rows alternate shading; a header sits on a light-green band. The
+    ``highlight_date`` row (the report this PDF is built from) gets a green band — 'цей аналіз'."""
     rh, n = _QT_ROW_H, len(rows)
     table_h = rh * (n + 1)
     bottom = top - table_h
@@ -509,14 +530,16 @@ def _qual_table(fig: Figure, top: float, rows: list[tuple[str, str, bool]]) -> f
         Rectangle((_QT_LEFT, top - rh), width, rh, transform=tf, color=_QT_HEADER_BG, zorder=0)
     )
     for i in range(n):
-        if i % 2 == 1:  # zebra the odd data rows
+        here = bool(highlight_date) and rows[i][0] == highlight_date
+        shade = "#dcfce7" if here else (_QT_ZEBRA if i % 2 == 1 else None)
+        if shade is not None:
             fig.patches.append(
                 Rectangle(
                     (_QT_LEFT, top - rh * (i + 2)),
                     width,
                     rh,
                     transform=tf,
-                    color=_QT_ZEBRA,
+                    color=shade,
                     zorder=0,
                 )
             )
@@ -560,13 +583,24 @@ def _qual_table(fig: Figure, top: float, rows: list[tuple[str, str, bool]]) -> f
     )
     for i, (d, text, flagged) in enumerate(rows):
         cy = top - rh * (i + 1) - rh / 2
-        fig.text(_QT_LEFT + pad, cy, _pdf_text(d), va="center", fontsize=10.5, color=_INK)
+        here = bool(highlight_date) and d == highlight_date
+        date_label = f"▶ {_pdf_text(d)}" if here else _pdf_text(d)
+        fig.text(
+            _QT_LEFT + pad,
+            cy,
+            date_label,
+            va="center",
+            fontsize=10.5,
+            color=_BRAND_DARK if here else _INK,
+            weight="bold" if here else "normal",
+        )
         fig.text(
             _QT_SPLIT + pad,
             cy,
             _pdf_text(text),
             va="center",
             fontsize=10.5,
+            weight="bold" if here else "normal",
             color=_OUT if flagged else _INK,
         )
     return bottom
@@ -615,7 +649,7 @@ def _qual_pages(pdf: PdfPages, items: list[PdfQualTrend], *, heading: str) -> No
             sub = f"{sub}  ·  {changed}" if sub else changed
         fig.text(0.08, y, _pdf_text(sub), fontsize=9.5, color=_MUTED)
         y -= 0.024 + 0.006
-        y = _qual_table(fig, y, rows) - 0.012
+        y = _qual_table(fig, y, rows, highlight_date=it.highlight_date) - 0.012
         if note_wrapped:
             fig.text(0.10, y, note_wrapped, ha="left", va="top", fontsize=9.5, color=_MUTED)
             y -= note_h

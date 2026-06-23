@@ -963,6 +963,38 @@ async def test_report_qualitative_dynamics_builds_a_changing_timeline(
     assert q.specimen == "urine"
 
 
+async def test_qualitative_flag_reflects_THIS_report_not_the_latest(
+    async_session: AsyncSession,
+) -> None:
+    # The picker ⚠️ must match the card's count: a qualitative indicator flagged in THIS report but
+    # NOT in a LATER one must still read as flagged when viewed from this report.
+    user = await _user(async_session)
+    rep_a = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 1, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Кристали", value_text="виявлені", section="Загальний аналіз сечі", flagged=True
+            )
+        ],
+    )
+    await _rich_report(  # a LATER report where the same crystal is NOT flagged
+        async_session,
+        user_id=user.id,
+        on=date(2023, 6, 1),
+        lab="ДІЛА",
+        results=[_result("Кристали", value_text="не виявлені", section="Загальний аналіз сечі")],
+    )
+    quals = await history.report_qualitative_dynamics(
+        async_session, user_id=user.id, report_id=rep_a.id
+    )
+    assert len(quals) == 1 and quals[0].flagged is True  # flagged in rep_a, despite the later one
+    picks = await history.list_report_pickables(async_session, user_id=user.id, report_id=rep_a.id)
+    assert picks and picks[0].flagged is True  # so the ⚠️ shows in the picker
+
+
 async def test_qualitative_with_one_measurement_is_not_a_timeline(
     async_session: AsyncSession,
 ) -> None:

@@ -622,7 +622,9 @@ async def report_qualitative_dynamics(
                 category=_category_label(r.section, r.analyte),
                 specimen=specimen(r.section, r.analyte),
                 timeline=timeline,
-                flagged=timeline[-1].flagged,
+                # Flag means "out of range in THIS report" (so the picker ⚠️ count matches the card /
+                # banner) — NOT the latest measurement across all reports, which could differ.
+                flagged=bool(r.flagged),
                 changed=len(distinct_text) > 1,
             )
         )

@@ -697,7 +697,8 @@ async def _render_pickable(
     if qual is None:
         return None
     rows = [(m.taken_on.isoformat(), m.text, m.flagged) for m in qual.timeline]
-    png = render_qual_table_png(item.name, rows)
+    here = report.report_date.isoformat() if report and report.report_date else None
+    png = render_qual_table_png(item.name, rows, highlight_date=here)
     dynamics = history.qual_dynamics_caption(qual)
     if report is not None:
         date_txt, lab = _report_date_lab(report)
@@ -880,6 +881,7 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
         )
         for d, note in zip(data, chart_notes, strict=True)
     ]
+    pdf_highlight = report.report_date.isoformat() if report and report.report_date else ""
     qual_pages = tuple(
         PdfQualTrend(
             title=q.title,
@@ -887,6 +889,7 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
             rows=tuple((m.taken_on.isoformat(), m.text, m.flagged) for m in q.timeline),
             note=note,
             changed=q.changed,
+            highlight_date=pdf_highlight,
         )
         for q, note in zip(quals, qual_notes, strict=True)
     )
