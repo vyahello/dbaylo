@@ -747,12 +747,14 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
         asyncio.gather(*(_note(d.title, d.specimen) for d in data)),
         asyncio.gather(*(_note(q.title, q.specimen) for q in quals)),
     )
+    highlight = report.report_date if report else None
     pages = [
         PdfChart(
             title=d.title,
             subtitle=d.category,
             points=d.points,
             caption=_pdf_caption(d.dynamics, note),
+            highlight_date=highlight,
         )
         for d, note in zip(data, chart_notes, strict=True)
     ]
@@ -781,7 +783,10 @@ def _pdf_cover(report: LabReport | None, breakdown: history.ReportBreakdown) -> 
     'why 19 of 39?' is answered right on the first page."""
     date_txt, lab = _report_date_lab(report)
     category_rows = tuple(
-        locale.CHART_PDF_CATEGORY_ROW.format(name=name, n=n) for name, n in breakdown.categories
+        locale.CHART_PDF_CATEGORY_ROW.format(
+            name=locale.CHART_PDF_CATEGORY_LABELS.get(key, key), n=n
+        )
+        for key, n in breakdown.categories
     )
     notes: list[str] = []
     if breakdown.qualitative:

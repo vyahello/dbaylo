@@ -503,14 +503,15 @@ class ReportBreakdown:
     numeric: int
     qualitative: int
     single: int
-    categories: list[tuple[str, int]]
+    categories: list[tuple[str, int]]  # (category KEY, count) of the charted numeric indicators
 
 
 async def report_indicator_breakdown(
     session: AsyncSession, *, user_id: int, report_id: int
 ) -> ReportBreakdown:
     """Count how a report's indicators split between numeric charts, qualitative timelines, and
-    single measurements. Deterministic, no LLM — feeds the honest 'N of M' cover line."""
+    single measurements. Categories are returned as KEYS (the presentation layer maps them to a
+    readable name). Deterministic, no LLM — feeds the honest 'N of M' cover line."""
     report = await get_report(session, report_id=report_id, user_id=user_id)
     if report is None:
         return ReportBreakdown(0, 0, 0, 0, [])
@@ -526,12 +527,12 @@ async def report_indicator_breakdown(
         pts = series.get(key) or []
         if len(_numeric_dates(pts)) >= 2:
             numeric += 1
-            cat_counts[_category_label(r.section, r.analyte)] += 1
+            cat_counts[grouping.categorize(r.section, r.analyte)] += 1
         elif len(_qual_dates(pts)) >= 2:
             qualitative += 1
         else:
             single += 1
-    ordered = [c for c in locale.CATEGORY_NAMES.values() if c in cat_counts]
+    ordered = [c for c in grouping.CATEGORY_ORDER if cat_counts.get(c)]
     ordered += [c for c in cat_counts if c not in ordered]
     return ReportBreakdown(
         total=len(seen),

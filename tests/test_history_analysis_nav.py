@@ -133,6 +133,21 @@ def test_pdf_and_source_filenames_are_per_report_and_transport_safe() -> None:
     assert "/" not in safe and "\x1f" not in safe and " " not in safe
 
 
+def test_pdf_cover_uses_readable_category_names() -> None:
+    # The cover must read like prose ("Аналіз сечі — 19"), not the crude chip "Сеча — 19".
+    from dbaylo.bot.history_flow import _pdf_cover
+    from dbaylo.companion.history import ReportBreakdown
+
+    report = SimpleNamespace(report_date=date(2026, 2, 1), lab="ДІЛА")
+    breakdown = ReportBreakdown(
+        total=39, numeric=19, qualitative=14, single=6, categories=[("urine", 19)]
+    )
+    cover = _pdf_cover(report, breakdown)
+    assert cover.category_rows == ("Аналіз сечі — 19",)
+    assert "39" in cover.notes[-1]  # the honest total
+    assert any("14" in n for n in cover.notes)  # qualitative count surfaced
+
+
 def test_chart_filename_strips_control_chars() -> None:
     # The series key carries a \x1f separator; using it (or any name with control chars) as the
     # attachment filename made aiohttp reject the upload ("Forbidden control character"), which

@@ -307,12 +307,15 @@ def _place_avatar(fig: Figure, rect: tuple[float, float, float, float]) -> None:
 
 @dataclass(frozen=True)
 class PdfChart:
-    """One page of the PDF export: an analyte's series, its title/panel, and a short description."""
+    """One page of the PDF export: an analyte's series, its title/panel, and a short description.
+    ``highlight_date`` rings the measurement of the report the PDF was built from (same 'цей аналіз'
+    marker as the per-chart PNGs), so the report you exported from is visible on every page."""
 
     title: str
     subtitle: str  # the panel / clinical group this marker belongs to
     points: list[LabPoint]
     caption: str
+    highlight_date: date | None = None
 
 
 @dataclass(frozen=True)
@@ -408,7 +411,7 @@ def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> 
 
         ax = fig.add_axes((0.10, 0.42, 0.82, 0.42))
         if numeric:
-            _draw(ax, fig, numeric)
+            _draw(ax, fig, numeric, highlight_date=chart.highlight_date)
         ax.grid(True, alpha=0.3, zorder=0)
 
         # Description in a soft card (text wrapped to the card, not the page edge).

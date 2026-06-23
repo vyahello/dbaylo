@@ -874,8 +874,9 @@ async def test_report_indicator_breakdown_splits_numeric_qual_single(
         async_session, user_id=user.id, report_id=rep_b.id
     )
     assert (bd.total, bd.numeric, bd.qualitative, bd.single) == (3, 1, 1, 1)
-    # The category row counts the CHARTED (numeric) indicator only.
-    assert any(name.endswith("Біохімія") and n == 1 for name, n in bd.categories)
+    # Categories are KEYS (presentation maps them to a readable name) and count the CHARTED
+    # (numeric) indicator only.
+    assert any(key == "biochem" and n == 1 for key, n in bd.categories)
 
 
 async def test_report_qualitative_dynamics_builds_a_changing_timeline(
