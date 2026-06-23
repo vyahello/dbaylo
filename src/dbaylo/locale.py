@@ -60,8 +60,9 @@ KS_BLOOD_FIRST_TIME = (
 START_TEXT = (
     "Привіт! Я Дбайло — твій друг у питаннях здоров'я. 🌿 Пояснюю просто, без зайвої "
     "серйозності, але чесно.\n\n"
-    "Розповідай, як почуваєшся, кидай аналізи — допоможу розібратися, підкажу й нагадаю, "
-    "коли треба.\n\n"
+    "📸 Найпростіше — просто надішли мені фото або PDF аналізів. Я їх зчитаю, збережу, "
+    "покажу динаміку й поясню, що до чого. А ще — розповідай, як почуваєшся: підкажу й "
+    "нагадаю, коли треба.\n\n"
     "Тільки пам'ятай: я не лікар — діагнозів не ставлю й лікування не призначаю. "
     "Коли є сумніви, порадься з лікарем.\n\n"
     "Тисни /help — покажу, що вмію."
@@ -81,7 +82,8 @@ HELP_TEXT = (
     "/trend — динаміка одного показника, напр. /trend глюкоза\n"
     "/price — ціна на конкретні названі ліки\n"
     "/coverage — чи покриває ПМГ послугу\n\n"
-    "А ще можеш просто надіслати мені фото або PDF аналізів — я зчитаю їх.\n\n"
+    "📸 А ще найпростіше — просто надішли фото або PDF аналізів: я зчитаю, збережу й покажу "
+    "динаміку.\n\n"
     f"{DISCLAIMER}"
 )
 # Owner lock: shown once to anyone who is not the configured owner.
@@ -910,15 +912,14 @@ BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("help", "Що я вмію"),
 )
 
-# Section-screen intros (each shown with its inline action buttons).
-MENU_LABS_INTRO = "Аналізи. Надішли фото або PDF, щоб додати новий — я зчитаю й збережу."
+# Section-screen intros (each shown with its inline action buttons). "Аналізи" has no intro —
+# it opens the saved-reports history directly (how to add a new one lives in /start and /help).
 MENU_GOALS_INTRO = "Твої цілі для здоров'я."
 MENU_PROBLEMS_INTRO = "Те, що зараз турбує (за активними проблемами я роблю щоденні чек-іни)."
 MENU_MEDS_INTRO = "Твої ліки та нагадування про них."
 MENU_PRICES_INTRO = "Ціни на ліки та покриття за Програмою медичних гарантій (ПМГ)."
 
 # Section inline-button labels.
-BTN_MENU_HISTORY = "📋 Переглянути історію"
 BTN_MENU_GOALS_LIST = "📋 Мої цілі"
 BTN_MENU_GOAL_NEW = "➕ Нова ціль"
 BTN_MENU_PROB_LIST = "📋 Активні"
