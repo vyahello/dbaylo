@@ -20,45 +20,83 @@ from datetime import date
 
 from dbaylo.labs.refparse import parse_ref_range
 
-# One row of an age table: an age condition (<N / N-M / >N / "до N" / "понад N") then ": <value>".
+_ADULT = 18  # the age at which the lab's "Дорослі" row applies
+_SEX_F = ("жінк", "жіноч")
+_SEX_M = ("чолов",)
+# An age word inside a VALUE means the regex over-captured a nested group header — reject the row.
+_AGE_WORD_RE = re.compile(r"рок|діт|дит|доросл|старше", re.IGNORECASE)
+
+# One row of an age table: an age condition then ": <value>". The condition may be numeric
+# (<N / N-M / >N / "до N" / "старше N") or a word group ("Дорослі", "Діти").
 _AGE_ROW_RE = re.compile(
-    r"(?P<age>(?:<|>|≤|≥|до|понад|більше|менше)?\s*\d+(?:\s*[-–—]\s*\d+)?)\s*(?:рок\w*|р\.?)?\s*"
-    r"[:\-–—]\s*(?P<val>[^;|\n,]+?(?:\d[^;|\n,]*)?)(?=$|[;|\n]|\s{2,}|,\s*(?:<|>|≤|≥|до|понад|менше)?\s*\d)",
+    r"(?P<age>"
+    r"доросл\w*|діт\w*|дит\w*"  # word groups: "Дорослі" / "Діти"
+    r"|(?:<|>|≤|≥|до|понад|більше|менше|старше)?\s*\d+(?:\s*[-–—]\s*\d+)?"  # numeric, opt. prefix
+    r")\s*(?:рок\w*|р\.?)?\s*"
+    r"[:\-–—]\s*(?P<val>[^;|\n,]+?(?:\d[^;|\n,]*)?)"
+    r"(?=$|[;|\n]|\s{2,}|,\s*(?:<|>|≤|≥|до|понад|менше|старше|діт|доросл)?\s*\d|,\s*доросл)",
     re.IGNORECASE,
 )
 
 
 def _age_matches(condition: str, age: int) -> bool:
     cond = condition.casefold().replace("–", "-").replace("—", "-")
+    if "доросл" in cond:  # "Дорослі" — adults
+        return age >= _ADULT
+    if "діт" in cond or "дит" in cond:  # "Діти" — children
+        return age < _ADULT
     if m := re.search(r"(\d+)\s*-\s*(\d+)", cond):  # "40-50" -> [40, 50)
         return int(m.group(1)) <= age < int(m.group(2))
     if m := re.search(r"(?:<|≤|до|менше)\s*(\d+)", cond):  # "<40" / "до 40" -> age < 40
         return age < int(m.group(1))
-    if m := re.search(r"(?:>|≥|понад|більше)\s*(\d+)", cond):  # ">70" -> age > 70
+    if m := re.search(
+        r"(?:>|≥|понад|більше|старше)\s*(\d+)", cond
+    ):  # ">70" / "старше 60" -> age > N
         return age > int(m.group(1))
     if m := re.fullmatch(r"\s*(\d+)\s*", cond):  # a bare "40" — treat as ">= 40" lower edge
         return age >= int(m.group(1))
     return False
 
 
+def _sex_of(text: str) -> str | None:
+    t = text.casefold()
+    if any(s in t for s in _SEX_F):
+        return "f"
+    if any(s in t for s in _SEX_M):
+        return "m"
+    return None
+
+
 def resolve_age_reference(
-    ref_text: str | None, age: int | None
+    ref_text: str | None, age: int | None, sex: str | None = None
 ) -> tuple[float | None, float | None] | None:
-    """The ``(low, high)`` for ``age`` from an age-stratified ``ref_text`` table, or ``None`` when
-    the text is NOT an age table (so the caller keeps its normal handling). Needs >=2 age rows so a
-    plain "< 1.4" is never mistaken for a table."""
+    """The ``(low, high)`` for this patient from an age- (and optionally sex-) stratified table in
+    ``ref_text``, or ``None`` when it is NOT such a table (the caller keeps its normal handling).
+    Needs >=2 rows so a plain "< 1.4" is never mistaken for a table. A SEX-split value ('Жінки …;
+    Чоловіки …') is used only when the patient's sex is known and matches — never guessed."""
     if not ref_text or age is None:
         return None
     rows = [
         (m.group("age").strip(), m.group("val").strip()) for m in _AGE_ROW_RE.finditer(ref_text)
     ]
-    # Keep only rows whose value parses to a real numeric bound (drops noise like a header).
-    rows = [(cond, val) for cond, val in rows if parse_ref_range(val) != (None, None)]
+    # Keep rows whose value is a clean numeric bound. Reject a value that still carries an AGE word
+    # ("Дорослі: 18-20 років: ≤1.1") — that is a nested group header the regex over-captured; the
+    # real sub-rows ("20-60 років: ≤0.9") are matched separately, so dropping this avoids a WRONG
+    # band (18-20) when the right one (≤0.9) exists.
+    rows = [
+        (cond, val)
+        for cond, val in rows
+        if parse_ref_range(val) != (None, None) and not _AGE_WORD_RE.search(val)
+    ]
     if len(rows) < 2:
         return None
     for cond, val in rows:
-        if _age_matches(cond, age):
-            return parse_ref_range(val)
+        if not _age_matches(cond, age):
+            continue
+        val_sex = _sex_of(val)
+        if val_sex is not None and val_sex != sex:
+            continue  # a sex-specific value for the other (or unknown) sex — don't guess
+        return parse_ref_range(val)
     return None
 
 
