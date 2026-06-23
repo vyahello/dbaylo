@@ -104,16 +104,34 @@ def _report_date_lab(report: LabReport | None) -> tuple[str, str]:
     return date_txt, lab
 
 
-def _pdf_filename(report: LabReport | None) -> str:
-    """The dynamics PDF is named per report (date + lab), not one name for everything."""
+def _report_kind(report: LabReport | None) -> str:
+    """Short content tag of a report (Кров / Сеча / Спермограма / …) for filenames — same label as
+    the history-list button, so a downloaded file says WHAT analysis it was."""
+    results = getattr(report, "results", None)
+    if report is None or results is None:
+        return ""
+    return history.report_kind_label(list(results))  # order irrelevant (just counts categories)
+
+
+def _file_parts(report: LabReport | None) -> tuple[str, str, str]:
+    """(kind-with-trailing-dash-or-empty, date, lab-without-city) — the building blocks of a
+    self-describing download name: what it is, when, and where (the city adds no info)."""
     date_txt, lab = _report_date_lab(report)
-    return _safe_filename(locale.CHART_PDF_FILENAME.format(date=date_txt, lab=lab))
+    lab = lab.split(",")[0].strip() or lab  # drop the city ("Сінево, Львів" -> "Сінево")
+    kind = _report_kind(report)
+    return (f"{kind}-" if kind else ""), date_txt, lab
+
+
+def _pdf_filename(report: LabReport | None) -> str:
+    """The dynamics PDF is named per report — kind + date + lab (no city), not one name for all."""
+    kind, date_txt, lab = _file_parts(report)
+    return _safe_filename(locale.CHART_PDF_FILENAME.format(kind=kind, date=date_txt, lab=lab))
 
 
 def _source_filename(report: LabReport | None, path: Path) -> str:
-    """The original upload, renamed to date + lab (+ its real extension) instead of random chars."""
-    date_txt, lab = _report_date_lab(report)
-    name = locale.CHART_SOURCE_FILENAME.format(date=date_txt, lab=lab, ext=path.suffix)
+    """The original upload, renamed to kind + date + lab (+ real extension), not random chars."""
+    kind, date_txt, lab = _file_parts(report)
+    name = locale.CHART_SOURCE_FILENAME.format(kind=kind, date=date_txt, lab=lab, ext=path.suffix)
     return _safe_filename(name)
 
 

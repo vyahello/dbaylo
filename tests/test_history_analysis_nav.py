@@ -122,12 +122,23 @@ def history_caption_is_below(caption: str) -> bool:
 
 
 def test_pdf_and_source_filenames_are_per_report_and_transport_safe() -> None:
-    # The dynamics PDF and the original file are named per report (date + lab), not one for all.
-    report = SimpleNamespace(report_date=date(2023, 4, 5), lab="ДІЛА")
+    from dbaylo.db.models import LabResult
+
+    # The filename says WHAT it is (kind), WHEN (date), WHERE (lab, no city) — not one name for all.
+    report = SimpleNamespace(
+        report_date=date(2023, 4, 5),
+        lab="Сінево, Львів",
+        results=[LabResult(analyte="Лейкоцити", section="Загальний аналіз сечі", value_text="2-3")],
+    )
     pdf_name = _pdf_filename(report)
     assert "2023-04-05" in pdf_name and pdf_name.endswith(".pdf")
+    assert "Сеча" in pdf_name  # the analysis kind is in the name
+    assert "Львів" not in pdf_name and "Сінево" in pdf_name  # lab without the city
     src_name = _source_filename(report, Path("/uploads/9f3 a1b2.jpg"))
-    assert "2023-04-05" in src_name and src_name.endswith(".jpg")
+    assert "2023-04-05" in src_name and src_name.endswith(".jpg") and "Сеча" in src_name
+    # A report whose results aren't loaded simply omits the kind (no crash).
+    bare = SimpleNamespace(report_date=date(2023, 4, 5), lab="ДІЛА")
+    assert _pdf_filename(bare).endswith(".pdf")
     # Control chars / path separators / whitespace are made safe for a Content-Disposition header.
     safe = _safe_filename("a/b\x1fc d")
     assert "/" not in safe and "\x1f" not in safe and " " not in safe

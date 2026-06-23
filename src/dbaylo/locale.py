@@ -645,9 +645,11 @@ CHART_PDF_QUAL_ROW = "{date} — {text}"  # one dated qualitative result on the 
 CHART_PDF_QUAL_CHANGED = "значення змінювалося"  # a real qualitative change across dates
 CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
 CHART_PDF_EMPTY = "Поки нема даних для PDF — потрібно щонайменше два виміри одного показника."
-# Filenames tie the export to a specific report (date + lab), not one name for everything.
-CHART_PDF_FILENAME = "Дбайло-динаміка-{date}-{lab}.pdf"
-CHART_SOURCE_FILENAME = "Аналіз-{date}-{lab}{ext}"  # the original uploaded file, sensibly named
+# Filenames tie the export to a specific report — what it is (kind), when, and where (lab, no city).
+CHART_PDF_FILENAME = "Дбайло-динаміка-{kind}{date}-{lab}.pdf"  # {kind} already ends with "-" or ""
+CHART_SOURCE_FILENAME = (
+    "Аналіз-{kind}{date}-{lab}{ext}"  # the original uploaded file, sensibly named
+)
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
