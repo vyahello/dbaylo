@@ -362,6 +362,24 @@ def _strip_section_prefix(analyte: str, section: str | None) -> str:
     return analyte
 
 
+def flagged_indicator_names(report: LabReport | None) -> list[str]:
+    """Display names of a report's out-of-range (⚠️) indicators, deduped in order — so the dynamics
+    picker can show WHICH indicators are flagged at the top, even the qualitative ones that have no
+    chart (e.g. spermogram 'Лейкоцити 10-15 в п/з'). Deterministic, no LLM."""
+    if report is None:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for r in ordered_results(report):
+        if not r.flagged:
+            continue
+        name = _strip_section_prefix(r.analyte, r.section)
+        if name not in seen:
+            seen.add(name)
+            names.append(name)
+    return names
+
+
 def _period_suffix(summary: TrendSummary) -> str:
     """' за 2021–2026' (or ' за 2026') — the span the measurements cover, so the count never looks
     inconsistent with the few dates the x-axis labels for readability. Empty if no dates."""

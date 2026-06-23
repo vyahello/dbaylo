@@ -542,10 +542,15 @@ _CHART_PAGE_SIZE = 8
 
 
 def _charts_picker_view(
-    items: list[history.TrendChartItem], report_id: int, page: int
+    items: list[history.TrendChartItem],
+    report_id: int,
+    page: int,
+    flagged_names: tuple[str, ...] = (),
 ) -> tuple[str, InlineKeyboardMarkup]:
     """A paginated list — one button per trending analyte (flagged first, ⚠️-marked), a pager,
-    and an opt-in 'усі графіки'. Picking a button renders just THAT analyte's chart."""
+    and an opt-in 'усі графіки'. Picking a button renders just THAT analyte's chart. The
+    ``flagged_names`` are the report's out-of-range indicators, shown at the top — so the ⚠️ ones
+    are visible even if they are qualitative and have no chart."""
     pages = max(1, -(-len(items) // _CHART_PAGE_SIZE))
     page = max(0, min(page, pages - 1))
     start = page * _CHART_PAGE_SIZE
@@ -563,9 +568,15 @@ def _charts_picker_view(
     rows.append([_btn(locale.BTN_CHART_ALL, callbacks.chart_all(report_id))])
     rows.append([_btn(locale.BTN_CHART_PDF, callbacks.chart_pdf(report_id))])
     rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0))])
-    header = locale.CHART_PICK_HEADER
+    pick = locale.CHART_PICK_HEADER
     if pages > 1:
-        header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
+        pick += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
+    header = pick
+    if flagged_names:
+        flagged_line = locale.CHART_PICK_FLAGGED.format(
+            n=len(flagged_names), names=" · ".join(flagged_names)
+        )
+        header = f"{flagged_line}\n\n{pick}"
     return header, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -583,6 +594,8 @@ async def open_charts_picker(
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
+    flagged = tuple(history.flagged_indicator_names(report))
     if not items:
         if not silent_if_empty:
             # No typed command — offer the values as a BUTTON (📊 Показники) + back to the card.
@@ -596,7 +609,7 @@ async def open_charts_picker(
             )
             await _show_view(message, locale.HIST_DYNAMICS_EMPTY, empty_kb, edit=edit)
         return
-    text, keyboard = _charts_picker_view(items, report_id, 0)
+    text, keyboard = _charts_picker_view(items, report_id, 0, flagged)
     await _show_view(message, text, keyboard, edit=edit)
 
 
@@ -638,9 +651,11 @@ async def on_chart_page(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
     if not items:
         return
-    text, keyboard = _charts_picker_view(items, report_id, page)
+    flagged = tuple(history.flagged_indicator_names(report))
+    text, keyboard = _charts_picker_view(items, report_id, page, flagged)
     with contextlib.suppress(TelegramBadRequest):  # ignore "message is not modified"
         await callback.message.edit_text(text, reply_markup=keyboard)
 

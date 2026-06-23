@@ -240,6 +240,20 @@ def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:
     assert any(lbl.startswith(locale.CHART_FLAGGED_PREFIX) and "АЛТ" in lbl for lbl in labels)
 
 
+def test_picker_shows_the_reports_flagged_indicators_at_the_top() -> None:
+    # The report's out-of-range indicators are named at the TOP — even qualitative ones (here
+    # "Лейкоцити") that have NO chart and so never appear as a pickable button.
+    items = [TrendChartItem(name="Об'єм", key="обєм", flagged=False)]
+    flagged = ("Аглютинація сперматозоїдів", "Лейкоцити", "Слиз")
+    text, _ = _charts_picker_view(items, report_id=5, page=0, flagged_names=flagged)
+    first_line = text.splitlines()[0]
+    assert first_line.startswith("⚠️") and "(3)" in first_line
+    assert "Лейкоцити" in first_line and "Слиз" in first_line  # qualitative flagged ones surfaced
+    # With nothing flagged, no such banner — just the pick instruction.
+    plain, _ = _charts_picker_view(items, report_id=5, page=0)
+    assert not plain.startswith("⚠️")
+
+
 def test_picker_paginates_and_indices_stay_global() -> None:
     items = _items(10)  # > one page of 8
     _, kb0 = _charts_picker_view(items, report_id=5, page=0)
