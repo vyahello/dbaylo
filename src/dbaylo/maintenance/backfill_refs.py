@@ -62,8 +62,10 @@ def plan_ref_fills(
 
 
 async def _reports_to_backfill(session: AsyncSession) -> list[int]:
-    """Confirmed reports with a source file that are missing the DOB OR have a value row with no
-    reference at all — the ones a re-extraction can enrich."""
+    """Confirmed reports with a source file that have ≥1 value row with NO reference at all — the
+    ones a re-extraction can enrich (it recovers a missing reference, and the DOB as a bonus, which
+    is only needed where an age-stratified analyte like ПСА lives). A report whose every value row
+    already has a reference is skipped — no point re-extracting it."""
     reports = (
         await session.scalars(
             select(LabReport).where(
@@ -77,8 +79,7 @@ async def _reports_to_backfill(session: AsyncSession) -> list[int]:
         rows = (
             await session.scalars(select(LabResult).where(LabResult.report_id == report.id))
         ).all()
-        missing_ref = any(r.value is not None and not _has_ref(_to_view(r)) for r in rows)
-        if report.birth_date is None or missing_ref:
+        if any(r.value is not None and not _has_ref(_to_view(r)) for r in rows):
             out.append(report.id)
     return out
 
