@@ -213,9 +213,10 @@ def _list_view(
         nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.history_page(page + 1)))
     if nav:
         rows.append(nav)
-    rows.append([_btn(locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN)])  # also reachable from the list
     if orphans:
         rows.append([_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)])
+    # Back to the "Аналізи" hub (dynamics lives there now, not duplicated on the list).
+    rows.append([_btn(locale.BTN_HIST_BACK, callbacks.MENU_OPEN_LABS)])
     header = locale.HIST_LIST_HEADER.format(n=len(reports))
     if pages > 1:
         header += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
@@ -250,16 +251,13 @@ async def _load_reports(session: AsyncSession, user_id: int) -> tuple[list[LabRe
 async def _send_list(message: Message, reports: list[LabReport], orphans: int) -> None:
     """Send the master list as a single message (fresh, from /history or the menu)."""
     if not reports:
-        footer = (
-            InlineKeyboardMarkup(
-                inline_keyboard=[
-                    [_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)]
-                ]
-            )
-            if orphans
-            else None
+        rows: list[list[InlineKeyboardButton]] = []
+        if orphans:
+            rows.append([_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)])
+        rows.append([_btn(locale.BTN_HIST_BACK, callbacks.MENU_OPEN_LABS)])
+        await message.answer(
+            locale.HIST_EMPTY, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
         )
-        await message.answer(locale.HIST_EMPTY, reply_markup=footer)
         return
     text, keyboard = _list_view(reports, 0, orphans)
     await message.answer(text, reply_markup=keyboard)
@@ -376,6 +374,12 @@ async def _edit_to_list(callback: CallbackQuery, page: int, telegram_id: int) ->
         with contextlib.suppress(TelegramBadRequest):
             await callback.message.edit_text(text, reply_markup=keyboard)
     await callback.answer()
+
+
+async def open_history_in_place(callback: CallbackQuery, telegram_id: int) -> None:
+    """Edit the current message into the report list (the 'Аналізи' hub -> history). Edit-in-place
+    so the list's ◀ Назад returns to the hub in the SAME message — no message spam."""
+    await _edit_to_list(callback, 0, telegram_id)
 
 
 @router.callback_query(F.data.startswith(callbacks.HIST_PAGE + ":"))

@@ -455,7 +455,10 @@ async def test_list_view_paginates_into_pages_of_eight(async_session: AsyncSessi
     assert "сторінка 1 з 2" in text  # 12 reports / 8 -> 2 pages
     all_btns = [b for row in kb.inline_keyboard for b in row]
     assert any(b.text == locale.BTN_HIST_NEXT for b in all_btns)  # ▶ on page 0
-    assert any(b.callback_data == callbacks.DYN_OPEN for b in all_btns)  # dynamics entry present
+    # Dynamics is NOT on the list anymore (it lives in the "Аналізи" hub); the list has a back
+    # button to that hub instead.
+    assert all(b.callback_data != callbacks.DYN_OPEN for b in all_btns)
+    assert any(b.callback_data == callbacks.MENU_OPEN_LABS for b in all_btns)
 
 
 async def test_reconstruct_report_rebuilds_an_extracted_report(async_session: AsyncSession) -> None:

@@ -17,10 +17,13 @@ and no escalation entry point (the AST choke-point stays green).
 
 from __future__ import annotations
 
+import contextlib
+
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
 from dbaylo.bot import companion_flow, history_flow, navigator_flow, proactive_flow
@@ -38,17 +41,29 @@ def _owner_tg(event: Message | CallbackQuery) -> int | None:
 # --- Reply-keyboard label taps -> section screens -------------------------------
 
 
+def _labs_hub() -> tuple[str, InlineKeyboardMarkup]:
+    """The "Аналізи" hub: two distinct destinations as their own buttons — the saved-reports
+    history and the cross-lab dynamics browser. (A new analysis is added by sending a photo/PDF.)"""
+    return locale.MENU_LABS_INTRO, section_keyboard(
+        (locale.BTN_MENU_HISTORY, callbacks.MENU_OPEN_HISTORY),
+        (locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN),
+    )
+
+
 @router.message(StateFilter(None), F.text == locale.MENU_LABS)
 async def menu_labs(message: Message) -> None:
-    # Two distinct destinations, split into their own buttons: the saved-reports history, and the
-    # cross-lab dynamics browser. (How to add a new analysis — send a photo/PDF — lives in /start.)
-    await message.answer(
-        locale.MENU_LABS_INTRO,
-        reply_markup=section_keyboard(
-            (locale.BTN_MENU_HISTORY, callbacks.MENU_OPEN_HISTORY),
-            (locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN),
-        ),
-    )
+    text, keyboard = _labs_hub()
+    await message.answer(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_LABS)
+async def cb_open_labs(callback: CallbackQuery) -> None:
+    """Back to the "Аналізи" hub — edits the message in place (the history list's ◀ Назад)."""
+    if isinstance(callback.message, Message):
+        text, keyboard = _labs_hub()
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_text(text, reply_markup=keyboard)
+    await callback.answer()
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_GOALS)
@@ -117,10 +132,13 @@ async def menu_help(message: Message) -> None:
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_HISTORY)
 async def cb_open_history(callback: CallbackQuery) -> None:
+    # Edit the hub message into the report list in place, so the list's ◀ Назад edits back to the
+    # hub — one tidy message (same master-detail pattern as the list <-> report card).
     tg = _owner_tg(callback)
-    if isinstance(callback.message, Message) and tg is not None:
-        await history_flow.render_history(callback.message, tg)
-    await callback.answer()
+    if tg is not None:
+        await history_flow.open_history_in_place(callback, tg)
+    else:
+        await callback.answer()
 
 
 @router.callback_query(F.data == callbacks.MENU_GOALS_LIST)

@@ -209,16 +209,27 @@ async def test_open_problems_is_one_message_with_a_row_per_concern(monkeypatch) 
 # --- Section inline-button callbacks (delegate to reused helpers) ---------------
 
 
-async def test_cb_open_history_delegates(monkeypatch) -> None:
+async def test_cb_open_history_edits_in_place(monkeypatch) -> None:
+    # "Переглянути історію" edits the hub message into the list in place (so the list's ◀ Назад
+    # returns to the hub in the same message).
     seen = {}
 
-    async def fake(message, telegram_id, raw=""):
-        seen["args"] = (message, telegram_id)
+    async def fake(callback, telegram_id):
+        seen["args"] = (callback, telegram_id)
 
-    monkeypatch.setattr(menu_flow.history_flow, "render_history", fake)
+    monkeypatch.setattr(menu_flow.history_flow, "open_history_in_place", fake)
     callback = _callback(callbacks.MENU_OPEN_HISTORY)
     await menu_flow.cb_open_history(callback)
-    assert seen["args"] == (callback.message, 4242)
+    assert seen["args"] == (callback, 4242)
+
+
+async def test_cb_open_labs_returns_to_the_hub() -> None:
+    # The list's ◀ Назад re-renders the two-button "Аналізи" hub by editing in place.
+    callback = _callback(callbacks.MENU_OPEN_LABS)
+    callback.message.edit_text = AsyncMock()
+    await menu_flow.cb_open_labs(callback)
+    _, kwargs = callback.message.edit_text.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
     callback.answer.assert_awaited_once()
 
 

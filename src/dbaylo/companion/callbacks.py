@@ -309,6 +309,7 @@ def parse_history_trend(data: str) -> tuple[int, int] | None:
 
 # --- Tier 1.3: button-menu section actions (static, no ids) ----------------------
 
+MENU_OPEN_LABS = "menu_labs_hub"  # back to the "Аналізи" hub (from the history list)
 MENU_OPEN_HISTORY = "menu_hist"
 MENU_GOALS_LIST = "menu_goals"
 MENU_GOAL_NEW = "menu_goal_new"
