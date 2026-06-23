@@ -40,11 +40,15 @@ def _owner_tg(event: Message | CallbackQuery) -> int | None:
 
 @router.message(StateFilter(None), F.text == locale.MENU_LABS)
 async def menu_labs(message: Message) -> None:
-    # "Аналізи" goes STRAIGHT to the saved-reports history (no intermediate "Переглянути історію"
-    # button). How to add a new one (send a photo/PDF) lives in /start, /help, and the empty state.
-    tg = _owner_tg(message)
-    if tg is not None:
-        await history_flow.render_history(message, tg)
+    # Two distinct destinations, split into their own buttons: the saved-reports history, and the
+    # cross-lab dynamics browser. (How to add a new analysis — send a photo/PDF — lives in /start.)
+    await message.answer(
+        locale.MENU_LABS_INTRO,
+        reply_markup=section_keyboard(
+            (locale.BTN_MENU_HISTORY, callbacks.MENU_OPEN_HISTORY),
+            (locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN),
+        ),
+    )
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_GOALS)
@@ -109,6 +113,14 @@ async def menu_help(message: Message) -> None:
 
 
 # --- Section inline actions -> reused flow helpers ------------------------------
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_HISTORY)
+async def cb_open_history(callback: CallbackQuery) -> None:
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        await history_flow.render_history(callback.message, tg)
+    await callback.answer()
 
 
 @router.callback_query(F.data == callbacks.MENU_GOALS_LIST)

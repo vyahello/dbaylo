@@ -912,14 +912,15 @@ BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("help", "Що я вмію"),
 )
 
-# Section-screen intros (each shown with its inline action buttons). "Аналізи" has no intro —
-# it opens the saved-reports history directly (how to add a new one lives in /start and /help).
+# Section-screen intros (each shown with its inline action buttons).
+MENU_LABS_INTRO = "Аналізи — обери, що показати (а новий додаси, надіславши фото або PDF):"
 MENU_GOALS_INTRO = "Твої цілі для здоров'я."
 MENU_PROBLEMS_INTRO = "Те, що зараз турбує (за активними проблемами я роблю щоденні чек-іни)."
 MENU_MEDS_INTRO = "Твої ліки та нагадування про них."
 MENU_PRICES_INTRO = "Ціни на ліки та покриття за Програмою медичних гарантій (ПМГ)."
 
 # Section inline-button labels.
+BTN_MENU_HISTORY = "📋 Переглянути історію"
 BTN_MENU_GOALS_LIST = "📋 Мої цілі"
 BTN_MENU_GOAL_NEW = "➕ Нова ціль"
 BTN_MENU_PROB_LIST = "📋 Активні"

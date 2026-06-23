@@ -197,10 +197,7 @@ def _list_view(
     pages = max(1, -(-len(reports) // _PAGE_SIZE))  # ceil division
     page = max(0, min(page, pages - 1))
     chunk = reports[page * _PAGE_SIZE : page * _PAGE_SIZE + _PAGE_SIZE]
-    # Two modes visible up front: browse dynamics by category (here), or open a single report
-    # (the per-report buttons below). "Аналізи" lands straight on this list, so both are one tap.
-    rows: list[list[InlineKeyboardButton]] = [[_btn(locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN)]]
-    rows += [
+    rows: list[list[InlineKeyboardButton]] = [
         [
             _btn(
                 history.report_button_label(r, history.ordered_results(r)),
@@ -216,6 +213,7 @@ def _list_view(
         nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.history_page(page + 1)))
     if nav:
         rows.append(nav)
+    rows.append([_btn(locale.BTN_DYN_BROWSE, callbacks.DYN_OPEN)])  # also reachable from the list
     if orphans:
         rows.append([_btn(locale.HIST_PENDING_FOOTER.format(n=orphans), callbacks.HIST_CLEAN)])
     header = locale.HIST_LIST_HEADER.format(n=len(reports))

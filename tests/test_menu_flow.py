@@ -130,19 +130,13 @@ def test_section_keyboard_one_button_per_row() -> None:
 # --- Section screens (reply-keyboard label taps) --------------------------------
 
 
-async def test_menu_labs_opens_history_directly(monkeypatch) -> None:
-    # "Аналізи" goes STRAIGHT to the saved-reports history — no intermediate
-    # "Переглянути історію" button (which only had one destination anyway).
-    seen = {}
-
-    async def fake(message, telegram_id, raw=""):
-        seen["args"] = (message, telegram_id)
-
-    monkeypatch.setattr(menu_flow.history_flow, "render_history", fake)
+async def test_menu_labs_splits_history_and_dynamics() -> None:
+    # "Аналізи" offers TWO distinct destinations as separate buttons: the saved-reports
+    # history and the cross-lab dynamics browser.
     message = AsyncMock()
-    message.from_user = SimpleNamespace(id=4242)
     await menu_flow.menu_labs(message)
-    assert seen["args"] == (message, 4242)
+    _, kwargs = message.answer.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
 
 
 async def test_menu_goals_offers_list_and_new() -> None:
@@ -213,6 +207,19 @@ async def test_open_problems_is_one_message_with_a_row_per_concern(monkeypatch) 
 
 
 # --- Section inline-button callbacks (delegate to reused helpers) ---------------
+
+
+async def test_cb_open_history_delegates(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, telegram_id, raw=""):
+        seen["args"] = (message, telegram_id)
+
+    monkeypatch.setattr(menu_flow.history_flow, "render_history", fake)
+    callback = _callback(callbacks.MENU_OPEN_HISTORY)
+    await menu_flow.cb_open_history(callback)
+    assert seen["args"] == (callback.message, 4242)
+    callback.answer.assert_awaited_once()
 
 
 async def test_cb_goal_new_starts_the_dialog(monkeypatch) -> None:
