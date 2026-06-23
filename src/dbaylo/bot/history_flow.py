@@ -22,8 +22,8 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import re
-from collections import Counter
 from datetime import datetime
+from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -54,12 +54,12 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport
-from dbaylo.labs.charts import PdfChart, render_trends_pdf
+from dbaylo.labs.charts import PdfChart, PdfCover, PdfQualTrend, render_trends_pdf
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import compute_report_summary, render_chart_and_summary
-from dbaylo.labs.trends import series_key, specimen
+from dbaylo.labs.trends import TrendSummary, series_key, specimen
 from dbaylo.safety import GateSource, screen
 
 router = Router(name="history")
@@ -85,6 +85,36 @@ def _chart_filename(name: str) -> str:
     ('Forbidden control character'), which silently killed every single-chart pick."""
     cleaned = _CTRL_RE.sub(" ", name).strip()
     return f"{cleaned or 'chart'}.png"
+
+
+def _safe_filename(name: str) -> str:
+    """A human-readable but transport-safe attachment name: drop control chars and path separators,
+    collapse whitespace to dashes. Cyrillic is preserved (Telegram serves UTF-8 filenames fine)."""
+    cleaned = "".join(ch for ch in name if ord(ch) >= 0x20 and ch not in "/\\")
+    cleaned = re.sub(r"\s+", "-", cleaned).strip("-. ")
+    return cleaned or "dbaylo"
+
+
+def _report_date_lab(report: LabReport | None) -> tuple[str, str]:
+    """(date, lab) of a report for filenames/headers — never a control char, always something."""
+    if report is None:
+        return locale.HIST_NO_DATE, locale.LAB_LAB_UNKNOWN
+    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
+    lab = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
+    return date_txt, lab
+
+
+def _pdf_filename(report: LabReport | None) -> str:
+    """The dynamics PDF is named per report (date + lab), not one name for everything."""
+    date_txt, lab = _report_date_lab(report)
+    return _safe_filename(locale.CHART_PDF_FILENAME.format(date=date_txt, lab=lab))
+
+
+def _source_filename(report: LabReport | None, path: Path) -> str:
+    """The original upload, renamed to date + lab (+ its real extension) instead of random chars."""
+    date_txt, lab = _report_date_lab(report)
+    name = locale.CHART_SOURCE_FILENAME.format(date=date_txt, lab=lab, ext=path.suffix)
+    return _safe_filename(name)
 
 
 _CAPTION_MAX = 1024  # Telegram photo-caption limit
@@ -113,6 +143,18 @@ def _chart_nav_keyboard(report_id: int, index: int, total: int) -> InlineKeyboar
     if index < total - 1:
         row.append(_btn(locale.BTN_CHART_NEXT, callbacks.chart_nav(report_id, index + 1)))
     return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
+def _chart_caption(report: LabReport | None, summary: TrendSummary) -> str:
+    """The dynamics line, led by the source-report context ('🔬 З аналізу <date> · <lab>') when the
+    chart was opened from a report — so flipping through the carousel never loses which analysis
+    and date you are looking at."""
+    line = history.chart_dynamics_caption(summary)
+    if report is None:
+        return line
+    date_txt, lab = _report_date_lab(report)
+    ctx = locale.CHART_SOURCE_CONTEXT.format(date=date_txt, lab=lab)
+    return f"{ctx}\n{line}"
 
 
 async def _chart_full_caption(dynamics: str, analyte: str, specimen: str | None) -> str | None:
@@ -396,7 +438,9 @@ async def on_history_file(callback: CallbackQuery) -> None:
         if path is None:
             await callback.message.answer(locale.HIST_FILE_GONE)
         else:
-            await callback.message.answer_document(FSInputFile(str(path)))
+            await callback.message.answer_document(
+                FSInputFile(str(path), filename=_source_filename(report, path))
+            )
     await callback.answer()
 
 
@@ -571,12 +615,17 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
     await _show_uploading(callback.message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
         if not 0 <= index < len(items):
             return
         item = items[index]
         result = await render_chart_and_summary(
-            session, user_id=user.id, key=item.key, title=item.name
+            session,
+            user_id=user.id,
+            key=item.key,
+            title=item.name,
+            highlight_date=report.report_date if report else None,
         )
     if result is not None:
         png, summary = result
@@ -584,7 +633,7 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
         await _send_chart(
             callback.message,
             png=png,
-            dynamics=history.chart_dynamics_caption(summary),
+            dynamics=_chart_caption(report, summary),
             analyte=item.name,
             specimen=spec,
             keyboard=_chart_nav_keyboard(report_id, index, len(items)),
@@ -605,18 +654,23 @@ async def on_chart_nav(callback: CallbackQuery) -> None:
     await _show_uploading(callback.message)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
+        report = await history.get_report(session, report_id=report_id, user_id=user.id)
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
         if not 0 <= index < len(items):
             return
         item = items[index]
         result = await render_chart_and_summary(
-            session, user_id=user.id, key=item.key, title=item.name
+            session,
+            user_id=user.id,
+            key=item.key,
+            title=item.name,
+            highlight_date=report.report_date if report else None,
         )
     if result is None:
         return
     png, summary = result
     spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
-    dynamics = history.chart_dynamics_caption(summary)
+    dynamics = _chart_caption(report, summary)
     keyboard = _chart_nav_keyboard(report_id, index, len(items))
     media = InputMediaPhoto(
         media=BufferedInputFile(png, filename=_chart_filename(item.name)), caption=dynamics
@@ -659,8 +713,10 @@ def _pdf_caption(dynamics: str, note: str) -> str:
 
 @router.callback_query(F.data.startswith(callbacks.CHART_PDF + ":"))
 async def on_chart_pdf(callback: CallbackQuery) -> None:
-    """Build ONE PDF with every trending chart + a short, sample-specific description, and send it
-    as a file. Notes are generated concurrently (bounded) and cached."""
+    """Build ONE PDF, named for THIS report (date + lab): a cover that honestly explains the
+    indicator split, one page per numeric trend chart, then a text-timeline section for the
+    qualitative indicators (so 'не виявлені'-type results are not silently dropped). Educational
+    notes are generated concurrently (bounded) and cached."""
     report_id = callbacks.parse_chart_pdf(callback.data or "")
     tg = _telegram_id(callback)
     if report_id is None or tg is None or not isinstance(callback.message, Message):
@@ -670,18 +726,27 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         data = await history.report_trend_charts(session, user_id=user.id, report_id=report_id)
+        quals = await history.report_qualitative_dynamics(
+            session, user_id=user.id, report_id=report_id
+        )
+        breakdown = await history.report_indicator_breakdown(
+            session, user_id=user.id, report_id=report_id
+        )
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
-    if not data:
+    if not data and not quals:
         await callback.message.answer(locale.CHART_PDF_EMPTY)
         return
     await callback.message.answer(locale.CHART_PDF_PREPARING)
     sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
 
-    async def _note(d: history.TrendChartData) -> str:
+    async def _note(title: str, spec: str | None) -> str:
         async with sem:
-            return await describe_indicator(d.title, specimen=d.specimen)
+            return await describe_indicator(title, specimen=spec)
 
-    notes = await asyncio.gather(*(_note(d) for d in data))
+    chart_notes, qual_notes = await asyncio.gather(
+        asyncio.gather(*(_note(d.title, d.specimen) for d in data)),
+        asyncio.gather(*(_note(q.title, q.specimen) for q in quals)),
+    )
     pages = [
         PdfChart(
             title=d.title,
@@ -689,35 +754,49 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
             points=d.points,
             caption=_pdf_caption(d.dynamics, note),
         )
-        for d, note in zip(data, notes, strict=True)
+        for d, note in zip(data, chart_notes, strict=True)
     ]
+    qual_pages = tuple(
+        PdfQualTrend(
+            title=q.title,
+            subtitle=q.category,
+            rows=tuple((m.taken_on.isoformat(), m.text, m.flagged) for m in q.timeline),
+            note=note,
+            changed=q.changed,
+        )
+        for q, note in zip(quals, qual_notes, strict=True)
+    )
     pdf = await asyncio.to_thread(
         render_trends_pdf,
         pages,
+        cover=_pdf_cover(report, breakdown),
+        qual_trends=qual_pages,
+    )
+    await callback.message.answer_document(BufferedInputFile(pdf, filename=_pdf_filename(report)))
+
+
+def _pdf_cover(report: LabReport | None, breakdown: history.ReportBreakdown) -> PdfCover:
+    """The cover content: which report, how many indicators got a numeric chart, the per-category
+    split, and honest notes for the qualitative / single-measurement / total counts — so the
+    'why 19 of 39?' is answered right on the first page."""
+    date_txt, lab = _report_date_lab(report)
+    category_rows = tuple(
+        locale.CHART_PDF_CATEGORY_ROW.format(name=name, n=n) for name, n in breakdown.categories
+    )
+    notes: list[str] = []
+    if breakdown.qualitative:
+        notes.append(locale.CHART_PDF_QUAL_NOTE.format(n=breakdown.qualitative))
+    if breakdown.single:
+        notes.append(locale.CHART_PDF_SINGLE_NOTE.format(n=breakdown.single))
+    if breakdown.total:
+        notes.append(locale.CHART_PDF_TOTAL_LINE.format(n=breakdown.total))
+    return PdfCover(
         heading=locale.CHART_PDF_HEADING,
-        subtitle=_pdf_report_subtitle(report),
-        breakdown=_pdf_breakdown(data),
+        report_line=locale.CHART_PDF_REPORT_LINE.format(date=date_txt, lab=lab),
+        summary_line=locale.CHART_PDF_NUMERIC_LINE.format(n=breakdown.numeric),
+        category_rows=category_rows,
+        notes=tuple(notes),
     )
-    await callback.message.answer_document(
-        BufferedInputFile(pdf, filename=locale.CHART_PDF_FILENAME)
-    )
-
-
-def _pdf_report_subtitle(report: LabReport | None) -> str:
-    """'Аналіз від <date> · <lab>' — so the cover says WHICH report these trends come from."""
-    if report is None:
-        return ""
-    date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
-    return locale.CHART_PDF_REPORT_LINE.format(date=date_txt, lab=lab)
-
-
-def _pdf_breakdown(data: list[history.TrendChartData]) -> str:
-    """Which clinical groups the indicators belong to ('Кров: 8 · Сеча: 9'), in category order."""
-    counts = Counter(d.category for d in data)
-    ordered = [c for c in locale.CATEGORY_NAMES.values() if c in counts]
-    ordered += [c for c in counts if c not in ordered]  # any unmapped categories last
-    return " · ".join(locale.CHART_PDF_BREAKDOWN_ITEM.format(name=c, n=counts[c]) for c in ordered)
 
 
 # --- Dynamics browser: indicators grouped by clinical category, across all labs ------

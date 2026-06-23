@@ -87,6 +87,45 @@ async def _report(
     return report
 
 
+def _result(
+    analyte: str,
+    *,
+    value: float | None = None,
+    value_text: str | None = None,
+    low: float | None = None,
+    high: float | None = None,
+    section: str | None = None,
+    flagged: bool = False,
+) -> LabResult:
+    """A LabResult that can be qualitative (value_text, no number) or numeric, with a panel."""
+    return LabResult(
+        analyte=analyte,
+        value=value,
+        value_text=value_text,
+        ref_low=low,
+        ref_high=high,
+        section=section,
+        flag=compute_flag(value, low, high),
+        flagged=flagged or is_out_of_range(value, low, high, None),
+    )
+
+
+async def _rich_report(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    on: date,
+    lab: str,
+    results: list[LabResult],
+) -> LabReport:
+    report = LabReport(
+        user_id=user_id, report_date=on, lab=lab, status=ReportStatus.CONFIRMED, results=results
+    )
+    session.add(report)
+    await session.flush()
+    return report
+
+
 async def _sender(telegram_id: int, text: str, *, buttons: object | None = None) -> None:
     return None
 
@@ -799,3 +838,107 @@ async def test_orphans_counts_discarded_and_stale_pending_only(
     assert removed == 2
     assert not f.exists()  # the discarded upload's file was removed
     assert await history.count_orphans(async_session, user_id=user.id, now=now) == 0
+
+
+# --- Dynamics export: numeric vs qualitative vs single-measurement split ----------
+
+
+async def test_report_indicator_breakdown_splits_numeric_qual_single(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 4, 5),
+        lab="ДІЛА",
+        results=[
+            _result("Глюкоза", value=5.0, low=3.9, high=6.1, section="Біохімія"),
+            _result("Бактерії", value_text="не виявлені", section="Загальний аналіз сечі"),
+        ],
+    )
+    rep_b = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="ДІЛА",
+        results=[
+            _result("Глюкоза", value=5.4, low=3.9, high=6.1, section="Біохімія"),  # 2 dates: chart
+            _result(
+                "Бактерії", value_text="виявлено", section="Загальний аналіз сечі", flagged=True
+            ),  # 2 qual dates: timeline
+            _result("Холестерин", value=6.0, low=0.0, high=5.2, section="Біохімія"),  # 1 date
+        ],
+    )
+    bd = await history.report_indicator_breakdown(
+        async_session, user_id=user.id, report_id=rep_b.id
+    )
+    assert (bd.total, bd.numeric, bd.qualitative, bd.single) == (3, 1, 1, 1)
+    # The category row counts the CHARTED (numeric) indicator only.
+    assert any(name.endswith("Біохімія") and n == 1 for name, n in bd.categories)
+
+
+async def test_report_qualitative_dynamics_builds_a_changing_timeline(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 4, 5),
+        lab="ДІЛА",
+        results=[_result("Бактерії", value_text="не виявлені", section="Загальний аналіз сечі")],
+    )
+    rep_b = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Бактерії", value_text="виявлено", section="Загальний аналіз сечі", flagged=True
+            )
+        ],
+    )
+    quals = await history.report_qualitative_dynamics(
+        async_session, user_id=user.id, report_id=rep_b.id
+    )
+    assert len(quals) == 1
+    q = quals[0]
+    assert q.changed is True  # the text result actually changed across dates
+    assert [m.text for m in q.timeline] == ["не виявлені", "виявлено"]
+    assert [m.taken_on for m in q.timeline] == [date(2023, 4, 5), date(2026, 2, 1)]
+    assert q.timeline[-1].flagged is True
+    assert q.specimen == "urine"
+
+
+async def test_qualitative_with_one_measurement_is_not_a_timeline(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    rep = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="ДІЛА",
+        results=[_result("Бактерії", value_text="не виявлені", section="Загальний аналіз сечі")],
+    )
+    quals = await history.report_qualitative_dynamics(
+        async_session, user_id=user.id, report_id=rep.id
+    )
+    assert quals == []  # a single qualitative measurement is not yet a trend
+
+
+def test_chart_dynamics_caption_states_the_measurement_period() -> None:
+    from dbaylo.labs.trends import LabPoint, compute_trend
+
+    summary = compute_trend(
+        [LabPoint("X", date(2021, 1, 1), 1.0), LabPoint("X", date(2026, 1, 1), 2.0)]
+    )
+    caption = history.chart_dynamics_caption(summary)
+    assert "вимірів: 2" in caption and "2021–2026" in caption  # count never looks inconsistent
+    # A same-year series shows the single year (no dash).
+    same_year = compute_trend(
+        [LabPoint("X", date(2026, 1, 1), 1.0), LabPoint("X", date(2026, 6, 1), 2.0)]
+    )
+    assert "2026" in history.chart_dynamics_caption(same_year)

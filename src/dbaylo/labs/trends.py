@@ -40,6 +40,9 @@ class LabPoint:
     # the same analyte NAME in different specimens (Еритроцити in blood vs urine vs semen) never
     # collapses into one nonsensical series — see ``series_key``.
     section: str | None = None
+    # The qualitative result text ("не виявлені", "виявлено", "негатив") for rows with no numeric
+    # value — so a qualitative analyte can still show a (textual) timeline, not just numeric charts.
+    value_text: str | None = None
 
 
 class TrendDirection(Enum):

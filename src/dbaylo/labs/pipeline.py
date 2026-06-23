@@ -16,6 +16,7 @@ import dataclasses
 import json
 import sys
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,6 +45,7 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             LabResult.analyte,
             LabReport.report_date,
             LabResult.value,
+            LabResult.value_text,
             LabResult.unit,
             LabResult.ref_low,
             LabResult.ref_high,
@@ -63,6 +65,7 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             analyte=row.analyte,
             taken_on=row.report_date,
             value=row.value,
+            value_text=row.value_text,
             unit=row.unit,
             ref_low=row.ref_low,
             ref_high=row.ref_high,
@@ -109,23 +112,37 @@ def _has_trend(points: list[LabPoint]) -> bool:
 
 
 async def render_one_chart(
-    session: AsyncSession, *, user_id: int, key: str, title: str
+    session: AsyncSession,
+    *,
+    user_id: int,
+    key: str,
+    title: str,
+    highlight_date: date | None = None,
 ) -> bytes | None:
     """Render the trend chart (PNG) for a SINGLE analyte key, on demand from the picker — so the
     user sees one indicator at a time instead of a wall of images. None if it has no real trend."""
-    result = await render_chart_and_summary(session, user_id=user_id, key=key, title=title)
+    result = await render_chart_and_summary(
+        session, user_id=user_id, key=key, title=title, highlight_date=highlight_date
+    )
     return result[0] if result is not None else None
 
 
 async def render_chart_and_summary(
-    session: AsyncSession, *, user_id: int, key: str, title: str
+    session: AsyncSession,
+    *,
+    user_id: int,
+    key: str,
+    title: str,
+    highlight_date: date | None = None,
 ) -> tuple[bytes, TrendSummary] | None:
     """The chart PNG plus its computed trend summary (for the caption), or None if there is no real
-    trend. Single series build shared by the image and the deterministic caption line."""
+    trend. ``highlight_date`` rings the measurement of the report the chart was opened from. Single
+    series build shared by the image and the deterministic caption line."""
     series = build_series(await load_series_points(session, user_id))
     points = series.get(key)
     if points and _has_trend(points):
-        return render_trend_chart(points, title=title), compute_trend(points)
+        chart = render_trend_chart(points, title=title, highlight_date=highlight_date)
+        return chart, compute_trend(points)
     return None
 
 

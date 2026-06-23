@@ -17,6 +17,7 @@ import io
 import re
 import textwrap
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import matplotlib
@@ -63,14 +64,18 @@ def _readable_ticks(values: list[float], *, max_ticks: int = 7) -> list[float]:
     return kept
 
 
-def render_trend_chart(points: list[LabPoint], *, title: str) -> bytes:
-    """Render a single analyte's series to PNG bytes (value vs date)."""
+def render_trend_chart(
+    points: list[LabPoint], *, title: str, highlight_date: date | None = None
+) -> bytes:
+    """Render a single analyte's series to PNG bytes (value vs date). When ``highlight_date`` is
+    given (the report the chart was opened from), that measurement is ringed and labelled 'цей
+    аналіз' so you can see where the report you came from sits in the whole trend."""
     numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
 
     fig, ax = plt.subplots(figsize=(7, 4), dpi=120)
     try:
         if numeric:
-            _draw(ax, fig, numeric)
+            _draw(ax, fig, numeric, highlight_date=highlight_date)
         ax.set_title(title)
         ax.grid(True, alpha=0.3, zorder=0)
 
@@ -81,7 +86,9 @@ def render_trend_chart(points: list[LabPoint], *, title: str) -> bytes:
         plt.close(fig)
 
 
-def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
+def _draw(
+    ax: Axes, fig: Figure, numeric: list[LabPoint], *, highlight_date: date | None = None
+) -> None:
     xs = [mdates.date2num(p.taken_on) for p in numeric]
     ys = [p.value for p in numeric if p.value is not None]
     # The band: the most RECENT point that actually has a reference (older reports may have captured
@@ -144,6 +151,39 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
                 fontweight="bold",
             )
 
+    # Ring the measurement of the report this chart was opened from, so its place in the whole
+    # trend is obvious ("where is THIS analysis on the graph?").
+    highlighted = False
+    if highlight_date is not None:
+        hits = [
+            (x, y) for x, y, p in zip(xs, ys, numeric, strict=True) if p.taken_on == highlight_date
+        ]
+        if hits:
+            hx, hy = hits[-1]
+            ax.axvline(hx, color=_BRAND_DARK, linestyle=":", linewidth=1.2, alpha=0.6, zorder=1)
+            ax.scatter(
+                [hx],
+                [hy],
+                marker="o",
+                s=260,
+                facecolors="none",
+                edgecolors=_BRAND_DARK,
+                linewidths=2.2,
+                zorder=6,
+            )
+            ax.annotate(
+                locale.CHART_THIS_REPORT,
+                (hx, hy),
+                textcoords="offset points",
+                xytext=(0, -14),
+                ha="center",
+                va="top",
+                fontsize=8,
+                fontweight="bold",
+                color=_BRAND_DARK,
+            )
+            highlighted = True
+
     if numeric[-1].unit:
         ax.set_ylabel(numeric[-1].unit)
     ax.xaxis_date()
@@ -182,6 +222,18 @@ def _draw(ax: Axes, fig: Figure, numeric: list[LabPoint]) -> None:
                 markerfacecolor=_OUT,
                 markeredgecolor="white",
                 label=locale.CHART_LEGEND_OUT,
+            )
+        )
+    if highlighted:
+        handles.append(
+            Line2D(
+                [],
+                [],
+                marker="o",
+                linestyle="none",
+                markerfacecolor="none",
+                markeredgecolor=_BRAND_DARK,
+                label=locale.CHART_LEGEND_THIS,
             )
         )
     if handles:
@@ -263,7 +315,33 @@ class PdfChart:
     caption: str
 
 
-def _cover(pdf: PdfPages, *, heading: str, subtitle: str, breakdown: str, n: int) -> None:
+@dataclass(frozen=True)
+class PdfCover:
+    """The PDF's title page content. Built by the caller so the rendering stays presentation-only:
+    a heading, the report it is built from, a one-line numeric summary, the per-category breakdown
+    of the charted indicators, and any explanatory notes (qualitative / single-measurement / total
+    counts) that make the 'why only N of M indicators' honest at a glance."""
+
+    heading: str
+    report_line: str
+    summary_line: str = ""
+    category_rows: tuple[str, ...] = ()
+    notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class PdfQualTrend:
+    """One qualitative indicator on the text-timeline section: it has no numeric chart but a dated
+    sequence of text results ('не виявлені' → 'виявлено'). Rendered as text, never a chart."""
+
+    title: str
+    subtitle: str  # the clinical group / specimen
+    rows: tuple[tuple[str, str, bool], ...]  # (date, text, flagged) — chronological
+    note: str = ""
+    changed: bool = False
+
+
+def _cover(pdf: PdfPages, cover: PdfCover) -> None:
     fig = plt.figure(figsize=_A4)
     try:
         fig.patches.append(
@@ -273,22 +351,34 @@ def _cover(pdf: PdfPages, *, heading: str, subtitle: str, breakdown: str, n: int
             Rectangle((0, 0), 1, 0.05, transform=fig.transFigure, color=_BRAND, zorder=0)
         )
         _place_avatar(fig, (0.5 - 0.16, 0.60, 0.32, 0.20))
-        fig.text(0.5, 0.52, _pdf_text(heading), ha="center", fontsize=26, color=_INK, weight="bold")
-        if subtitle:
-            fig.text(0.5, 0.475, _pdf_text(subtitle), ha="center", fontsize=13, color=_MUTED)
         fig.text(
-            0.5,
-            0.42,
-            locale.CHART_PDF_SUBTITLE.format(n=n),
-            ha="center",
-            fontsize=12,
-            color=_BRAND_DARK,
-            weight="bold",
+            0.5, 0.52, _pdf_text(cover.heading), ha="center", fontsize=26, color=_INK, weight="bold"
         )
-        if breakdown:
+        if cover.report_line:
             fig.text(
-                0.5, 0.385, _wrap(_pdf_text(breakdown), 80), ha="center", fontsize=12, color=_INK
+                0.5, 0.475, _pdf_text(cover.report_line), ha="center", fontsize=13, color=_MUTED
             )
+        y = 0.41
+        if cover.summary_line:
+            fig.text(
+                0.5,
+                y,
+                _pdf_text(cover.summary_line),
+                ha="center",
+                fontsize=13,
+                color=_BRAND_DARK,
+                weight="bold",
+            )
+            y -= 0.045
+        for row in cover.category_rows:
+            fig.text(0.5, y, _pdf_text(row), ha="center", fontsize=12, color=_INK)
+            y -= 0.030
+        if cover.notes:
+            y -= 0.018
+        for note in cover.notes:
+            wrapped = _wrap(_pdf_text(note), 78)
+            fig.text(0.5, y, wrapped, ha="center", va="top", fontsize=10.5, color=_MUTED)
+            y -= 0.026 * (wrapped.count("\n") + 1) + 0.012
         fig.text(
             0.5,
             0.085,
@@ -341,15 +431,79 @@ def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> 
         plt.close(fig)
 
 
+_QUAL_TOP = 0.85
+_QUAL_BOTTOM = 0.09
+_QUAL_LH = 0.026  # one text line's height in figure coords
+
+
+def _qual_pages(pdf: PdfPages, items: list[PdfQualTrend], *, heading: str) -> None:
+    """Text-timeline pages for qualitative indicators (no numeric chart). Several indicators are
+    packed per page; a block is kept whole — when it won't fit, a new page is started. So a urine
+    'не виявлені' that becomes 'виявлено' is still visible in dynamics, as honest text."""
+    if not items:
+        return
+    state: dict[str, Any] = {"fig": None, "y": 0.0}
+
+    def _open() -> None:
+        fig = plt.figure(figsize=_A4)
+        fig.patches.append(
+            Rectangle((0, 0.92), 1, 0.08, transform=fig.transFigure, color=_BRAND, zorder=0)
+        )
+        fig.text(0.08, 0.945, _pdf_text(heading), fontsize=15, color="white", weight="bold")
+        fig.patches.append(
+            Rectangle((0, 0), 1, 0.04, transform=fig.transFigure, color=_BRAND, zorder=0)
+        )
+        fig.text(0.07, 0.05, "Дбайло", ha="left", fontsize=9, color=_MUTED)
+        state["fig"], state["y"] = fig, _QUAL_TOP
+
+    def _close() -> None:
+        if state["fig"] is not None:
+            pdf.savefig(state["fig"])
+            plt.close(state["fig"])
+            state["fig"] = None
+
+    for it in items:
+        rows = it.rows[-6:]  # keep the page readable; the recent history is what matters
+        note_wrapped = _wrap(_pdf_text(it.note), 90) if it.note else ""
+        block_h = (
+            _QUAL_LH * (2 + len(rows))
+            + (_QUAL_LH * (note_wrapped.count("\n") + 1) if note_wrapped else 0)
+            + 0.018
+        )
+        if state["fig"] is None or state["y"] - block_h < _QUAL_BOTTOM:
+            _close()
+            _open()
+        fig, y = state["fig"], state["y"]
+        fig.text(0.08, y, _clip(_pdf_text(it.title), 56), fontsize=13, color=_INK, weight="bold")
+        y -= _QUAL_LH
+        sub = it.subtitle
+        if it.changed:
+            changed = locale.CHART_PDF_QUAL_CHANGED
+            sub = f"{sub}  ·  {changed}" if sub else changed
+        fig.text(0.08, y, _pdf_text(sub), fontsize=9.5, color=_MUTED)
+        y -= _QUAL_LH
+        for d, text, flagged in rows:
+            line = locale.CHART_PDF_QUAL_ROW.format(date=d, text=text)
+            fig.text(0.10, y, _pdf_text(f"• {line}"), fontsize=11, color=_OUT if flagged else _INK)
+            y -= _QUAL_LH
+        if note_wrapped:
+            fig.text(0.10, y, note_wrapped, ha="left", va="top", fontsize=9.5, color=_MUTED)
+            y -= _QUAL_LH * (note_wrapped.count("\n") + 1)
+        state["y"] = y - 0.018
+    _close()
+
+
 def render_trends_pdf(
-    charts: list[PdfChart], *, heading: str, subtitle: str = "", breakdown: str = ""
+    charts: list[PdfChart], *, cover: PdfCover, qual_trends: tuple[PdfQualTrend, ...] = ()
 ) -> bytes:
-    """A single, premium PDF: a branded cover (avatar + report context + category breakdown), then
-    ONE trend chart per page with a short description card. The 'save everything' counterpart to the
-    per-chart picker; same chart language as the PNGs."""
+    """A single, premium PDF: a branded cover (avatar + report context + honest breakdown), then ONE
+    trend chart per page with a description card, then a text-timeline section for the qualitative
+    indicators that have no numeric chart. The 'save everything' counterpart to the per-chart
+    picker; same chart language as the PNGs."""
     buffer = io.BytesIO()
     with PdfPages(buffer) as pdf:
-        _cover(pdf, heading=heading, subtitle=subtitle, breakdown=breakdown, n=len(charts))
+        _cover(pdf, cover)
         for i, chart in enumerate(charts, 1):
             _chart_page(pdf, chart, page_no=i, total=len(charts))
+        _qual_pages(pdf, list(qual_trends), heading=locale.CHART_PDF_QUAL_HEADING)
     return buffer.getvalue()

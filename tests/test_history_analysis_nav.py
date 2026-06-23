@@ -2,11 +2,23 @@
 
 from __future__ import annotations
 
+from datetime import date
+from pathlib import Path
+from types import SimpleNamespace
+
 from dbaylo import locale
-from dbaylo.bot.history_flow import _chart_filename, _charts_picker_view, _render_analysis_view
+from dbaylo.bot.history_flow import (
+    _chart_caption,
+    _chart_filename,
+    _charts_picker_view,
+    _pdf_filename,
+    _render_analysis_view,
+    _safe_filename,
+    _source_filename,
+)
 from dbaylo.companion import callbacks
 from dbaylo.companion.history import TrendChartItem
-from dbaylo.labs.trends import series_key
+from dbaylo.labs.trends import LabPoint, compute_trend, series_key
 from dbaylo.triage.safety import DISCLAIMER
 
 _SUMMARY = (
@@ -89,6 +101,36 @@ def _items(n: int) -> list[TrendChartItem]:
     flagged = [TrendChartItem(name=f"Z-flag{i}", key=f"z{i}", flagged=True) for i in range(2)]
     normal = [TrendChartItem(name=f"A-norm{i}", key=f"a{i}", flagged=False) for i in range(n - 2)]
     return flagged + normal
+
+
+def test_chart_caption_leads_with_the_source_report_context() -> None:
+    # Opening a chart from a report keeps "which analysis / date" visible — so flipping the carousel
+    # never strands you in a nameless graph. Without a report there is no context line.
+    summary = compute_trend(
+        [LabPoint("X", date(2024, 1, 1), 1.0), LabPoint("X", date(2026, 1, 1), 2.0)]
+    )
+    report = SimpleNamespace(report_date=date(2023, 4, 5), lab="ДІЛА")
+    caption = _chart_caption(report, summary)
+    assert caption.startswith("🔬")
+    assert "2023-04-05" in caption  # the source report's date
+    assert history_caption_is_below(caption)  # the dynamics line follows the context line
+    assert not _chart_caption(None, summary).startswith("🔬")  # no report → no context line
+
+
+def history_caption_is_below(caption: str) -> bool:
+    return caption.count("\n") >= 1 and "вимірів" in caption.split("\n", 1)[1]
+
+
+def test_pdf_and_source_filenames_are_per_report_and_transport_safe() -> None:
+    # The dynamics PDF and the original file are named per report (date + lab), not one for all.
+    report = SimpleNamespace(report_date=date(2023, 4, 5), lab="ДІЛА")
+    pdf_name = _pdf_filename(report)
+    assert "2023-04-05" in pdf_name and pdf_name.endswith(".pdf")
+    src_name = _source_filename(report, Path("/uploads/9f3 a1b2.jpg"))
+    assert "2023-04-05" in src_name and src_name.endswith(".jpg")
+    # Control chars / path separators / whitespace are made safe for a Content-Disposition header.
+    safe = _safe_filename("a/b\x1fc d")
+    assert "/" not in safe and "\x1f" not in safe and " " not in safe
 
 
 def test_chart_filename_strips_control_chars() -> None:

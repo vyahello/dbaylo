@@ -8,6 +8,8 @@ import pytest
 
 from dbaylo.labs.charts import (
     PdfChart,
+    PdfCover,
+    PdfQualTrend,
     _out_of_range,
     _pdf_text,
     _readable_ticks,
@@ -85,13 +87,42 @@ def test_render_trends_pdf_is_a_valid_multipage_pdf() -> None:
             caption="📈 6 — норма\n\nЛейкоцити — клітини.",
         ),
     ]
-    pdf = render_trends_pdf(
-        pages,
+    cover = PdfCover(
         heading="Динаміка показників",
-        subtitle="Аналіз від 2026-02-01 · Сінево",
-        breakdown="Сеча: 1 · Кров: 1",
+        report_line="За аналізом від 2026-02-01 · Сінево",
+        summary_line="На графіках — 2 показників із числовою динамікою",
+        category_rows=("Сеча — 1", "Кров — 1"),
+        notes=("Ще 3 якісних показників — словами наприкінці.", "Усього у звіті: 5 показників."),
     )
+    pdf = render_trends_pdf(pages, cover=cover)
     assert pdf[:5] == b"%PDF-" and len(pdf) > 1000
+
+
+def test_render_trends_pdf_includes_qualitative_timeline_section() -> None:
+    cover = PdfCover(heading="Динаміка показників", report_line="За аналізом від 2026-02-01 · ДІЛА")
+    quals = (
+        PdfQualTrend(
+            title="Бактерії (сеча)",
+            subtitle="🔬 Сеча",
+            rows=(("2023-04-05", "не виявлені", False), ("2026-02-01", "виявлено", True)),
+            note="Бактерії в сечі — можливий запальний процес.",
+            changed=True,
+        ),
+    )
+    # A PDF that has NO numeric charts but DOES have a qualitative timeline still renders (the
+    # qualitative indicators must not be silently dropped).
+    pdf = render_trends_pdf([], cover=cover, qual_trends=quals)
+    assert pdf[:5] == b"%PDF-" and len(pdf) > 1000
+
+
+def test_render_highlights_the_source_report_point() -> None:
+    # When opened from a report, that report's measurement is ringed — still a valid PNG, and the
+    # highlight_date that matches no point degrades gracefully (no crash, still a chart).
+    pts = [_pt(1, 5.0, 3.0, 7.0), _pt(15, 6.0, 3.0, 7.0)]
+    png = render_trend_chart(pts, title="Глюкоза", highlight_date=date(2026, 1, 1))
+    assert png[:8] == _PNG_MAGIC
+    missing = render_trend_chart(pts, title="Глюкоза", highlight_date=date(1999, 1, 1))
+    assert missing[:8] == _PNG_MAGIC
 
 
 def test_render_returns_png_with_reference_band() -> None:

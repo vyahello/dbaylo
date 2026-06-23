@@ -362,12 +362,25 @@ def _strip_section_prefix(analyte: str, section: str | None) -> str:
     return analyte
 
 
+def _period_suffix(summary: TrendSummary) -> str:
+    """' за 2021–2026' (or ' за 2026') — the span the measurements cover, so the count never looks
+    inconsistent with the few dates the x-axis labels for readability. Empty if no dates."""
+    if summary.first_date is None or summary.last_date is None:
+        return ""
+    start, end = summary.first_date.year, summary.last_date.year
+    span = str(start) if start == end else f"{start}–{end}"
+    return locale.CHART_PERIOD_SUFFIX.format(span=span)
+
+
 def chart_dynamics_caption(summary: TrendSummary) -> str:
-    """The deterministic chart caption: latest value + range-relative movement + count. NO analyte
-    name (it is already the chart's title) — the caller may append a short educational note."""
+    """The deterministic chart caption: latest value + range-relative movement + count + the period
+    it spans. NO analyte name (it is already the chart's title) — the caller may append a note."""
     movement = locale.TREND_PHRASES.get(summary.direction.name, "")
     return locale.CHART_DYNAMICS_LINE.format(
-        value=_trend_value(summary), movement=movement, n=summary.n_points
+        value=_trend_value(summary),
+        movement=movement,
+        n=summary.n_points,
+        period=_period_suffix(summary),
     )
 
 
@@ -462,6 +475,137 @@ async def report_trend_charts(
             )
         )
     out.sort(key=lambda d: (not d.flagged, d.title.casefold()))
+    return out
+
+
+def _category_label(section: str | None, analyte: str) -> str:
+    """The display name of an analyte's clinical category ('🔬 Сеча'), category key as fallback."""
+    key = grouping.categorize(section, analyte)
+    return locale.CATEGORY_NAMES.get(key, key)
+
+
+def _numeric_dates(points: list[LabPoint]) -> set[date]:
+    return {p.taken_on for p in points if p.value is not None}
+
+
+def _qual_dates(points: list[LabPoint]) -> set[date]:
+    return {p.taken_on for p in points if p.value is None and (p.value_text or "").strip()}
+
+
+@dataclass(frozen=True)
+class ReportBreakdown:
+    """How a report's indicators split for the dynamics export — so the PDF cover can explain why
+    only some indicators get a chart: total distinct indicators, those with a numeric trend (a real
+    chart), those shown as a qualitative text timeline, and those measured only once so far. The
+    ``categories`` are the (display-name, count) pairs of the *charted* numeric indicators."""
+
+    total: int
+    numeric: int
+    qualitative: int
+    single: int
+    categories: list[tuple[str, int]]
+
+
+async def report_indicator_breakdown(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> ReportBreakdown:
+    """Count how a report's indicators split between numeric charts, qualitative timelines, and
+    single measurements. Deterministic, no LLM — feeds the honest 'N of M' cover line."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return ReportBreakdown(0, 0, 0, 0, [])
+    series = build_series(await load_series_points(session, user_id))
+    seen: set[str] = set()
+    numeric = qualitative = single = 0
+    cat_counts: Counter[str] = Counter()
+    for r in ordered_results(report):
+        key = series_key(r.section, r.analyte)
+        if key in seen:
+            continue
+        seen.add(key)
+        pts = series.get(key) or []
+        if len(_numeric_dates(pts)) >= 2:
+            numeric += 1
+            cat_counts[_category_label(r.section, r.analyte)] += 1
+        elif len(_qual_dates(pts)) >= 2:
+            qualitative += 1
+        else:
+            single += 1
+    ordered = [c for c in locale.CATEGORY_NAMES.values() if c in cat_counts]
+    ordered += [c for c in cat_counts if c not in ordered]
+    return ReportBreakdown(
+        total=len(seen),
+        numeric=numeric,
+        qualitative=qualitative,
+        single=single,
+        categories=[(c, cat_counts[c]) for c in ordered],
+    )
+
+
+@dataclass(frozen=True)
+class QualMeasurement:
+    """One dated qualitative result in a timeline (e.g. 2026-06-23 → 'не виявлені')."""
+
+    taken_on: date
+    text: str
+    flagged: bool
+
+
+@dataclass(frozen=True)
+class QualTrend:
+    """A qualitative analyte's timeline across reports — an indicator with no numeric series but a
+    recorded text result ('не виявлені', 'виявлено', 'негатив'). It can change over time, so it is
+    shown as a TEXT timeline (never a numeric chart, which would be meaningless for it)."""
+
+    title: str
+    category: str
+    specimen: str | None
+    timeline: list[QualMeasurement]
+    flagged: bool
+    changed: bool  # the text result differs across dates (a real qualitative change)
+
+
+async def report_qualitative_dynamics(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[QualTrend]:
+    """The report's qualitative indicators that were recorded on >=2 distinct dates (so they have a
+    timeline worth showing) but have no numeric chart — e.g. urine bacteria 'не виявлені' that could
+    become 'виявлено'. Changed-first, then flagged, then alphabetical. Deterministic, no LLM."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    out: list[QualTrend] = []
+    seen: set[str] = set()
+    for r in ordered_results(report):
+        key = series_key(r.section, r.analyte)
+        if key in seen:
+            continue
+        pts = series.get(key)
+        if not pts or len(_numeric_dates(pts)) >= 2:  # missing or already a numeric chart
+            continue
+        qpts = [p for p in pts if p.value is None and (p.value_text or "").strip()]
+        if len({p.taken_on for p in qpts}) < 2:
+            continue
+        seen.add(key)
+        by_date: dict[date, QualMeasurement] = {}
+        for p in sorted(qpts, key=lambda x: x.taken_on):
+            by_date[p.taken_on] = QualMeasurement(
+                taken_on=p.taken_on, text=(p.value_text or "").strip(), flagged=bool(p.flagged)
+            )
+        timeline = list(by_date.values())
+        distinct_text = {m.text.casefold() for m in timeline}
+        out.append(
+            QualTrend(
+                title=_strip_section_prefix(r.analyte, r.section),
+                category=_category_label(r.section, r.analyte),
+                specimen=specimen(r.section, r.analyte),
+                timeline=timeline,
+                flagged=timeline[-1].flagged,
+                changed=len(distinct_text) > 1,
+            )
+        )
+    out.sort(key=lambda q: (not q.changed, not q.flagged, q.title.casefold()))
     return out
 
 
