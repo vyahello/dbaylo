@@ -453,12 +453,95 @@ def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> 
 _QUAL_TOP = 0.85
 _QUAL_BOTTOM = 0.09
 _QUAL_LH = 0.026  # one text line's height in figure coords
+_QUAL_MAX_ROWS = 8  # cap a timeline's rows so a long history doesn't overflow a page
+
+# Qualitative-timeline TABLE geometry (figure coords): two columns — Дата | Значення.
+_QT_LEFT, _QT_SPLIT, _QT_RIGHT = 0.08, 0.42, 0.92
+_QT_ROW_H = 0.030
+_QT_HEADER_BG = "#dcfce7"  # light green header band (matches the brand)
+_QT_ZEBRA = "#f1f5f9"  # alternating data-row shade
+_QT_BORDER = "#cbd5e1"  # thin grid lines
+
+
+def _qual_table(fig: Figure, top: float, rows: list[tuple[str, str, bool]]) -> float:
+    """Draw a 2-column (Дата | Значення) table whose TOP edge is at ``top``; return its bottom y.
+    Flagged values are red; data rows alternate shading; a header sits on a light-green band."""
+    rh, n = _QT_ROW_H, len(rows)
+    table_h = rh * (n + 1)
+    bottom = top - table_h
+    width = _QT_RIGHT - _QT_LEFT
+    tf = fig.transFigure  # all rects are in FIGURE coords (without this they'd draw off-screen)
+    fig.patches.append(
+        Rectangle((_QT_LEFT, top - rh), width, rh, transform=tf, color=_QT_HEADER_BG, zorder=0)
+    )
+    for i in range(n):
+        if i % 2 == 1:  # zebra the odd data rows
+            fig.patches.append(
+                Rectangle(
+                    (_QT_LEFT, top - rh * (i + 2)),
+                    width,
+                    rh,
+                    transform=tf,
+                    color=_QT_ZEBRA,
+                    zorder=0,
+                )
+            )
+    # Grid: outer border, column divider, header underline.
+    fig.patches.append(
+        Rectangle(
+            (_QT_LEFT, bottom),
+            width,
+            table_h,
+            transform=tf,
+            facecolor="none",
+            edgecolor=_QT_BORDER,
+            linewidth=0.8,
+            zorder=1,
+        )
+    )
+    fig.patches.append(
+        Rectangle((_QT_SPLIT, bottom), 0.0012, table_h, transform=tf, color=_QT_BORDER, zorder=1)
+    )
+    fig.patches.append(
+        Rectangle((_QT_LEFT, top - rh), width, 0.0012, transform=tf, color=_QT_BORDER, zorder=1)
+    )
+    pad = 0.012
+    fig.text(
+        _QT_LEFT + pad,
+        top - rh / 2,
+        _pdf_text(locale.CHART_PDF_QUAL_COL_DATE),
+        va="center",
+        fontsize=10,
+        weight="bold",
+        color=_INK,
+    )
+    fig.text(
+        _QT_SPLIT + pad,
+        top - rh / 2,
+        _pdf_text(locale.CHART_PDF_QUAL_COL_VALUE),
+        va="center",
+        fontsize=10,
+        weight="bold",
+        color=_INK,
+    )
+    for i, (d, text, flagged) in enumerate(rows):
+        cy = top - rh * (i + 1) - rh / 2
+        fig.text(_QT_LEFT + pad, cy, _pdf_text(d), va="center", fontsize=10.5, color=_INK)
+        fig.text(
+            _QT_SPLIT + pad,
+            cy,
+            _pdf_text(text),
+            va="center",
+            fontsize=10.5,
+            color=_OUT if flagged else _INK,
+        )
+    return bottom
 
 
 def _qual_pages(pdf: PdfPages, items: list[PdfQualTrend], *, heading: str) -> None:
-    """Text-timeline pages for qualitative indicators (no numeric chart). Several indicators are
-    packed per page; a block is kept whole — when it won't fit, a new page is started. So a urine
-    'не виявлені' that becomes 'виявлено' is still visible in dynamics, as honest text."""
+    """Timeline TABLE pages for qualitative indicators (no numeric chart): one Дата|Значення table
+    per indicator. Several are packed per page; a block is kept whole — when it won't fit, a new
+    page starts. So a urine 'не виявлені' that becomes 'виявлено' shows in dynamics, as a table."""
     if not items:
         return
     state: dict[str, Any] = {"fig": None, "y": 0.0}
@@ -482,33 +565,27 @@ def _qual_pages(pdf: PdfPages, items: list[PdfQualTrend], *, heading: str) -> No
             state["fig"] = None
 
     for it in items:
-        rows = it.rows[-6:]  # keep the page readable; the recent history is what matters
+        rows = list(it.rows[-_QUAL_MAX_ROWS:])  # recent history is what matters
         note_wrapped = _wrap(_pdf_text(it.note), 90) if it.note else ""
-        block_h = (
-            _QUAL_LH * (2 + len(rows))
-            + (_QUAL_LH * (note_wrapped.count("\n") + 1) if note_wrapped else 0)
-            + 0.018
-        )
+        note_h = _QUAL_LH * (note_wrapped.count("\n") + 1) if note_wrapped else 0
+        block_h = 0.032 + 0.024 + 0.006 + _QT_ROW_H * (len(rows) + 1) + 0.012 + note_h + 0.016
         if state["fig"] is None or state["y"] - block_h < _QUAL_BOTTOM:
             _close()
             _open()
         fig, y = state["fig"], state["y"]
         fig.text(0.08, y, _clip(_pdf_text(it.title), 56), fontsize=13, color=_INK, weight="bold")
-        y -= _QUAL_LH
+        y -= 0.032
         sub = it.subtitle
         if it.changed:
             changed = locale.CHART_PDF_QUAL_CHANGED
             sub = f"{sub}  ·  {changed}" if sub else changed
         fig.text(0.08, y, _pdf_text(sub), fontsize=9.5, color=_MUTED)
-        y -= _QUAL_LH
-        for d, text, flagged in rows:
-            line = locale.CHART_PDF_QUAL_ROW.format(date=d, text=text)
-            fig.text(0.10, y, _pdf_text(f"• {line}"), fontsize=11, color=_OUT if flagged else _INK)
-            y -= _QUAL_LH
+        y -= 0.024 + 0.006
+        y = _qual_table(fig, y, rows) - 0.012
         if note_wrapped:
             fig.text(0.10, y, note_wrapped, ha="left", va="top", fontsize=9.5, color=_MUTED)
-            y -= _QUAL_LH * (note_wrapped.count("\n") + 1)
-        state["y"] = y - 0.018
+            y -= note_h
+        state["y"] = y - 0.016
     _close()
 
 

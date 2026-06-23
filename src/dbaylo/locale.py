@@ -641,8 +641,9 @@ CHART_PDF_SINGLE_NOTE = (
 )
 CHART_PDF_TOTAL_LINE = "Усього у звіті: {n} показників."
 CHART_PDF_QUAL_HEADING = "Якісні показники в динаміці"
-CHART_PDF_QUAL_ROW = "{date} — {text}"  # one dated qualitative result on the timeline
 CHART_PDF_QUAL_CHANGED = "значення змінювалося"  # a real qualitative change across dates
+CHART_PDF_QUAL_COL_DATE = "Дата"  # qualitative timeline TABLE: left column header
+CHART_PDF_QUAL_COL_VALUE = "Значення"  # qualitative timeline TABLE: right column header
 CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
 CHART_PDF_EMPTY = "Поки нема даних для PDF — потрібно щонайменше два виміри одного показника."
 # Filenames tie the export to a specific report — what it is (kind), when, and where (lab, no city).
