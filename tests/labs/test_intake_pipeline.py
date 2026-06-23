@@ -128,6 +128,61 @@ async def _confirm(session, user, day, value):
     )
 
 
+async def test_age_table_overrides_bad_stored_bounds(async_session) -> None:
+    # The PSA bug: extraction once stored the AGE span "40-50" as the band (40, 50). The lab's age
+    # table in ref_text + the patient's DOB must OVERRIDE that at read time -> the real <1.4 band
+    # for a 30-y-o, so a healthy 0.58 is in range (was painted red on a 0-50 axis).
+    user = await ensure_user(async_session, 1)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/psa.png"))
+    psa = ExtractedAnalyte(
+        analyte="ПСА",
+        value=0.58,
+        unit="нг/мл",
+        ref_low=40.0,  # the WRONG band a mis-parse stored
+        ref_high=50.0,
+        ref_text="<40 років: <1.4; 40-50 років: <2.0; 50-60 років: <3.1; ≥70 років: <4.4",
+    )
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[psa],
+        report_date=date(2023, 4, 18),
+        lab="Synevo",
+        birth_date=date(1993, 3, 24),
+    )
+    point = next(p for p in await load_series_points(async_session, user.id) if p.analyte == "ПСА")
+    assert (point.ref_low, point.ref_high) == (None, 1.4)  # resolved by age, not the stored 40-50
+
+
+async def test_sex_split_band_uses_the_patients_sex(async_session) -> None:
+    # A CBC adult row is itself sex-split ("Дорослі: Чоловіки …; Жінки …"). With the report's sex,
+    # the right band is picked at read time — not the child range a flat parse had stored.
+    user = await ensure_user(async_session, 1)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/rbc.png"))
+    rbc = ExtractedAnalyte(
+        analyte="Еритроцити",
+        value=4.5,
+        unit="10^12/л",
+        ref_low=3.5,  # a stored child-band mis-parse
+        ref_high=4.7,
+        ref_text="Діти: 1-6 років: 3.5 - 4.5; 6-12 років: 3.5 - 4.7; "
+        "Дорослі: Чоловіки: 4.0 - 5.0; Жінки: 3.7 - 4.7",
+    )
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[rbc],
+        report_date=date(2023, 4, 18),
+        lab="Synevo",
+        birth_date=date(1993, 3, 24),
+        sex="m",
+    )
+    point = next(
+        p for p in await load_series_points(async_session, user.id) if p.analyte == "Еритроцити"
+    )
+    assert (point.ref_low, point.ref_high) == (4.0, 5.0)  # the MALE adult band
+
+
 async def test_load_series_points_only_confirmed_dated(async_session) -> None:
     user = await ensure_user(async_session, 1)
     await _confirm(async_session, user, 1, 7.0)

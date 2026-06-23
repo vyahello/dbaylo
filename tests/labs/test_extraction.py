@@ -84,6 +84,28 @@ def test_parse_keeps_explicit_numeric_refs_over_ref_text() -> None:
     assert report.results[0].ref_low == 3.9 and report.results[0].ref_high == 6.1
 
 
+def test_parse_captures_birth_date_and_sex() -> None:
+    report = parse_extraction(
+        '{"report_date": "2023-04-18", "birth_date": "1993-03-24", "sex": "Чоловіча",'
+        ' "results": [{"analyte": "ПСА", "value": 0.58}]}'
+    )
+    assert report is not None
+    assert report.birth_date == date(1993, 3, 24) and report.sex == "m"
+
+
+def test_parse_does_not_flatten_an_age_table_ref_into_a_band() -> None:
+    # An age-stratified ref must stay as free text (ref_low/high None) so it is resolved by age at
+    # read time — NOT mis-parsed into the band (40, 50) by grabbing the age span "40-50".
+    report = parse_extraction(
+        '{"results": [{"analyte": "ПСА", "value": 0.58, "ref_text":'
+        ' "<40 років: <1.4; 40-50 років: <2.0; 50-60 років: <3.1"}]}'
+    )
+    assert report is not None
+    row = report.results[0]
+    assert row.ref_low is None and row.ref_high is None
+    assert row.ref_text and "40-50" in row.ref_text  # verbatim table kept for age resolution
+
+
 def test_parse_conclusion_and_out_of_range() -> None:
     report = parse_extraction(
         '{"conclusion": "Нормозооспермія", "results": ['

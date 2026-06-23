@@ -62,6 +62,9 @@ class ExtractedReport:
     # The patient's date of birth if the header prints it ("Дата народження") — used only to resolve
     # AGE-STRATIFIED references (e.g. ПСА) against the lab's own age table. Never shown to the user.
     birth_date: date | None = None
+    # The patient's sex ("m"/"f") if the header prints it ("Стать") — used only to pick the right
+    # band from a SEX-split reference (e.g. RBC/HGB "Дорослі: Чоловіки …; Жінки …"). Never shown.
+    sex: str | None = None
     # The report's own overall conclusion if it prints one (e.g. "Нормозооспермія").
     conclusion: str | None = None
     # Stage 6 — set for a NARRATIVE document (МРТ/УЗД/висновок): the human label

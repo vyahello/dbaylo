@@ -39,6 +39,9 @@ EXTRACTION_PERSONA = (
     '  "report_date": "YYYY-MM-DD" | null,\n'
     '  "birth_date": "YYYY-MM-DD" | null, // patient DATE OF BIRTH if the header prints it\n'
     "                                    // ('Дата народження') — needed for age-based references\n"
+    '  "sex": "m" | "f" | null,          // patient SEX if the header prints it (Стать:\n'
+    "                                    // Чоловіча -> m, Жіноча -> f) — needed for\n"
+    "                                    // sex-split references (Чоловіки/Жінки bands)\n"
     '  "lab": string | null,             // the lab BRAND / network (logo or letterhead),\n'
     "                                    // e.g. 'Синево', 'ДІЛА', 'Інвітро', plus the city if\n"
     "                                    // shown — 'Синево, Львів'. Not a bare 'Лабораторія X'\n"
@@ -183,6 +186,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     seen: set[tuple[str | None, str, float | None, str | None, str | None]] = set()
     report_date: date | None = None
     birth_date: date | None = None
+    sex: str | None = None
     lab: str | None = None
     report_type: str | None = None
     conclusion: str | None = None
@@ -202,6 +206,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
             results.append(analyte)
         report_date = report_date or report.report_date
         birth_date = birth_date or report.birth_date
+        sex = sex or report.sex
         # Chunks can disagree on the lab (one page shows the brand "Синево", another only the
         # facility line "Лабораторія Львів"): keep the most complete name, not just the first.
         if report.lab and (lab is None or len(report.lab) > len(lab)):
@@ -214,6 +219,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
         results=results,
         report_date=report_date,
         birth_date=birth_date,
+        sex=sex,
         lab=normalize_lab(lab),
         report_type=report_type,
         conclusion=conclusion,
@@ -322,6 +328,7 @@ def parse_extraction(text: str) -> ExtractedReport | None:
         results=analytes,
         report_date=_coerce_date(data.get("report_date")),
         birth_date=_coerce_date(data.get("birth_date")),
+        sex=_coerce_sex(data.get("sex")),
         lab=normalize_lab(_coerce_str(data.get("lab"))),
         conclusion=_coerce_str(data.get("conclusion")),
         report_type=report_type,
@@ -395,6 +402,19 @@ def _coerce_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_sex(value: object) -> str | None:
+    """Normalize the model's sex token to 'm'/'f' — tolerant of 'm'/'f', Ukrainian/English words
+    ('чоловіча'/'male', 'жіноча'/'female'). Anything else -> None (we never guess sex)."""
+    if value is None:
+        return None
+    token = str(value).strip().casefold()
+    if token.startswith(("m", "ч")) or "male" in token and "female" not in token:
+        return "m"
+    if token.startswith(("f", "ж", "w")) or "female" in token:
+        return "f"
+    return None
 
 
 def _coerce_bool(value: object) -> bool | None:

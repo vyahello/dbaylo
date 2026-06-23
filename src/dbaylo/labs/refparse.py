@@ -28,6 +28,14 @@ def parse_ref_range(ref_text: str | None) -> tuple[float | None, float | None]:
     """
     if not ref_text:
         return None, None
+    # An AGE-stratified table ("<40: <1.4; 40-50: <2.0; …") must NOT be flattened to a range here —
+    # _RANGE_RE would grab the age span "40-50" as a value band (40..50). Leave it as free text; it
+    # is resolved by the patient's age at read time (load_series_points). Lazy import breaks the
+    # agerefs<->refparse cycle (and a single row value like "<1.4" is not itself a table).
+    from dbaylo.labs.agerefs import is_age_table
+
+    if is_age_table(ref_text):
+        return None, None
     text = ref_text.strip().casefold().replace(",", ".").replace("–", "-").replace("—", "-")
     if m := _RANGE_RE.search(text):  # two-sided "X - Y" (most specific — check first)
         return float(m.group(1)), float(m.group(2))

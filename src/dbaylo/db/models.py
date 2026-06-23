@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from enum import StrEnum
 
-from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Text, false, func, true
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, String, Text, false, func, true
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -110,6 +110,9 @@ class LabReport(TimestampMixin, Base):
     # The patient's date of birth, when the report header carries it. Used to resolve AGE-STRATIFIED
     # references (e.g. ПСА: <40 -> <1.4) deterministically — the lab's own age table, picked by age.
     birth_date: Mapped[date | None] = mapped_column(Date, default=None)
+    # The patient's sex ("m"/"f"), when the header carries it. Used to pick the right band from a
+    # SEX-split reference (e.g. RBC/HGB "Дорослі: Чоловіки …; Жінки …"). Never shown to the user.
+    sex: Mapped[str | None] = mapped_column(String(1), default=None)
     # Original file is always kept and linked (safety rail #2: OCR never trusted silently).
     source_file: Mapped[str | None] = mapped_column(default=None)
     # SHA-256 of the uploaded bytes, so re-uploading the exact same file is detected and not

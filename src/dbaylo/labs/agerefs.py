@@ -67,6 +67,49 @@ def _sex_of(text: str) -> str | None:
     return None
 
 
+# A sex-tagged band sitting in its own segment: "Чоловіки: 4.0 - 5.0" / "Жінки: 3.7 - 4.7". The
+# value must START with a digit so a label like "Чоловіки: <40 років …" (an age header) is skipped.
+_SEX_SEG_RE = re.compile(r"(жінк\w*|чолов\w*)\s*[:\-–—]?\s*(\d[^;|\n]*)", re.IGNORECASE)
+
+
+def _resolve_sex_split(ref_text: str, sex: str | None) -> tuple[float | None, float | None] | None:
+    """Pick the patient's band from a SEX-split value ("… Чоловіки: X; Жінки: Y") — the adult row of
+    a CBC is often split this way and the second sex sits in a trailing segment the age-row regex
+    does not capture. Only when the patient's sex is KNOWN; never guessed for unknown sex."""
+    if sex is None:
+        return None
+    for m in _SEX_SEG_RE.finditer(ref_text):
+        seg_sex = "f" if m.group(1).casefold().startswith("ж") else "m"
+        if seg_sex == sex:
+            bounds = parse_ref_range(m.group(2))
+            if bounds != (None, None):
+                return bounds
+    return None
+
+
+def _valid_age_rows(ref_text: str) -> list[tuple[str, str]]:
+    """The (age-condition, value) rows of an age table whose value is a clean numeric bound. A value
+    that still carries an AGE word ("Дорослі: 18-20 років: ≤1.1") is a nested group header the regex
+    over-captured — dropped, so the real sub-row ("20-60 років: ≤0.9") wins, never a WRONG band."""
+    rows = [
+        (m.group("age").strip(), m.group("val").strip()) for m in _AGE_ROW_RE.finditer(ref_text)
+    ]
+    return [
+        (cond, val)
+        for cond, val in rows
+        if parse_ref_range(val) != (None, None) and not _AGE_WORD_RE.search(val)
+    ]
+
+
+def is_age_table(ref_text: str | None) -> bool:
+    """True when ``ref_text`` is an AGE-stratified table (>=2 age rows). Such text must be resolved
+    by the patient's age — a flat numeric parse would mis-read an age range ("40-50 років") as a
+    value band (40..50), painting a wildly wrong norm and flagging a healthy value."""
+    if not ref_text:
+        return False
+    return len(_valid_age_rows(ref_text)) >= 2
+
+
 def resolve_age_reference(
     ref_text: str | None, age: int | None, sex: str | None = None
 ) -> tuple[float | None, float | None] | None:
@@ -76,28 +119,18 @@ def resolve_age_reference(
     Чоловіки …') is used only when the patient's sex is known and matches — never guessed."""
     if not ref_text or age is None:
         return None
-    rows = [
-        (m.group("age").strip(), m.group("val").strip()) for m in _AGE_ROW_RE.finditer(ref_text)
-    ]
-    # Keep rows whose value is a clean numeric bound. Reject a value that still carries an AGE word
-    # ("Дорослі: 18-20 років: ≤1.1") — that is a nested group header the regex over-captured; the
-    # real sub-rows ("20-60 років: ≤0.9") are matched separately, so dropping this avoids a WRONG
-    # band (18-20) when the right one (≤0.9) exists.
-    rows = [
-        (cond, val)
-        for cond, val in rows
-        if parse_ref_range(val) != (None, None) and not _AGE_WORD_RE.search(val)
-    ]
-    if len(rows) < 2:
-        return None
-    for cond, val in rows:
-        if not _age_matches(cond, age):
-            continue
-        val_sex = _sex_of(val)
-        if val_sex is not None and val_sex != sex:
-            continue  # a sex-specific value for the other (or unknown) sex — don't guess
-        return parse_ref_range(val)
-    return None
+    rows = _valid_age_rows(ref_text)
+    if len(rows) >= 2:
+        for cond, val in rows:
+            if not _age_matches(cond, age):
+                continue
+            val_sex = _sex_of(val)
+            if val_sex is not None and val_sex != sex:
+                continue  # this row is the other sex's band — try the sex fallback below
+            return parse_ref_range(val)
+    # The age row matched but only carried the OTHER sex's band (or the table is a pure adult
+    # sex-split): pick the patient's own sex band from its trailing segment, when sex is known.
+    return _resolve_sex_split(ref_text, sex)
 
 
 def age_on(birth_date: date | None, on: date | None) -> int | None:

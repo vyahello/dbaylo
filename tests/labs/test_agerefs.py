@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from dbaylo.labs.agerefs import age_on, resolve_age_reference
+from dbaylo.labs.agerefs import age_on, is_age_table, resolve_age_reference
 
 # The PSA table as a few labs print it (separators / wording vary).
 _TABLES = [
@@ -64,11 +64,51 @@ def test_nested_adult_subranges_pick_the_right_band_not_the_header() -> None:
     assert resolve_age_reference(_NESTED, 70) == (None, 1.1)  # "старше 60 років: ≤1.1"
 
 
-def test_a_sex_split_value_is_never_guessed() -> None:
-    # A sex-split adult value ("Жінки …; Чоловіки …") is NOT resolved into a band — we return None
-    # rather than risk the wrong sex's range (the lone non-prefixed row gives <2 parseable rows).
+def test_a_sex_split_value_resolves_for_a_known_sex_only() -> None:
+    # A sex-split adult value ("Жінки …; Чоловіки …") resolves to the patient's OWN sex band when
+    # sex is known — but is NEVER guessed when sex is unknown (better no band than the wrong sex's).
     assert resolve_age_reference(_SEX_SPLIT, 30) is None  # unknown sex -> no guess
-    assert resolve_age_reference(_SEX_SPLIT, 30, sex="m") is None  # male row carries no age prefix
+    assert resolve_age_reference(_SEX_SPLIT, 30, sex="m") == (1.78, 5.38)
+    assert resolve_age_reference(_SEX_SPLIT, 30, sex="f") == (1.56, 6.13)
+
+
+# Real CBC strings the labs print: a multi-age table whose ADULT row is itself SEX-split.
+_RBC = (
+    "Діти: <1 року: 3.3 - 4.9; 1-6 років: 3.5 - 4.5; 6-12 років: 3.5 - 4.7; "
+    "12-16 років: 3.6 - 5.1; Дорослі: Чоловіки: 4.0 - 5.0; Жінки: 3.7 - 4.7"
+)
+_HGB = (
+    "Діти: <1 року: 100.0 - 140.0; 1-6 років: 110.0 - 145.0; 6-16 років: 115.0 - 150.0; "
+    "Дорослі: Чоловіки: 130.0 - 160.0; Жінки: 120.0 - 140.0"
+)
+_HCT = "Діти: <1 року: 32.0 - 49.0; 1-16 років: 32.0 - 45.0; Дорослі: 35.0 - 54.0"
+_PSA = (
+    "Чоловіки: <40 років: <1.4; 40-50 років: <2.0; 50-60 років: <3.1; "
+    "60-70 років: <4.1; ≥70 років: <4.4"
+)
+
+
+def test_sex_split_adult_row_resolves_only_with_the_matching_sex() -> None:
+    # The adult row is "Дорослі: Чоловіки: 4.0 - 5.0; Жінки: 3.7 - 4.7": a 30-y-o male must get the
+    # male band, a female the female band — and with UNKNOWN sex we refuse to guess (None).
+    assert resolve_age_reference(_RBC, 30, sex="m") == (4.0, 5.0)
+    assert resolve_age_reference(_RBC, 30, sex="f") == (3.7, 4.7)
+    assert resolve_age_reference(_RBC, 30) is None  # unknown sex -> no guess
+    assert resolve_age_reference(_HGB, 30, sex="m") == (130.0, 160.0)
+
+
+def test_plain_adult_row_resolves_without_sex() -> None:
+    # "Дорослі: 35.0 - 54.0" carries no sex split, so age alone resolves it (a child gets a child
+    # band). This is the case that was painting the WRONG band before (the <1-year child range).
+    assert resolve_age_reference(_HCT, 30) == (35.0, 54.0)
+    assert resolve_age_reference(_HCT, 8) == (32.0, 45.0)  # "1-16 років"
+
+
+def test_is_age_table_detects_tables_and_rejects_plain_refs() -> None:
+    assert is_age_table(_PSA) and is_age_table(_RBC) and is_age_table(_HCT)
+    assert not is_age_table("3.9 - 6.1")  # a plain two-sided range is NOT a table
+    assert not is_age_table("< 1.4") and not is_age_table("не виявлено")
+    assert not is_age_table(None) and not is_age_table("")
 
 
 def test_age_on_computes_whole_years() -> None:

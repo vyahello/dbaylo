@@ -311,6 +311,7 @@ def _report_to_state(report: ExtractedReport) -> dict[str, object]:
     return {
         "report_date": report.report_date.isoformat() if report.report_date else None,
         "birth_date": report.birth_date.isoformat() if report.birth_date else None,
+        "sex": report.sex,
         "lab": report.lab,
         "conclusion": report.conclusion,
         "report_type": report.report_type,
@@ -332,6 +333,7 @@ def _report_from_state(data: Mapping[str, Any]) -> ExtractedReport:
         results=[ExtractedAnalyte(**row) for row in raw_results],
         report_date=date.fromisoformat(raw_date) if isinstance(raw_date, str) else None,
         birth_date=date.fromisoformat(raw_birth) if isinstance(raw_birth, str) else None,
+        sex=_str("sex"),
         lab=_str("lab"),
         conclusion=_str("conclusion"),
         report_type=_str("report_type"),
@@ -629,6 +631,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             report_date=report.report_date,
             lab=report.lab,
             birth_date=report.birth_date,
+            sex=report.sex,
             conclusion=report.conclusion,
             report_type=report.report_type,
             narrative=report.narrative,

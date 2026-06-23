@@ -62,10 +62,10 @@ def plan_ref_fills(
 
 
 async def _reports_to_backfill(session: AsyncSession) -> list[int]:
-    """Confirmed reports with a source file that have ≥1 value row with NO reference at all — the
-    ones a re-extraction can enrich (it recovers a missing reference, and the DOB as a bonus, which
-    is only needed where an age-stratified analyte like ПСА lives). A report whose every value row
-    already has a reference is skipped — no point re-extracting it."""
+    """Confirmed reports with a source file that re-extraction can enrich: ≥1 value row with NO
+    reference at all, OR a missing patient DOB / sex (both feed age- and sex-stratified references
+    like ПСА's age table or a CBC 'Чоловіки/Жінки' band). A report that already has every reference,
+    a DOB and a sex is skipped — no point re-extracting it."""
     reports = (
         await session.scalars(
             select(LabReport).where(
@@ -79,7 +79,8 @@ async def _reports_to_backfill(session: AsyncSession) -> list[int]:
         rows = (
             await session.scalars(select(LabResult).where(LabResult.report_id == report.id))
         ).all()
-        if any(r.value is not None and not _has_ref(_to_view(r)) for r in rows):
+        missing_ref = any(r.value is not None and not _has_ref(_to_view(r)) for r in rows)
+        if missing_ref or report.birth_date is None or report.sex is None:
             out.append(report.id)
     return out
 
@@ -94,10 +95,13 @@ async def _backfill_one(session: AsyncSession, report_id: int, *, dry_run: bool)
         return 0, f"report#{report_id}: re-extraction failed ({outcome.reason})"
     ref_fills = plan_ref_fills([_to_view(r) for r in rows], outcome)
     got_dob = report.birth_date is None and outcome.birth_date is not None
-    if not ref_fills and not got_dob:
+    got_sex = report.sex is None and outcome.sex is not None
+    if not ref_fills and not got_dob and not got_sex:
         return 0, f"report#{report_id}: nothing new"
     if got_dob:
         print(f"    DOB -> {outcome.birth_date}")
+    if got_sex:
+        print(f"    SEX -> {outcome.sex}")
     by_id = {r.id: r for r in rows}
     for row_id, (low, high, text) in ref_fills.items():
         shown = text or f"{low}–{high}"
@@ -105,12 +109,16 @@ async def _backfill_one(session: AsyncSession, report_id: int, *, dry_run: bool)
     if not dry_run:
         if got_dob:
             report.birth_date = outcome.birth_date
+        if got_sex:
+            report.sex = outcome.sex
         for row_id, (low, high, text) in ref_fills.items():
             res = by_id[row_id]
             res.ref_low, res.ref_high, res.ref_text = low, high, text
         await session.commit()
-    return len(ref_fills) + int(got_dob), f"report#{report_id}: {len(ref_fills)} ref(s)" + (
-        " + DOB" if got_dob else ""
+    extras = ("" if not got_dob else " + DOB") + ("" if not got_sex else " + SEX")
+    return (
+        len(ref_fills) + int(got_dob) + int(got_sex),
+        f"report#{report_id}: {len(ref_fills)} ref(s){extras}",
     )
 
 

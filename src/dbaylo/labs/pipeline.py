@@ -57,6 +57,7 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             LabResult.flagged,
             LabResult.section,
             LabReport.birth_date,
+            LabReport.sex,
         )
         .join(LabReport, LabResult.report_id == LabReport.id)
         .where(
@@ -69,13 +70,18 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
 
     def _point(row: object) -> LabPoint:
         low, high = row.ref_low, row.ref_high  # type: ignore[attr-defined]
-        if low is None and high is None:  # try an age-stratified table from the lab
-            resolved = resolve_age_reference(
-                row.ref_text,  # type: ignore[attr-defined]
-                age_on(row.birth_date, row.report_date),  # type: ignore[attr-defined]
-            )
-            if resolved is not None:
-                low, high = resolved
+        # An age-stratified table (e.g. ПСА's "<40: <1.4; 40-50: <2.0; …") takes PRECEDENCE over the
+        # stored bounds — those are often a MIS-PARSE of an age range ("40-50" read as a value
+        # band 40..50), which would paint a wildly wrong norm and flag a healthy value. The
+        # resolver returns None unless the text really is such a table, so a normal numeric
+        # reference is never disturbed; only a genuine age table overrides the stored numbers.
+        resolved = resolve_age_reference(
+            row.ref_text,  # type: ignore[attr-defined]
+            age_on(row.birth_date, row.report_date),  # type: ignore[attr-defined]
+            sex=row.sex,  # type: ignore[attr-defined]
+        )
+        if resolved is not None:
+            low, high = resolved
         return LabPoint(
             analyte=row.analyte,  # type: ignore[attr-defined]
             taken_on=row.report_date,  # type: ignore[attr-defined]

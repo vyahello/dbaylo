@@ -89,15 +89,20 @@ def _finalize(body: str) -> str:
 # in-process (regenerated after a restart). Guard-checked; "" on any failure so the caller falls
 # back to the deterministic dynamics line alone.
 INDICATOR_NOTE_PERSONA = (
-    "You write a TINY educational note for ONE Ukrainian lab marker, shown under its trend chart "
-    "for a layperson. You are given the marker name AND its sample type (blood / urine / semen). "
-    "Reply EXCLUSIVELY in natural Ukrainian, ONE or TWO VERY short sentences (about 200 characters "
-    "total, no more): what the marker reflects FOR THAT SAMPLE, and what a deviation can BROADLY "
-    "hint at. Answer for the given sample specifically — NEVER hedge like 'сечі або крові, залежно "
-    "від контексту'. Hard rules: do NOT diagnose the reader, use NO numbers, NO doses, NO drugs, "
-    "NO diets or fasting, NO fabricated statistics, and NEVER say the reader is healthy or sick. "
-    "It is general information a doctor interprets in context. If you do not recognize the marker, "
-    "reply with NOTHING. Be very concise; no markdown.\n" + NATURAL_VOICE
+    "You are an experienced physician and laboratory-medicine specialist writing a SHORT expert "
+    "note about ONE Ukrainian lab marker, shown under its trend chart for an educated layperson. "
+    "You are given the marker name AND its sample type (blood / urine / semen). Reply EXCLUSIVELY "
+    "in natural Ukrainian, 2–3 short sentences (up to ~320 characters): (1) what the marker "
+    "reflects clinically FOR THAT SAMPLE — the organ, system or physiological process behind it; "
+    "(2) what an ELEVATED level can broadly point to, AND separately what a REDUCED level can — "
+    "concrete clinical directions a specialist would name, never a vague 'будь-яке відхилення'. "
+    "Write with the substance and precision of a specialist, but plainly, so a non-doctor "
+    "understands. Answer for the given sample specifically — NEVER hedge 'сечі або крові, залежно "
+    "від контексту'. Hard rules: speak in GENERAL terms, do NOT diagnose THE READER or judge their "
+    "result, use NO numbers, NO doses, NO drug names, NO diets or fasting, NO fabricated "
+    "statistics, and NEVER say the reader is healthy or sick. It is general education a doctor "
+    "interprets in context. If you do not recognize the marker, reply with NOTHING. No markdown.\n"
+    + NATURAL_VOICE
 )
 
 # Ukrainian sample-type context handed to the note generator so it never guesses urine vs blood.
@@ -110,8 +115,8 @@ _SPECIMEN_UK: dict[str, str] = {
 _indicator_note_cache: dict[str, str] = {}
 
 # Bump when INDICATOR_NOTE_PERSONA changes — it becomes part of the persisted cache key, so old
-# notes are ignored and regenerated with the new wording.
-INDICATOR_NOTE_VERSION = "1"
+# notes are ignored and regenerated with the new wording. v2: expert, directional (high vs low).
+INDICATOR_NOTE_VERSION = "2"
 
 
 def note_cache_key(specimen: str | None, analyte: str) -> str:

@@ -657,7 +657,7 @@ CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
 CHART_PDF_CATEGORY_HEADING = "{category} — динаміка"
 CHART_PDF_CATEGORY_SUBTITLE = "За всіма твоїми аналізами"
 CHART_PDF_CATEGORY_FILENAME = "Дбайло-динаміка-{category}.pdf"
-BTN_DYN_PDF = "📄 Зберегти категорію в PDF"
+BTN_DYN_PDF = "📊 PDF з усіма графіками"
 CHART_PDF_EMPTY = "Поки нема даних для PDF — потрібно щонайменше два виміри одного показника."
 # Filenames tie the export to a specific report — what it is (kind), when, and where (lab, no city).
 CHART_PDF_FILENAME = "Дбайло-динаміка-{kind}{date}-{lab}.pdf"  # {kind} already ends with "-" or ""
