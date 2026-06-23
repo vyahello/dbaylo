@@ -821,7 +821,7 @@ def _pdf_caption(dynamics: str, note: str) -> str:
     return f"{dynamics}\n\n{note}" if note else dynamics
 
 
-_PDF_NOTE_BUDGET_S = 75  # ship the dynamics PDF within this even if claude is slow — notes optional
+_PDF_NOTE_BUDGET_S = 55  # ship the dynamics PDF within this even if claude is slow — notes optional
 
 
 async def _gather_notes_bounded(items: list[tuple[str, str | None]]) -> list[str]:
@@ -879,13 +879,24 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
         await callback.message.answer(locale.CHART_PDF_EMPTY)
         return
     await callback.message.answer(locale.CHART_PDF_PREPARING)
-    # The educational notes are an LLM call per indicator — optional enrichment. Bound the TOTAL
-    # time so a slow / rate-limited claude can never leave "Готую PDF" hanging: whatever isn't ready
-    # within the budget is cancelled (run_claude kills its child process) and that page keeps just
-    # its deterministic dynamics caption. Already-cached notes return instantly.
-    note_items = [(d.title, d.specimen) for d in data] + [(q.title, q.specimen) for q in quals]
-    all_notes = await _gather_notes_bounded(note_items)
-    chart_notes, qual_notes = all_notes[: len(data)], all_notes[len(data) :]
+    # An educational note is one (~9s) claude call. Generating one PER indicator made a 39-row PDF
+    # wait ~75s. Generate notes ONLY for the OUT-OF-RANGE indicators — that's where "що це означає"
+    # matters — so the PDF ships fast; in-range pages keep just their deterministic caption. Still
+    # bounded by an overall budget (a slow claude can never hang it), and cached notes are free.
+    chart_flagged = [(i, d) for i, d in enumerate(data) if d.flagged]
+    qual_flagged = [(i, q) for i, q in enumerate(quals) if q.flagged]
+    note_items = [(d.title, d.specimen) for _, d in chart_flagged]
+    note_items += [(q.title, q.specimen) for _, q in qual_flagged]
+    notes = await _gather_notes_bounded(note_items)
+    chart_notes = [""] * len(data)
+    qual_notes = [""] * len(quals)
+    cursor = 0
+    for i, _ in chart_flagged:
+        chart_notes[i] = notes[cursor]
+        cursor += 1
+    for i, _ in qual_flagged:
+        qual_notes[i] = notes[cursor]
+        cursor += 1
     highlight = report.report_date if report else None
     pages = [
         PdfChart(
