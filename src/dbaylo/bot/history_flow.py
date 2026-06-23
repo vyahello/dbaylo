@@ -822,7 +822,9 @@ def _dyn_home_view(counts: list[tuple[str, int]]) -> tuple[str, InlineKeyboardMa
         _btn(f"{locale.CATEGORY_NAMES.get(cat, cat)} ({n})", callbacks.dyn_category(cat))
         for cat, n in counts
     ]
-    return locale.DYN_HEADER, InlineKeyboardMarkup(inline_keyboard=_pair_rows(buttons))
+    rows = _pair_rows(buttons)
+    rows.append([_btn(locale.BTN_HIST_BACK, callbacks.MENU_OPEN_LABS)])  # back to the "Аналізи" hub
+    return locale.DYN_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _dyn_category_view(
@@ -894,31 +896,45 @@ async def cmd_dynamics(message: Message) -> None:
         await render_dynamics(message, tg)
 
 
-@router.callback_query(F.data == callbacks.DYN_OPEN)
-async def on_dyn_open(callback: CallbackQuery) -> None:
-    """Open the dynamics browser as a NEW message (from the /history list — keeps the list)."""
-    tg = _telegram_id(callback)
-    if tg is None or not isinstance(callback.message, Message):
+async def _edit_to_dyn_home(callback: CallbackQuery, telegram_id: int) -> None:
+    """Edit the current message into the dynamics-browser home (category list). Shared by the
+    'Аналізи' hub entry and the ◀ Категорії back button — edit-in-place, so ◀ Назад can return to
+    the hub in the same message. The empty state still offers a way back to the hub."""
+    if not isinstance(callback.message, Message):
         await callback.answer()
         return
     await callback.answer()
-    await render_dynamics(callback.message, tg)
+    view = await _dyn_home(telegram_id)
+    if view is None:
+        back = InlineKeyboardMarkup(
+            inline_keyboard=[[_btn(locale.BTN_HIST_BACK, callbacks.MENU_OPEN_LABS)]]
+        )
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_text(locale.DYN_EMPTY, reply_markup=back)
+        return
+    text, keyboard = view
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == callbacks.DYN_OPEN)
+async def on_dyn_open(callback: CallbackQuery) -> None:
+    """Open the dynamics browser from the 'Аналізи' hub — edits the hub message in place, so the
+    home's ◀ Назад returns to the hub (same one-message master-detail as the report list)."""
+    tg = _telegram_id(callback)
+    if tg is None:
+        await callback.answer()
+        return
+    await _edit_to_dyn_home(callback, tg)
 
 
 @router.callback_query(F.data == callbacks.DYN_HOME)
 async def on_dyn_home(callback: CallbackQuery) -> None:
     tg = _telegram_id(callback)
-    if tg is None or not isinstance(callback.message, Message):
+    if tg is None:
         await callback.answer()
         return
-    await callback.answer()
-    view = await _dyn_home(tg)
-    if view is None:
-        await callback.message.answer(locale.DYN_EMPTY)
-        return
-    text, keyboard = view
-    with contextlib.suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+    await _edit_to_dyn_home(callback, tg)
 
 
 @router.callback_query(F.data.startswith(callbacks.DYN_CAT + ":"))

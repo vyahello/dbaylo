@@ -663,6 +663,14 @@ async def test_aggregate_indicators_groups_by_category(async_session: AsyncSessi
     assert [it.name for it in history.indicators_in(items, grouping.BIOCHEM)] == ["Натрій"]
 
 
+def test_dynamics_home_has_a_back_to_the_labs_hub() -> None:
+    # The dynamics browser's top level (category list) must offer ◀ Назад to the "Аналізи" hub —
+    # otherwise, opened from the hub, you'd be stranded with no way back.
+    _, kb = history_flow._dyn_home_view([(grouping.BLOOD, 3), (grouping.URINE, 2)])
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.MENU_OPEN_LABS in datas
+
+
 async def test_aggregate_indicators_skips_qualitative_analytes(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     # A qualitative urine analyte (no numeric value) on two dates -> 0 numeric -> not chartable,
