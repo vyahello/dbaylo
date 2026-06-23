@@ -23,6 +23,17 @@ from dbaylo.companion import grouping
         (None, "Гемоглобін", grouping.BLOOD),
         (None, "ТТГ", grouping.HORMONES),
         (None, "Кількість сперматозоїдів", grouping.SEMEN),  # semen-specific name
+        # The categories that used to dump into "Інше": tumour markers, serology/ПЛР, coagulation,
+        # endocrine — now each has a meaningful home (decided from a non-clinical "Імунохімія"-type
+        # section by the analyte name).
+        ("Пакет №7 (ПСА)", "Простат-специфічний антиген загальний (ПСА)", grouping.MARKERS),
+        ("Імунохімія", "fPSA%", grouping.MARKERS),
+        ("Біо/імунохімія", "Вірус гепатиту C (HCV), антитіла сумарні", grouping.INFECTION),
+        (None, "Коронавірус (SARS-CoV-2), антитіла IgM", grouping.INFECTION),
+        (None, "ДНК CMV (Цитомегаловірус), REAL TIME ПЛР", grouping.INFECTION),
+        ("Система гемостазу", "D-димер", grouping.COAGULATION),
+        ("Альдостерон-ренінове співвідношення (АРС)", "Альдостерон", grouping.HORMONES),
+        (None, "Ренін, активний", grouping.HORMONES),
         (None, "Щось небачене", grouping.OTHER),
     ],
 )

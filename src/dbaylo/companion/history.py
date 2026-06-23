@@ -722,21 +722,34 @@ def short_type(report_type: str | None) -> str:
 
 
 def report_kind_label(results: list[LabResult]) -> str:
-    """A very short 'what kind of analysis' tag for the list button — Кров / Сеча / Кров+Сеча /
-    Спермограма / … — derived deterministically from the rows' clinical categories so a glance tells
-    you blood vs urine vs both, not just date + lab. Up to two categories, then '…'."""
-    cats = {grouping.categorize(r.section, r.analyte) for r in results}
-    ordered = [c for c in grouping.CATEGORY_ORDER if c in cats]
-    labels = [locale.CATEGORY_SHORT.get(c, c) for c in ordered]
-    if not labels:
+    """A short, concrete 'what kind of analysis' tag for the list button — Кров / Сеча / Кров+Сеча /
+    Гормони / Онкомаркери / Інфекції / Спермограма / … — so a glance tells you what it is, not just
+    date + lab. The DOMINANT category leads; a second is shown only when it is a real share of the
+    rows (not a single stray), and never a third — the button must stay short."""
+    counts = Counter(grouping.categorize(r.section, r.analyte) for r in results)
+    if not counts:
         return ""
-    return "+".join(labels) if len(labels) <= 2 else "+".join(labels[:2]) + "…"
+    order = {c: i for i, c in enumerate(grouping.CATEGORY_ORDER)}
+    ranked = sorted(counts, key=lambda c: (-counts[c], order.get(c, len(order))))
+    chosen = [ranked[0]]
+    # Show a second category only when it is a real mini-panel (>=3 rows), not one stray row — so
+    # "Сеча+Гормони" / "Сеча+Онкомаркери" surface, but an incidental row does not. Never a third.
+    if len(ranked) > 1 and counts[ranked[1]] >= 3:
+        chosen.append(ranked[1])
+    return "+".join(locale.CATEGORY_SHORT.get(c, c) for c in chosen)
+
+
+def _short_lab(lab: str | None) -> str:
+    """The lab brand WITHOUT the city ('Сінево, Львів' -> 'Сінево') — so the list button fits on a
+    phone. The city is the same for every report and adds no information at a glance."""
+    full = normalize_lab(lab) or locale.LAB_LAB_UNKNOWN
+    return full.split(",")[0].strip() or full
 
 
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     """The one-line button label for a report in the master list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
-    lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
+    lab_txt = _short_lab(report.lab)
     if report.kind == ReportKind.NARRATIVE:
         rtype = short_type(report.report_type)  # truncate the long study name on the button
         if report.lab:  # an imaging study often has no lab brand — then its type IS its identity

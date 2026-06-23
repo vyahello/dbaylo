@@ -15,20 +15,39 @@ BLOOD = "blood"
 URINE = "urine"
 BIOCHEM = "biochem"
 HORMONES = "hormones"
+MARKERS = "markers"  # tumour / prostate markers (ПСА, СА-125, РЕА, АФП …)
+INFECTION = "infection"  # serology / ПЛР: hepatitis, HIV, COVID, EBV, CMV, antibodies …
+COAGULATION = "coagulation"  # haemostasis: D-dimer, INR, fibrinogen, APTT …
 SEMEN = "semen"  # spermogram / male-fertility panel — its own specimen, never confused with blood
 OTHER = "other"
 IMAGING = "imaging"  # narrative documents (set by the caller, not by categorize())
 
 # Display order of the categories in the browser.
-CATEGORY_ORDER: tuple[str, ...] = (BLOOD, URINE, BIOCHEM, HORMONES, SEMEN, OTHER, IMAGING)
+CATEGORY_ORDER: tuple[str, ...] = (
+    BLOOD,
+    URINE,
+    BIOCHEM,
+    HORMONES,
+    MARKERS,
+    INFECTION,
+    COAGULATION,
+    SEMEN,
+    OTHER,
+    IMAGING,
+)
 
 # Panel-name keyword -> category (checked first, on the printed section). Order matters:
-# spermogram before everything (a semen "Еритроцити" must not read as blood), then
-# "біохім"/"сеч" before the generic "кров" so "Біохімічний аналіз крові" is biochem, not blood.
+# spermogram before everything (a semen "Еритроцити" must not read as blood), then the specific
+# panels (гемостаз/біохім/сеч) before the generic "кров" so "Біохімічний аналіз крові" is biochem.
+# NOTE: a non-clinical method section (e.g. "Імунохімія", "Біо/імунохімія") is deliberately NOT a
+# keyword — it carries hormones AND markers AND serology, so we let the analyte name decide instead.
 _SECTION_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("спермограм", SEMEN),
     ("еякулят", SEMEN),
     ("сперм", SEMEN),
+    ("гемостаз", COAGULATION),
+    ("згорт", COAGULATION),
+    ("коагул", COAGULATION),
     ("сеч", URINE),
     ("біохім", BIOCHEM),
     ("гормон", HORMONES),
@@ -38,9 +57,123 @@ _SECTION_KEYWORDS: tuple[tuple[str, str], ...] = (
     ("загальний аналіз", BLOOD),
 )
 
-# Analyte-name keyword -> category (fallback when a row has no section).
+# Analyte-name keyword -> category (fallback when a section is missing or non-clinical). Specific
+# panels first; the broad biochemistry list is LAST so a marker/hormone is never misread as biochem.
 _ANALYTE_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
     (("сперматозоїд", "еякулят", "спермі", "сперматогенез", "акросом"), SEMEN),
+    (
+        (
+            "пса",
+            "psa",
+            "fpsa",
+            "простат-специфічн",
+            "са-125",
+            "са 125",
+            "ca-125",
+            "ca 125",
+            "са-15-3",
+            "са 15-3",
+            "са-19-9",
+            "са 19-9",
+            "ca 19-9",
+            "раеа",
+            "рэа",
+            "cea",
+            "афп",
+            "afp",
+            "не-4",
+            "he4",
+            "онкомаркер",
+        ),
+        MARKERS,
+    ),
+    (
+        (
+            "гепатит",
+            "hbsag",
+            "hbs ag",
+            "hbv",
+            "hcv",
+            "віл",
+            "hiv",
+            "sars-cov",
+            "covid",
+            "коронавірус",
+            "антитіл",
+            "antibod",
+            "igg",
+            "igm",
+            "iga",
+            "плр",
+            "пцр",
+            "real time",
+            "днк ",
+            "рнк ",
+            "епштейн",
+            "епштайн",
+            "ebv",
+            "cmv",
+            "цитомегал",
+            "герпес",
+            "hhv",
+            "уреаплазм",
+            "ureaplasma",
+            "хламід",
+            "chlamyd",
+            "токсоплазм",
+            "краснух",
+            "rubella",
+            "сифіліс",
+            "treponema",
+        ),
+        INFECTION,
+    ),
+    (
+        (
+            "д-димер",
+            "d-димер",
+            "d-dimer",
+            "протромбін",
+            "мно",
+            "inr",
+            "фібриноген",
+            "ачтв",
+            "тромбіновий",
+            "антитромбін",
+            "пті",
+            "птв",
+        ),
+        COAGULATION,
+    ),
+    (
+        (
+            "ттг",
+            "т3",
+            "т4",
+            "тиреотроп",
+            "тироксин",
+            "пролактин",
+            "кортизол",
+            "тестостерон",
+            "естрадіол",
+            "прогестерон",
+            "інсулін",
+            "паратгормон",
+            "альдостерон",
+            "ренін",
+            "дгеа",
+            "дгея",
+            "dhea",
+            "фсг",
+            "лютеїнізуюч",
+            "соматотроп",
+            "кальцитонін",
+            "17-он",
+            "17-oh",
+            "статеві гормони",
+        ),
+        HORMONES,
+    ),
     (
         (
             "гемоглобін",
@@ -87,23 +220,6 @@ _ANALYTE_KEYWORDS: tuple[tuple[tuple[str, ...], str], ...] = (
             "с-реактивний",
         ),
         BIOCHEM,
-    ),
-    (
-        (
-            "ттг",
-            "т3",
-            "т4",
-            "тиреотроп",
-            "тироксин",
-            "пролактин",
-            "кортизол",
-            "тестостерон",
-            "естрадіол",
-            "прогестерон",
-            "інсулін",
-            "паратгормон",
-        ),
-        HORMONES,
     ),
 )
 

@@ -284,31 +284,43 @@ async def test_report_button_label_and_card_show_flag_count(async_session: Async
     assert "⚠️ 1 поза нормою" in history.render_card(report, results)
 
 
+def _cat_rows(section: str, analyte: str, n: int) -> list[LabResult]:
+    return [LabResult(analyte=f"{analyte} {i}", section=section, value=float(i)) for i in range(n)]
+
+
 def test_report_kind_label_says_what_the_analysis_is() -> None:
     # The list button must hint blood vs urine vs both vs spermogram — not just date + lab.
-    blood = LabResult(analyte="Гемоглобін", section="Загальний аналіз крові", value=140.0)
-    urine = LabResult(analyte="Лейкоцити", section="Загальний аналіз сечі", value_text="2-3")
-    semen = LabResult(analyte="Об'єм", section="Спермограма", value=2.0)
-    assert history.report_kind_label([blood]) == "Кров"
-    assert history.report_kind_label([semen]) == "Спермограма"
-    assert history.report_kind_label([blood, urine]) == "Кров+Сеча"
+    blood = _cat_rows("Загальний аналіз крові", "Гемоглобін", 5)
+    urine = _cat_rows("Загальний аналіз сечі", "Лейкоцити", 5)
+    semen = _cat_rows("Спермограма", "Сперматозоїди", 5)
+    assert history.report_kind_label(blood) == "Кров"
+    assert history.report_kind_label(semen) == "Спермограма"
+    assert history.report_kind_label(blood + urine) == "Кров+Сеча"  # both, dominant first
     assert history.report_kind_label([]) == ""
+    # A single stray row of another category does NOT earn a "+тег" (needs a real mini-panel).
+    assert history.report_kind_label(blood + urine[:1]) == "Кров"
+    # ...but a real 3-row secondary panel (e.g. hormones alongside urine) does show.
+    hormones = _cat_rows("Гормони щитоподібної залози", "ТТГ", 3)
+    assert history.report_kind_label(urine + hormones) == "Сеча+Гормони"
+    # Never a third category — the button must stay short.
+    assert history.report_kind_label(urine + blood + hormones).count("+") == 1
 
 
-async def test_report_button_label_shows_the_kind(async_session: AsyncSession) -> None:
+async def test_report_button_label_shows_kind_and_drops_the_city(
+    async_session: AsyncSession,
+) -> None:
     user = await _user(async_session)
     report = await _rich_report(
         async_session,
         user_id=user.id,
         on=date(2026, 2, 1),
-        lab="Сінево",
-        results=[
-            LabResult(analyte="Гемоглобін", section="Загальний аналіз крові", value=140.0),
-            LabResult(analyte="Лейкоцити", section="Загальний аналіз сечі", value_text="2-3"),
-        ],
+        lab="Сінево, Львів",  # the city must NOT reach the button (it overflows on a phone)
+        results=_cat_rows("Загальний аналіз крові", "Гемоглобін", 4)
+        + _cat_rows("Загальний аналіз сечі", "Лейкоцити", 4),
     )
     label = history.report_button_label(report, history.ordered_results(report))
     assert "Кров+Сеча" in label and "Сінево" in label  # what it is, then where
+    assert "Львів" not in label  # the city is stripped
 
 
 def test_short_type_truncates_long_study_names() -> None:
