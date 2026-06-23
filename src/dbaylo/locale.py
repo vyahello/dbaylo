@@ -652,11 +652,12 @@ CHART_PDF_QUAL_CHANGED = "значення змінювалося"  # a real qua
 CHART_PDF_QUAL_COL_DATE = "Дата"  # qualitative timeline TABLE: left column header
 CHART_PDF_QUAL_COL_VALUE = "Значення"  # qualitative timeline TABLE: right column header
 CHART_PDF_PREPARING = "Готую PDF із графіками… ⏳"
-# Cross-lab "all indicators" PDF (from the dynamics-by-category browser).
-CHART_PDF_ALL_HEADING = "Динаміка по всіх показниках"
-CHART_PDF_ALL_SUBTITLE = "За всіма твоїми аналізами, по категоріях"
-CHART_PDF_ALL_FILENAME = "Дбайло-динаміка-усі-показники.pdf"
-BTN_DYN_PDF = "📄 PDF з усіма графіками"
+# Per-category PDF (from the dynamics-by-category browser): one document per category, not one
+# giant file across everything — easier to read. Heading carries the readable category name.
+CHART_PDF_CATEGORY_HEADING = "{category} — динаміка"
+CHART_PDF_CATEGORY_SUBTITLE = "За всіма твоїми аналізами"
+CHART_PDF_CATEGORY_FILENAME = "Дбайло-динаміка-{category}.pdf"
+BTN_DYN_PDF = "📄 Зберегти категорію в PDF"
 CHART_PDF_EMPTY = "Поки нема даних для PDF — потрібно щонайменше два виміри одного показника."
 # Filenames tie the export to a specific report — what it is (kind), when, and where (lab, no city).
 CHART_PDF_FILENAME = "Дбайло-динаміка-{kind}{date}-{lab}.pdf"  # {kind} already ends with "-" or ""

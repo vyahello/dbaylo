@@ -726,14 +726,45 @@ async def test_all_dynamics_span_reports_grouped_by_category(async_session: Asyn
     assert [c.title for c in charts] == ["Гемоглобін"]  # numeric -> chart
     assert [q.title for q in quals] == ["Бактерії"]  # qualitative -> table
     assert (bd.numeric, bd.qualitative, bd.total) == (1, 1, 2)
-    assert bd.categories == [("blood", 1)]  # the numeric one's category
+    # Both categories present: blood (the numeric chart) AND urine (the qualitative table).
+    assert bd.categories == [("blood", 1), ("urine", 1)]
+
+    # The per-category PDF filters to ONE category: blood keeps only Гемоглобін (no urine table),
+    # urine keeps only Бактерії (no blood chart) — so a category file never bleeds other categories.
+    blood_charts = await history.all_trend_charts(async_session, user_id=user.id, category="blood")
+    blood_quals = await history.all_qualitative_dynamics(
+        async_session, user_id=user.id, category="blood"
+    )
+    urine_quals = await history.all_qualitative_dynamics(
+        async_session, user_id=user.id, category="urine"
+    )
+    assert [c.title for c in blood_charts] == ["Гемоглобін"] and blood_quals == []
+    assert [q.title for q in urine_quals] == ["Бактерії"]
+    urine_bd = await history.all_indicator_breakdown(
+        async_session, user_id=user.id, category="urine"
+    )
+    assert (urine_bd.numeric, urine_bd.qualitative, urine_bd.total) == (0, 1, 1)
 
 
-def test_dynamics_home_has_a_pdf_and_back_buttons() -> None:
+def test_dynamics_home_has_no_global_pdf_button() -> None:
+    # The PDF export is PER CATEGORY now (one giant cross-category file was unwieldy to read), so it
+    # lives in each category's view — never on the home, which only lists categories + a way back.
     _, kb = history_flow._dyn_home_view([(grouping.BLOOD, 3), (grouping.URINE, 2)])
     datas = [b.callback_data for row in kb.inline_keyboard for b in row]
-    assert callbacks.DYN_PDF in datas  # one PDF with everything, by category
+    assert not any((d or "").startswith(callbacks.DYN_PDF) for d in datas)
     assert callbacks.MENU_OPEN_LABS in datas  # ◀ back to the hub
+
+
+def test_dynamics_category_view_offers_a_per_category_pdf() -> None:
+    items = [
+        history.IndicatorItem(
+            name="Гемоглобін", key="k", category=grouping.BLOOD, has_trend=True, last_flagged=False
+        )
+    ]
+    _, kb = history_flow._dyn_category_view(grouping.BLOOD, items, 0)
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.dyn_pdf(grouping.BLOOD) in datas  # PDF of just this category
+    assert callbacks.DYN_HOME in datas  # ◀ back to the category list
 
 
 def test_dynamics_home_has_a_back_to_the_labs_hub() -> None:

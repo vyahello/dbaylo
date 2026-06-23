@@ -991,46 +991,51 @@ def _dyn_home_view(counts: list[tuple[str, int]]) -> tuple[str, InlineKeyboardMa
         for cat, n in counts
     ]
     rows = _pair_rows(buttons)
-    rows.append(
-        [_btn(locale.BTN_DYN_PDF, callbacks.DYN_PDF)]
-    )  # one PDF, all indicators by category
     rows.append([_btn(locale.BTN_HIST_BACK, callbacks.MENU_OPEN_LABS)])  # back to the "Аналізи" hub
     return locale.DYN_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _dyn_pdf_cover(breakdown: history.ReportBreakdown) -> PdfCover:
-    """Cover for the cross-lab all-indicators PDF: total + how the dynamics are shown, by group."""
+def _dyn_pdf_cover(category: str, breakdown: history.ReportBreakdown) -> PdfCover:
+    """Cover for a SINGLE-category PDF: the category name + how its dynamics are shown (charts for
+    numeric, tables for qualitative). One document per category, never one giant file."""
+    name = locale.CHART_PDF_CATEGORY_LABELS.get(
+        category, locale.CATEGORY_NAMES.get(category, category)
+    )
     rows = [locale.CHART_PDF_ON_CHARTS.format(n=breakdown.numeric)]
     if breakdown.qualitative:
         rows.append(locale.CHART_PDF_IN_TABLES.format(n=breakdown.qualitative))
-    notes: list[str] = []
-    if len(breakdown.categories) > 1:
-        names = " · ".join(
-            locale.CHART_PDF_CATEGORY_LABELS.get(key, key) for key, _ in breakdown.categories
-        )
-        notes.append(locale.CHART_PDF_SECTIONS.format(names=names))
     return PdfCover(
-        heading=locale.CHART_PDF_ALL_HEADING,
-        report_line=locale.CHART_PDF_ALL_SUBTITLE,
+        heading=locale.CHART_PDF_CATEGORY_HEADING.format(category=name),
+        report_line=locale.CHART_PDF_CATEGORY_SUBTITLE,
         summary_line=locale.CHART_PDF_INTRO.format(n=breakdown.total),
         category_rows=tuple(rows),
-        notes=tuple(notes),
+        notes=(),
     )
 
 
-@router.callback_query(F.data == callbacks.DYN_PDF)
+def _dyn_pdf_filename(category: str) -> str:
+    """'Дбайло-динаміка-<категорія>.pdf' — the file says which category it is (emoji-free slug)."""
+    slug = _safe_filename(locale.CATEGORY_SHORT.get(category, category))
+    return _safe_filename(locale.CHART_PDF_CATEGORY_FILENAME.format(category=slug))
+
+
+@router.callback_query(F.data.startswith(callbacks.DYN_PDF + ":"))
 async def on_dyn_pdf(callback: CallbackQuery) -> None:
-    """One PDF with EVERY indicator's dynamics (charts + tables), grouped by category."""
+    """One PDF for a SINGLE category's dynamics (charts + tables) — not one giant cross-category
+    file, which was unwieldy to read. The category key rides on the callback."""
+    category = callbacks.parse_dyn_pdf(callback.data or "")
     tg = _telegram_id(callback)
-    if tg is None or not isinstance(callback.message, Message):
+    if category is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        data = await history.all_trend_charts(session, user_id=user.id)
-        quals = await history.all_qualitative_dynamics(session, user_id=user.id)
-        breakdown = await history.all_indicator_breakdown(session, user_id=user.id)
+        data = await history.all_trend_charts(session, user_id=user.id, category=category)
+        quals = await history.all_qualitative_dynamics(session, user_id=user.id, category=category)
+        breakdown = await history.all_indicator_breakdown(
+            session, user_id=user.id, category=category
+        )
     if not data and not quals:
         await callback.message.answer(locale.CHART_PDF_EMPTY)
         return
@@ -1038,9 +1043,9 @@ async def on_dyn_pdf(callback: CallbackQuery) -> None:
         callback.message,
         data=data,
         quals=quals,
-        cover=_dyn_pdf_cover(breakdown),
+        cover=_dyn_pdf_cover(category, breakdown),
         highlight=None,
-        filename=locale.CHART_PDF_ALL_FILENAME,
+        filename=_dyn_pdf_filename(category),
     )
 
 
@@ -1068,6 +1073,9 @@ def _dyn_category_view(
         nav.append(_btn(locale.BTN_HIST_NEXT, callbacks.dyn_category(category, page + 1)))
     if nav:
         rows.append(nav)
+    rows.append(
+        [_btn(locale.BTN_DYN_PDF, callbacks.dyn_pdf(category))]
+    )  # PDF of just this category
     rows.append([_btn(locale.DYN_BTN_BACK, callbacks.DYN_HOME)])
     header = locale.DYN_CATEGORY_HEADER.format(
         category=locale.CATEGORY_NAMES.get(category, category)

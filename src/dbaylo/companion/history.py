@@ -641,9 +641,12 @@ def _category_rank(section: str | None, analyte: str) -> int:
     return order.get(key, len(order))
 
 
-async def all_trend_charts(session: AsyncSession, *, user_id: int) -> list[TrendChartData]:
+async def all_trend_charts(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> list[TrendChartData]:
     """EVERY numeric-trend analyte across ALL reports, grouped by category then flagged-first — the
-    chart data behind the cross-lab 'PDF by categories' export. Deterministic, no LLM."""
+    chart data behind the per-category 'PDF' export. When ``category`` is given, only that
+    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
     series = build_series(await load_series_points(session, user_id))
     out: list[tuple[int, TrendChartData]] = []
     for pts in series.values():
@@ -652,6 +655,8 @@ async def all_trend_charts(session: AsyncSession, *, user_id: int) -> list[Trend
         latest = pts[-1]
         summary = compute_trend(pts)
         cat_key = grouping.categorize(latest.section, summary.analyte)
+        if category is not None and cat_key != category:
+            continue
         flagged = bool(latest.flagged) or summary.latest_flag in (ResultFlag.LOW, ResultFlag.HIGH)
         out.append(
             (
@@ -670,9 +675,12 @@ async def all_trend_charts(session: AsyncSession, *, user_id: int) -> list[Trend
     return [d for _, d in out]
 
 
-async def all_qualitative_dynamics(session: AsyncSession, *, user_id: int) -> list[QualTrend]:
+async def all_qualitative_dynamics(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> list[QualTrend]:
     """EVERY qualitative-timeline analyte across ALL reports, grouped by category then
-    changed/flagged-first — the table data for the cross-lab PDF export. Deterministic, no LLM."""
+    changed/flagged-first — the table data for the PDF export. When ``category`` is given, only that
+    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
     series = build_series(await load_series_points(session, user_id))
     out: list[tuple[int, QualTrend]] = []
     for key, pts in series.items():
@@ -682,6 +690,8 @@ async def all_qualitative_dynamics(session: AsyncSession, *, user_id: int) -> li
         if len({p.taken_on for p in qpts}) < 2:
             continue
         latest = pts[-1]
+        if category is not None and grouping.categorize(latest.section, latest.analyte) != category:
+            continue
         by_date: dict[date, QualMeasurement] = {}
         for p in sorted(qpts, key=lambda x: x.taken_on):
             by_date[p.taken_on] = QualMeasurement(
@@ -707,17 +717,24 @@ async def all_qualitative_dynamics(session: AsyncSession, *, user_id: int) -> li
     return [q for _, q in out]
 
 
-async def all_indicator_breakdown(session: AsyncSession, *, user_id: int) -> ReportBreakdown:
-    """Counts for the cross-lab PDF cover: how many indicators are charts vs tables, by category."""
+async def all_indicator_breakdown(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> ReportBreakdown:
+    """Counts for the PDF cover: how many indicators are charts vs tables, by category. When
+    ``category`` is given, the counts cover only that category (the single-category PDF)."""
     series = build_series(await load_series_points(session, user_id))
     numeric = qualitative = 0
     cat_counts: Counter[str] = Counter()
     for pts in series.values():
+        cat_key = grouping.categorize(pts[-1].section, pts[-1].analyte)
+        if category is not None and cat_key != category:
+            continue
         if len(_numeric_dates(pts)) >= 2:
             numeric += 1
-            cat_counts[grouping.categorize(pts[-1].section, pts[-1].analyte)] += 1
+            cat_counts[cat_key] += 1
         elif len(_qual_dates(pts)) >= 2:
             qualitative += 1
+            cat_counts[cat_key] += 1
     ordered = [c for c in grouping.CATEGORY_ORDER if cat_counts.get(c)]
     return ReportBreakdown(
         total=numeric + qualitative,

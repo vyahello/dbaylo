@@ -245,9 +245,18 @@ def parse_chart_page(data: str) -> tuple[int, int] | None:
 # Dynamics browser: indicators grouped by clinical category, across all labs.
 DYN_OPEN = "dyn_open"  # open the browser as a NEW message (from the /history list)
 DYN_HOME = "dyn_home"  # back to the category list (edits the browser message in place)
-DYN_PDF = "dyn_pdf"  # one PDF with EVERY indicator's dynamics, grouped by category
+DYN_PDF = "dyn_pdf"  # one PDF with a SINGLE category's dynamics (carries the category key)
 DYN_CAT = "dyn_cat"  # open a category (carries the short category key, e.g. "blood")
 DYN_IND = "dyn_ind"  # open one indicator's trend (category key + index into the sorted list)
+
+
+def dyn_pdf(category: str) -> str:
+    return f"{DYN_PDF}{_SEP}{category}"
+
+
+def parse_dyn_pdf(data: str) -> str | None:
+    parts = data.split(_SEP)
+    return parts[1] if len(parts) == 2 and parts[0] == DYN_PDF else None
 
 
 def dyn_category(category: str, page: int = 0) -> str:
