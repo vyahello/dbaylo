@@ -268,9 +268,18 @@ def test_unknown_range_when_refs_missing() -> None:
     assert s.direction == TrendDirection.UNKNOWN_RANGE
 
 
-def test_unknown_range_when_previous_has_no_refs() -> None:
+def test_uses_the_series_reference_when_a_point_lacks_its_own() -> None:
+    # A report that did not RE-print the reference is still judged against the one that did — the
+    # trend (and the caption) use the most-recent-available ref, matching the chart band, instead of
+    # falsely reporting "немає референсних меж".
+    # The latest carries the ref; the previous (no ref) is judged by it -> both in range.
     s = compute_trend([p(1, 5.0, None, None), p(2, 6.0, 4.0, 6.0)])
-    assert s.direction == TrendDirection.UNKNOWN_RANGE
+    assert s.direction == TrendDirection.STABLE_IN_RANGE
+    # Only an OLDER report carried the ref; the latest value is still judged by it (the Гемоглобін
+    # case: latest with no ref, but an earlier report said 4-6 -> out of range, not "no reference").
+    s2 = compute_trend([p(1, 9.0, 4.0, 6.0), p(2, 9.0, None, None)])
+    assert s2.direction == TrendDirection.STABLE_OUT_OF_RANGE
+    assert s2.latest_flag == ResultFlag.HIGH
 
 
 def test_one_sided_lower_bound_returned_to_range() -> None:

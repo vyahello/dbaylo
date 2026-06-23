@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum, auto
 
@@ -347,6 +347,17 @@ def _classify(latest: LabPoint, previous: LabPoint) -> TrendDirection:
     return TrendDirection.STABLE_OUT_OF_RANGE
 
 
+def _series_ref(numeric: list[LabPoint]) -> tuple[float | None, float | None]:
+    """The reference to judge the whole series by: the MOST RECENT measurement that actually carries
+    a numeric bound. Older reports often captured the reference even when the latest did not, so a
+    trend is classified against a real norm — and the caption matches the chart band (which already
+    uses this same point) — instead of falsely saying 'немає референсних меж'."""
+    for p in reversed(numeric):
+        if p.ref_low is not None or p.ref_high is not None:
+            return p.ref_low, p.ref_high
+    return None, None
+
+
 def compute_trend(points: list[LabPoint]) -> TrendSummary:
     """Compute the trend summary for a single analyte's series."""
     display = points[-1].analyte if points else ""
@@ -355,19 +366,21 @@ def compute_trend(points: list[LabPoint]) -> TrendSummary:
     numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
     latest = numeric[-1] if numeric else None
     previous = numeric[-2] if len(numeric) >= 2 else None
+    ref_low, ref_high = _series_ref(numeric)  # one reference for the whole series (see above)
 
     if len(numeric) < 2:
         direction = TrendDirection.INSUFFICIENT_DATA
         delta = None
     else:
         assert latest is not None and previous is not None  # for type-narrowing
-        direction = _classify(latest, previous)
+        # Classify against the series reference (latest/previous may not each carry it themselves).
+        eff_latest = replace(latest, ref_low=ref_low, ref_high=ref_high)
+        eff_previous = replace(previous, ref_low=ref_low, ref_high=ref_high)
+        direction = _classify(eff_latest, eff_previous)
         delta = latest.value - previous.value  # type: ignore[operator]
 
     latest_flag = (
-        compute_flag(latest.value, latest.ref_low, latest.ref_high)
-        if latest is not None
-        else ResultFlag.UNKNOWN
+        compute_flag(latest.value, ref_low, ref_high) if latest is not None else ResultFlag.UNKNOWN
     )
 
     return TrendSummary(
