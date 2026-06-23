@@ -103,6 +103,19 @@ def _items(n: int) -> list[TrendChartItem]:
     return flagged + normal
 
 
+def test_narrative_card_has_no_dynamics_button() -> None:
+    # A narrative/imaging doc (МРТ/КТ/УЗД) has no numeric indicators, so "Динаміка" is meaningless —
+    # the card must omit it (a tabular report keeps it).
+    from dbaylo.bot.history_flow import _card_keyboard
+
+    tabular = _datas(_card_keyboard(7, 0, is_narrative=False))
+    assert callbacks.history_dynamics(7) in tabular  # tabular reports keep dynamics
+    narrative = _datas(_card_keyboard(7, 0, is_narrative=True))
+    assert callbacks.history_dynamics(7) not in narrative  # narrative omits it
+    assert callbacks.history_file(7) in narrative  # but still offers the file
+    assert callbacks.history_interpret(7) in narrative  # and the expert reading
+
+
 def test_chart_caption_leads_with_the_source_report_context() -> None:
     # Opening a chart from a report keeps "which analysis / date" visible — so flipping the carousel
     # never strands you in a nameless graph. Without a report there is no context line.

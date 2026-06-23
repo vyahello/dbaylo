@@ -53,7 +53,7 @@ from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import LabReport
+from dbaylo.db.models import LabReport, ReportKind
 from dbaylo.labs.charts import PdfChart, PdfCover, PdfQualTrend, render_trends_pdf
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
@@ -241,23 +241,33 @@ def _list_view(
     return header, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _card_keyboard(report_id: int, page: int) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(locale.BTN_HIST_INTERPRET, callbacks.history_interpret(report_id)),
-                _btn(locale.BTN_HIST_RESULTS, callbacks.history_results(report_id)),
-            ],
+def _card_keyboard(
+    report_id: int, page: int, *, is_narrative: bool = False
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            _btn(locale.BTN_HIST_INTERPRET, callbacks.history_interpret(report_id)),
+            _btn(locale.BTN_HIST_RESULTS, callbacks.history_results(report_id)),
+        ]
+    ]
+    # A narrative/imaging doc (МРТ/КТ/УЗД) has NO numeric indicators, so "Динаміка" is meaningless
+    # for it — show just the file. A tabular report keeps the dynamics button next to the file.
+    if is_narrative:
+        rows.append([_btn(locale.BTN_HIST_FILE, callbacks.history_file(report_id))])
+    else:
+        rows.append(
             [
                 _btn(locale.BTN_HIST_DYNAMICS, callbacks.history_dynamics(report_id)),
                 _btn(locale.BTN_HIST_FILE, callbacks.history_file(report_id)),
-            ],
-            [
-                _btn(locale.BTN_HIST_DELETE, callbacks.history_delete(report_id)),
-                _btn(locale.BTN_HIST_BACK, callbacks.history_back(page)),
-            ],
+            ]
+        )
+    rows.append(
+        [
+            _btn(locale.BTN_HIST_DELETE, callbacks.history_delete(report_id)),
+            _btn(locale.BTN_HIST_BACK, callbacks.history_back(page)),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def _load_reports(session: AsyncSession, user_id: int) -> tuple[list[LabReport], int]:
@@ -440,8 +450,11 @@ async def on_history_open(callback: CallbackQuery) -> None:
     if card is None:
         await callback.answer(locale.HIST_FILE_GONE, show_alert=True)
         return
+    is_narrative = report is not None and report.kind == ReportKind.NARRATIVE
     with contextlib.suppress(TelegramBadRequest):
-        await callback.message.edit_text(card, reply_markup=_card_keyboard(report_id, page))
+        await callback.message.edit_text(
+            card, reply_markup=_card_keyboard(report_id, page, is_narrative=is_narrative)
+        )
     await callback.answer()
 
 
@@ -572,7 +585,16 @@ async def open_charts_picker(
         items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
     if not items:
         if not silent_if_empty:
-            await message.answer(locale.HIST_DYNAMICS_EMPTY)
+            # No typed command — offer the values as a BUTTON (📊 Показники) + back to the card.
+            empty_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        _btn(locale.BTN_HIST_RESULTS, callbacks.history_results(report_id)),
+                        _btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0)),
+                    ]
+                ]
+            )
+            await _show_view(message, locale.HIST_DYNAMICS_EMPTY, empty_kb, edit=edit)
         return
     text, keyboard = _charts_picker_view(items, report_id, 0)
     await _show_view(message, text, keyboard, edit=edit)
