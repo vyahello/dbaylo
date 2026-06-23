@@ -17,7 +17,7 @@ from dbaylo.bot.history_flow import (
     _source_filename,
 )
 from dbaylo.companion import callbacks
-from dbaylo.companion.history import TrendChartItem
+from dbaylo.companion.history import PickItem
 from dbaylo.labs.trends import LabPoint, compute_trend, series_key
 from dbaylo.triage.safety import DISCLAIMER
 
@@ -96,10 +96,14 @@ def test_non_canonical_text_is_not_navigable() -> None:
 # --- Charts picker (one button per trending analyte, not a wall of images) -------
 
 
-def _items(n: int) -> list[TrendChartItem]:
+def _pick(name: str, key: str, *, flagged: bool, qualitative: bool = False) -> PickItem:
+    return PickItem(name=name, key=key, flagged=flagged, qualitative=qualitative)
+
+
+def _items(n: int) -> list[PickItem]:
     # 2 flagged + (n-2) normal, given out of alphabetical order to prove the sort.
-    flagged = [TrendChartItem(name=f"Z-flag{i}", key=f"z{i}", flagged=True) for i in range(2)]
-    normal = [TrendChartItem(name=f"A-norm{i}", key=f"a{i}", flagged=False) for i in range(n - 2)]
+    flagged = [_pick(f"Z-flag{i}", f"z{i}", flagged=True) for i in range(2)]
+    normal = [_pick(f"A-norm{i}", f"a{i}", flagged=False) for i in range(n - 2)]
     return flagged + normal
 
 
@@ -224,8 +228,8 @@ def test_chart_nav_keyboard_lets_you_flip_without_scrolling_up() -> None:
 
 def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:
     items = [
-        TrendChartItem(name="АЛТ", key="алт", flagged=True),
-        TrendChartItem(name="Калій", key="калій", flagged=False),
+        _pick("АЛТ", "алт", flagged=True),
+        _pick("Калій", "калій", flagged=False),
     ]
     text, kb = _charts_picker_view(items, report_id=5, page=0)
     assert locale.CHART_PICK_HEADER.split(" ")[0] in text  # the picker header
@@ -240,10 +244,36 @@ def test_picker_lists_one_button_per_analyte_with_pick_callbacks() -> None:
     assert any(lbl.startswith(locale.CHART_FLAGGED_PREFIX) and "АЛТ" in lbl for lbl in labels)
 
 
+def test_picker_marks_qualitative_indicators_as_tappable_tables() -> None:
+    # A qualitative indicator (no chart) is now a tappable button too, marked 📋 (opens a table),
+    # and flagged ones still carry ⚠️ — so the out-of-range qualitative ones are reachable.
+    items = [
+        _pick("Лейкоцити", "lk", flagged=True, qualitative=True),
+        _pick("Об'єм", "ob", flagged=False, qualitative=False),
+    ]
+    _, kb = _charts_picker_view(items, report_id=5, page=0)
+    labels = [b.text for row in kb.inline_keyboard for b in row]
+    qual = next(lbl for lbl in labels if "Лейкоцити" in lbl)
+    assert locale.CHART_QUAL_PREFIX in qual and qual.startswith(locale.CHART_FLAGGED_PREFIX)
+    # The numeric one has neither marker.
+    numeric = next(lbl for lbl in labels if "Об'єм" in lbl)
+    assert locale.CHART_QUAL_PREFIX not in numeric
+
+
+def test_qual_table_png_renders() -> None:
+    from dbaylo.labs.charts import render_qual_table_png
+
+    png = render_qual_table_png(
+        "Лейкоцити",
+        [("2021-09-27", "7-12 в п/з", True), ("2023-04-27", "10-15", True)],
+    )
+    assert png[:8] == b"\x89PNG\r\n\x1a\n"
+
+
 def test_picker_shows_the_reports_flagged_indicators_at_the_top() -> None:
     # The report's out-of-range indicators are named at the TOP — even qualitative ones (here
     # "Лейкоцити") that have NO chart and so never appear as a pickable button.
-    items = [TrendChartItem(name="Об'єм", key="обєм", flagged=False)]
+    items = [_pick("Об'єм", "обєм", flagged=False)]
     flagged = ("Аглютинація сперматозоїдів", "Лейкоцити", "Слиз")
     text, _ = _charts_picker_view(items, report_id=5, page=0, flagged_names=flagged)
     first_line = text.splitlines()[0]

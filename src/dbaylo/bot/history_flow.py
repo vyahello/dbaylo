@@ -54,7 +54,13 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport, ReportKind
-from dbaylo.labs.charts import PdfChart, PdfCover, PdfQualTrend, render_trends_pdf
+from dbaylo.labs.charts import (
+    PdfChart,
+    PdfCover,
+    PdfQualTrend,
+    render_qual_table_png,
+    render_trends_pdf,
+)
 from dbaylo.labs.humanize import describe_indicator
 from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.labnames import normalize_lab
@@ -542,21 +548,22 @@ _CHART_PAGE_SIZE = 8
 
 
 def _charts_picker_view(
-    items: list[history.TrendChartItem],
+    items: list[history.PickItem],
     report_id: int,
     page: int,
     flagged_names: tuple[str, ...] = (),
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """A paginated list — one button per trending analyte (flagged first, ⚠️-marked), a pager,
-    and an opt-in 'усі графіки'. Picking a button renders just THAT analyte's chart. The
-    ``flagged_names`` are the report's out-of-range indicators, shown at the top — so the ⚠️ ones
-    are visible even if they are qualitative and have no chart."""
+    """A paginated list — one button per pickable indicator (flagged first, ⚠️-marked; a 📋 marks a
+    qualitative one that opens a TABLE instead of a chart), a pager, and opt-in exports. The
+    ``flagged_names`` are the report's out-of-range indicators, shown at the top as a summary."""
     pages = max(1, -(-len(items) // _CHART_PAGE_SIZE))
     page = max(0, min(page, pages - 1))
     start = page * _CHART_PAGE_SIZE
     rows: list[list[InlineKeyboardButton]] = []
     for offset, item in enumerate(items[start : start + _CHART_PAGE_SIZE]):
-        prefix = locale.CHART_FLAGGED_PREFIX if item.flagged else ""
+        prefix = (locale.CHART_FLAGGED_PREFIX if item.flagged else "") + (
+            locale.CHART_QUAL_PREFIX if item.qualitative else ""
+        )
         rows.append([_btn(f"{prefix}{item.name}", callbacks.chart_pick(report_id, start + offset))])
     nav: list[InlineKeyboardButton] = []
     if page > 0:
@@ -593,7 +600,7 @@ async def open_charts_picker(
     From the card (``edit``) it replaces the card in place; '◀ Назад' returns to it."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
-        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        items = await history.list_report_pickables(session, user_id=user.id, report_id=report_id)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
     flagged = tuple(history.flagged_indicator_names(report))
     if not items:
@@ -650,7 +657,7 @@ async def on_chart_page(callback: CallbackQuery) -> None:
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        items = await history.list_report_pickables(session, user_id=user.id, report_id=report_id)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
     if not items:
         return
@@ -660,10 +667,48 @@ async def on_chart_page(callback: CallbackQuery) -> None:
         await callback.message.edit_text(text, reply_markup=keyboard)
 
 
+async def _render_pickable(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    report_id: int,
+    report: LabReport | None,
+    item: history.PickItem,
+) -> tuple[bytes, str, str | None] | None:
+    """(png, dynamics-caption, specimen) for a picked indicator — a numeric CHART or a qualitative
+    TABLE, both PNGs so they share one carousel. None if it can't be rendered. The caption leads
+    with the source-report context, same as a chart."""
+    if not item.qualitative:
+        result = await render_chart_and_summary(
+            session,
+            user_id=user_id,
+            key=item.key,
+            title=item.name,
+            highlight_date=report.report_date if report else None,
+        )
+        if result is None:
+            return None
+        png, summary = result
+        spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
+        return png, _chart_caption(report, summary), spec
+    qual = await history.qual_trend_by_key(
+        session, user_id=user_id, report_id=report_id, key=item.key
+    )
+    if qual is None:
+        return None
+    rows = [(m.taken_on.isoformat(), m.text, m.flagged) for m in qual.timeline]
+    png = render_qual_table_png(item.name, rows)
+    dynamics = history.qual_dynamics_caption(qual)
+    if report is not None:
+        date_txt, lab = _report_date_lab(report)
+        dynamics = f"{locale.CHART_SOURCE_CONTEXT.format(date=date_txt, lab=lab)}\n{dynamics}"
+    return png, dynamics, qual.specimen
+
+
 @router.callback_query(F.data.startswith(callbacks.CHART_PICK + ":"))
 async def on_chart_pick(callback: CallbackQuery) -> None:
-    """Render ONE analyte's chart (the picked button), with carousel nav under it so the next
-    indicator is reachable WITHOUT scrolling back up to the picker."""
+    """Render ONE indicator (the picked button) — a chart, or a table for a qualitative one — with
+    carousel nav under it so the next indicator is reachable without scrolling back up."""
     parsed = callbacks.parse_chart_pick(callback.data or "")
     tg = _telegram_id(callback)
     if parsed is None or tg is None or not isinstance(callback.message, Message):
@@ -675,24 +720,19 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
-        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        items = await history.list_report_pickables(session, user_id=user.id, report_id=report_id)
         if not 0 <= index < len(items):
             return
         item = items[index]
-        result = await render_chart_and_summary(
-            session,
-            user_id=user.id,
-            key=item.key,
-            title=item.name,
-            highlight_date=report.report_date if report else None,
+        rendered = await _render_pickable(
+            session, user_id=user.id, report_id=report_id, report=report, item=item
         )
-    if result is not None:
-        png, summary = result
-        spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
+    if rendered is not None:
+        png, dynamics, spec = rendered
         await _send_chart(
             callback.message,
             png=png,
-            dynamics=_chart_caption(report, summary),
+            dynamics=dynamics,
             analyte=item.name,
             specimen=spec,
             keyboard=_chart_nav_keyboard(report_id, index, len(items)),
@@ -702,7 +742,7 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
 @router.callback_query(F.data.startswith(callbacks.CHART_NAV + ":"))
 async def on_chart_nav(callback: CallbackQuery) -> None:
     """Carousel: flip to the prev/next indicator by editing the SAME photo in place, so browsing
-    many charts never floods the chat or buries the picker."""
+    many indicators never floods the chat or buries the picker."""
     parsed = callbacks.parse_chart_nav(callback.data or "")
     tg = _telegram_id(callback)
     if parsed is None or tg is None or not isinstance(callback.message, Message):
@@ -714,22 +754,16 @@ async def on_chart_nav(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
-        items = await history.list_report_trends(session, user_id=user.id, report_id=report_id)
+        items = await history.list_report_pickables(session, user_id=user.id, report_id=report_id)
         if not 0 <= index < len(items):
             return
         item = items[index]
-        result = await render_chart_and_summary(
-            session,
-            user_id=user.id,
-            key=item.key,
-            title=item.name,
-            highlight_date=report.report_date if report else None,
+        rendered = await _render_pickable(
+            session, user_id=user.id, report_id=report_id, report=report, item=item
         )
-    if result is None:
+    if rendered is None:
         return
-    png, summary = result
-    spec = specimen(summary.latest.section, summary.analyte) if summary.latest else None
-    dynamics = _chart_caption(report, summary)
+    png, dynamics, spec = rendered
     keyboard = _chart_nav_keyboard(report_id, index, len(items))
     media = InputMediaPhoto(
         media=BufferedInputFile(png, filename=_chart_filename(item.name)), caption=dynamics

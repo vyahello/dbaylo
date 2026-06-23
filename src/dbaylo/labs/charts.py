@@ -64,6 +64,40 @@ def _readable_ticks(values: list[float], *, max_ticks: int = 7) -> list[float]:
     return kept
 
 
+def render_qual_table_png(title: str, rows: list[tuple[str, str, bool]]) -> bytes:
+    """A single qualitative indicator's Дата|Значення timeline as a PNG table, so it browses in the
+    SAME carousel as the numeric charts. Header on a green band, zebra rows, flagged values red."""
+    shown = rows[-8:]  # keep it readable; recent history is what matters
+    fig, ax = plt.subplots(figsize=(7, 1.2 + 0.42 * (len(shown) + 1)), dpi=120)
+    try:
+        ax.axis("off")
+        ax.set_title(_pdf_text(title), fontsize=14, weight="bold", color=_INK, loc="left")
+        table = ax.table(
+            cellText=[[_pdf_text(d), _pdf_text(t)] for d, t, _ in shown],
+            colLabels=[locale.CHART_PDF_QUAL_COL_DATE, locale.CHART_PDF_QUAL_COL_VALUE],
+            cellLoc="left",
+            loc="center",
+            colWidths=[0.32, 0.68],
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(11)
+        table.scale(1, 1.6)
+        cells = table.get_celld()
+        for col in (0, 1):  # header row
+            cells[(0, col)].set_facecolor(_GREEN_ZONE)
+            cells[(0, col)].set_text_props(weight="bold", color="#0f172a")
+        for i, (_, _, flagged) in enumerate(shown, start=1):
+            for col in (0, 1):
+                cells[(i, col)].set_facecolor("#f1f5f9" if i % 2 == 0 else "white")
+            if flagged:
+                cells[(i, 1)].set_text_props(color=_OUT)
+        buffer = io.BytesIO()
+        fig.savefig(buffer, format="png", bbox_inches="tight")
+        return buffer.getvalue()
+    finally:
+        plt.close(fig)
+
+
 def render_trend_chart(
     points: list[LabPoint], *, title: str, highlight_date: date | None = None
 ) -> bytes:

@@ -980,6 +980,58 @@ async def test_qualitative_with_one_measurement_is_not_a_timeline(
     assert quals == []  # a single qualitative measurement is not yet a trend
 
 
+async def test_list_report_pickables_combines_charts_and_qualitative_tables(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 1, 1),
+        lab="ДІЛА",
+        results=[
+            _result("Глюкоза", value=5.0, low=3.9, high=6.1, section="Біохімія"),
+            _result("Лейкоцити", value_text="2-3 в п/з", section="Загальний аналіз сечі"),
+        ],
+    )
+    rep_b = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 2, 1),
+        lab="ДІЛА",
+        results=[
+            _result("Глюкоза", value=5.4, low=3.9, high=6.1, section="Біохімія"),  # numeric chart
+            _result(
+                "Лейкоцити", value_text="10-15 в п/з", section="Загальний аналіз сечі", flagged=True
+            ),  # qualitative table
+        ],
+    )
+    picks = await history.list_report_pickables(async_session, user_id=user.id, report_id=rep_b.id)
+    by_name = {p.name: p for p in picks}
+    assert by_name["Глюкоза"].qualitative is False  # numeric -> chart
+    assert by_name["Лейкоцити"].qualitative is True  # qualitative -> table
+    assert by_name["Лейкоцити"].flagged is True
+    assert (
+        picks[0].name == "Лейкоцити"
+    )  # flagged-first, so the ⚠️ qualitative one is reachable on top
+
+    # The qualitative timeline is re-fetchable by key, and its caption states the change + count.
+    qual = await history.qual_trend_by_key(
+        async_session, user_id=user.id, report_id=rep_b.id, key=by_name["Лейкоцити"].key
+    )
+    assert (
+        qual is not None
+        and qual.changed
+        and [m.text for m in qual.timeline]
+        == [
+            "2-3 в п/з",
+            "10-15 в п/з",
+        ]
+    )
+    caption = history.qual_dynamics_caption(qual)
+    assert "10-15 в п/з" in caption and "вимірів: 2" in caption
+
+
 def test_chart_dynamics_caption_states_the_measurement_period() -> None:
     from dbaylo.labs.trends import LabPoint, compute_trend
 

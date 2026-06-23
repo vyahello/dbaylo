@@ -601,6 +601,10 @@ TREND_LINE = "📈 {analyte}: {value} — {movement}. Вимірів: {n}."
 # dates to stay readable, so the count alone looked wrong).
 CHART_DYNAMICS_LINE = "📈 {value} — {movement} · вимірів: {n}{period}"
 CHART_PERIOD_SUFFIX = " за {span}"  # e.g. " за 2021–2026" / " за 2026"
+# Caption under a QUALITATIVE indicator's table image (the parallel of CHART_DYNAMICS_LINE).
+CHART_QUAL_DYNAMICS_LINE = "📋 {value} — {movement} · вимірів: {n}{period}"
+CHART_QUAL_STABLE = "тримається стабільно"  # qualitative result hasn't changed across dates
+CHART_QUAL_PREFIX = "📋 "  # marks a qualitative (table-timeline) indicator in the picker
 CHART_NOTE_DISCLAIMER = "ℹ️ Загальна інформація, не діагноз — тлумачить лікар."
 # Drawn on a chart whose analyte has no numeric reference captured — so a band-less plot is not
 # mistaken for a broken one (the points are still coloured by the lab's own out-of-range flag).

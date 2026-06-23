@@ -574,9 +574,10 @@ class QualMeasurement:
 class QualTrend:
     """A qualitative analyte's timeline across reports — an indicator with no numeric series but a
     recorded text result ('не виявлені', 'виявлено', 'негатив'). It can change over time, so it is
-    shown as a TEXT timeline (never a numeric chart, which would be meaningless for it)."""
+    shown as a TABLE timeline (never a numeric chart, which would be meaningless for it)."""
 
     title: str
+    key: str  # series key, so the picker can re-fetch THIS timeline when tapped
     category: str
     specimen: str | None
     timeline: list[QualMeasurement]
@@ -617,6 +618,7 @@ async def report_qualitative_dynamics(
         out.append(
             QualTrend(
                 title=_strip_section_prefix(r.analyte, r.section),
+                key=key,
                 category=_category_label(r.section, r.analyte),
                 specimen=specimen(r.section, r.analyte),
                 timeline=timeline,
@@ -626,6 +628,59 @@ async def report_qualitative_dynamics(
         )
     out.sort(key=lambda q: (not q.changed, not q.flagged, q.title.casefold()))
     return out
+
+
+@dataclass(frozen=True)
+class PickItem:
+    """One pickable indicator in the dynamics picker: a numeric one opens a CHART, a qualitative one
+    opens a TABLE timeline. Both are images, so they browse in the same carousel."""
+
+    name: str
+    key: str
+    flagged: bool
+    qualitative: bool
+
+
+async def list_report_pickables(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[PickItem]:
+    """Everything in a report worth opening in dynamics: numeric trends (charts) AND qualitative
+    timelines (tables). Flagged-first overall — so the ⚠️ ones (often qualitative, like a spermogram
+    'Лейкоцити') are at the top and actually tappable, not just named. Deterministic, no LLM."""
+    numeric = await list_report_trends(session, user_id=user_id, report_id=report_id)
+    quals = await report_qualitative_dynamics(session, user_id=user_id, report_id=report_id)
+    items = [
+        PickItem(name=t.name, key=t.key, flagged=t.flagged, qualitative=False) for t in numeric
+    ]
+    items += [PickItem(name=q.title, key=q.key, flagged=q.flagged, qualitative=True) for q in quals]
+    items.sort(key=lambda it: (not it.flagged, it.qualitative, it.name.casefold()))
+    return items
+
+
+async def qual_trend_by_key(
+    session: AsyncSession, *, user_id: int, report_id: int, key: str
+) -> QualTrend | None:
+    """The single qualitative timeline for ``key`` in this report (re-fetched when its picker button
+    is tapped), or None if it is no longer qualitative-with-a-timeline."""
+    quals = await report_qualitative_dynamics(session, user_id=user_id, report_id=report_id)
+    return next((q for q in quals if q.key == key), None)
+
+
+def qual_dynamics_caption(qual: QualTrend) -> str:
+    """The caption under a qualitative TABLE image: latest text result + changed/stable + count and
+    the period it spans (parallels chart_dynamics_caption for numeric charts)."""
+    latest = qual.timeline[-1].text if qual.timeline else "—"
+    movement = locale.CHART_PDF_QUAL_CHANGED if qual.changed else locale.CHART_QUAL_STABLE
+    dates = [m.taken_on for m in qual.timeline]
+    period = ""
+    if dates:
+        start, end = dates[0].year, dates[-1].year
+        period = locale.CHART_PERIOD_SUFFIX.format(
+            span=str(start) if start == end else f"{start}–{end}"
+        )
+    return locale.CHART_QUAL_DYNAMICS_LINE.format(
+        value=latest, movement=movement, n=len(qual.timeline), period=period
+    )
 
 
 # --- Cross-lab dynamics browser: indicators grouped by clinical category --------
