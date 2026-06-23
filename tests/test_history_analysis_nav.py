@@ -144,6 +144,18 @@ def test_pdf_and_source_filenames_are_per_report_and_transport_safe() -> None:
     assert "/" not in safe and "\x1f" not in safe and " " not in safe
 
 
+async def test_gather_notes_bounded_keeps_order_and_handles_empty(monkeypatch) -> None:
+    from dbaylo.bot import history_flow
+
+    async def fake_describe(title, *, specimen=None, **_):
+        return f"note:{title}:{specimen}"
+
+    monkeypatch.setattr(history_flow, "describe_indicator", fake_describe)
+    notes = await history_flow._gather_notes_bounded([("АЛТ", "blood"), ("Сеча-pH", "urine")])
+    assert notes == ["note:АЛТ:blood", "note:Сеча-pH:urine"]  # one per item, in order
+    assert await history_flow._gather_notes_bounded([]) == []
+
+
 def test_pdf_cover_uses_readable_category_names() -> None:
     # The cover must read like prose ("Аналіз сечі — 19"), not the crude chip "Сеча — 19".
     from dbaylo.bot.history_flow import _pdf_cover

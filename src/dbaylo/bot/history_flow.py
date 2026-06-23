@@ -733,6 +733,38 @@ def _pdf_caption(dynamics: str, note: str) -> str:
     return f"{dynamics}\n\n{note}" if note else dynamics
 
 
+_PDF_NOTE_BUDGET_S = 75  # ship the dynamics PDF within this even if claude is slow — notes optional
+
+
+async def _gather_notes_bounded(items: list[tuple[str, str | None]]) -> list[str]:
+    """Generate the per-indicator educational notes concurrently (bounded by the interpret
+    concurrency) under an OVERALL time budget. Returns one note per item, in order; anything not
+    finished within the budget is "" — its task is cancelled, which makes run_claude kill the child
+    process, so a slow / rate-limited claude can never hang the PDF. Never raises."""
+    if not items:
+        return []
+    sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
+
+    async def _note(title: str, spec: str | None) -> str:
+        async with sem:
+            return await describe_indicator(title, specimen=spec)
+
+    tasks = [asyncio.create_task(_note(title, spec)) for title, spec in items]
+    done, pending = await asyncio.wait(tasks, timeout=_PDF_NOTE_BUDGET_S)
+    for task in pending:
+        task.cancel()
+    if pending:
+        await asyncio.gather(*pending, return_exceptions=True)  # let the cancels kill the children
+    notes: list[str] = []
+    for task in tasks:
+        note = ""
+        if task in done and not task.cancelled():
+            with contextlib.suppress(Exception):
+                note = task.result()
+        notes.append(note)
+    return notes
+
+
 @router.callback_query(F.data.startswith(callbacks.CHART_PDF + ":"))
 async def on_chart_pdf(callback: CallbackQuery) -> None:
     """Build ONE PDF, named for THIS report (date + lab): a cover that honestly explains the
@@ -759,16 +791,13 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
         await callback.message.answer(locale.CHART_PDF_EMPTY)
         return
     await callback.message.answer(locale.CHART_PDF_PREPARING)
-    sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
-
-    async def _note(title: str, spec: str | None) -> str:
-        async with sem:
-            return await describe_indicator(title, specimen=spec)
-
-    chart_notes, qual_notes = await asyncio.gather(
-        asyncio.gather(*(_note(d.title, d.specimen) for d in data)),
-        asyncio.gather(*(_note(q.title, q.specimen) for q in quals)),
-    )
+    # The educational notes are an LLM call per indicator — optional enrichment. Bound the TOTAL
+    # time so a slow / rate-limited claude can never leave "Готую PDF" hanging: whatever isn't ready
+    # within the budget is cancelled (run_claude kills its child process) and that page keeps just
+    # its deterministic dynamics caption. Already-cached notes return instantly.
+    note_items = [(d.title, d.specimen) for d in data] + [(q.title, q.specimen) for q in quals]
+    all_notes = await _gather_notes_bounded(note_items)
+    chart_notes, qual_notes = all_notes[: len(data)], all_notes[len(data) :]
     highlight = report.report_date if report else None
     pages = [
         PdfChart(
