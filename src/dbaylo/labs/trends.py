@@ -117,14 +117,41 @@ ANALYTE_ALIASES: dict[str, str] = {
     "гемоглобін (hgb)": "гемоглобін",
     "hb": "гемоглобін",
     "сечовина крові": "сечовина",
+    # Spermogram — the same parameter is named differently by Сінево vs Медцентр Св. Параскеви, so
+    # the three reports fragmented into one-point series and never trended together. Keys are the
+    # already-normalized form (apostrophes unified, leading enumerators like "1. "/"а) " stripped).
+    "об'єм в мл": "об'єм",
+    "живі (%)": "живі",
+    "живі сперматозоїди": "живі",
+    "мертві (%)": "мертві",
+    "мертві сперматозоїди": "мертві",
+    "реакція (ph)": "ph",
+    "рн": "ph",
+    "прогресивна рухливість (%) (a+b)": "рухливість прогресивна",
+    "рухливість прогресивна (а+в)": "рухливість прогресивна",
+    "кількість сперматозоїдів в еякуляті": "сперматозоїди в еякуляті",
+    "загальна кількість сперматозоїдів у еякуляті": "сперматозоїди в еякуляті",
+    "кількість сперматозоїдів в 1 мл": "концентрація сперматозоїдів",
+    "загальна концентрація сперматозоїдів": "концентрація сперматозоїдів",
+    "з нормальною морфологією (%)": "нормальні форми сперматозоїдів",
+    "патологія голівки": "патологія голови",
+    "нерухливих (%) (c)": "нерухомі сперматозоїди",
+    "нерухомі сперматозоїди (d)": "нерухомі сперматозоїди",
 }
 
 _WS_RE = re.compile(r"\s+")
+# Different apostrophes (Об'єм / Обʼєм / Об`єм) must collapse to one so an alias key matches.
+_APOSTROPHES = str.maketrans({"’": "'", "ʼ": "'", "`": "'", "´": "'"})
+# A leading list marker ("1. ", "2) ", "а) ", "б) ") is layout, not identity — drop it.
+_ENUM_RE = re.compile(r"^(?:\d+|[а-яіїєґ])[.)]\s+")
 
 
 def normalize_analyte(name: str) -> str:
-    """Normalize an analyte name to a grouping key (casefold + collapse spaces + alias)."""
-    base = _WS_RE.sub(" ", name).strip().casefold()
+    """Normalize an analyte name to a grouping key: collapse spaces, unify apostrophes, drop a
+    leading list enumerator, casefold, then apply the alias map. The enumerator/apostrophe steps let
+    one lab's '1. З нормальною морфологією' group with another's plain spelling."""
+    base = _WS_RE.sub(" ", name).strip().translate(_APOSTROPHES).casefold()
+    base = _ENUM_RE.sub("", base)
     return ANALYTE_ALIASES.get(base, base)
 
 

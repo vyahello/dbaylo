@@ -122,6 +122,35 @@ def test_normalize_unknown_name_is_its_own_key() -> None:
     assert normalize_analyte("Тестостерон") == "тестостерон"
 
 
+def test_normalize_strips_leading_enumerator_and_unifies_apostrophes() -> None:
+    # A list marker ("1. " / "а) ") is layout, not identity; different apostrophes must collapse.
+    assert normalize_analyte("1. З нормальною морфологією (%)") == "нормальні форми сперматозоїдів"
+    assert normalize_analyte("а) патологія голівки") == "патологія голови"
+    assert normalize_analyte("Об’єм в мл") == normalize_analyte("Об'єм")  # U+2019 vs U+0027
+
+
+def test_spermogram_names_unify_across_labs() -> None:
+    # Two labs name the same spermogram parameter differently; they must land in ONE series so the
+    # three reports trend together (Сінево "Живі сперматозоїди" == Параскеви "Живі (%)", etc.).
+    pairs = [
+        ("Об'єм в мл", "Об'єм"),
+        ("Живі (%)", "Живі сперматозоїди"),
+        ("Мертві (%)", "Мертві сперматозоїди"),
+        ("Реакція (pH)", "рН"),
+        ("Прогресивна рухливість (%) (a+b)", "Рухливість прогресивна (А+В)"),
+        ("Кількість сперматозоїдів в еякуляті", "Загальна кількість сперматозоїдів у еякуляті"),
+        ("Кількість сперматозоїдів в 1 мл", "Загальна концентрація сперматозоїдів"),
+        ("в) патологія хвоста", "Патологія хвоста"),
+        ("Нерухливих (%) (c)", "Нерухомі сперматозоїди (D)"),
+    ]
+    for a, b in pairs:
+        assert series_key("Спермограма", a) == series_key("Спермограма", b), (a, b)
+    # ...but genuinely different parameters stay apart (progressive != non-progressive motility).
+    assert series_key("Спермограма", "Рухливість прогресивна (А+В)") != series_key(
+        "Спермограма", "Рухливість непрогресивна (С)"
+    )
+
+
 def test_build_series_groups_aliases_and_sorts() -> None:
     points = [
         p(3, 5.5, analyte="Глюкоза"),
