@@ -76,15 +76,15 @@ def _btn(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
 
 
-_CTRL_RE = re.compile(r"[\x00-\x1f]")
-
-
 def _chart_filename(name: str) -> str:
-    """A safe attachment filename. The series KEY carries a ``\\x1f`` separator and analyte names
-    may hold other control chars; aiohttp rejects those in the Content-Disposition header
-    ('Forbidden control character'), which silently killed every single-chart pick."""
-    cleaned = _CTRL_RE.sub(" ", name).strip()
-    return f"{cleaned or 'chart'}.png"
+    """A descriptive PNG name for a single trend chart: 'Дбайло-динаміка-<analyte>.png', so a saved
+    chart says WHAT it is instead of a bare 'Еритроцити.png'. Control chars / path separators are
+    stripped (the series KEY's ``\\x1f`` and friends make aiohttp reject the Content-Disposition
+    header — that once silently killed every single-chart pick)."""
+    analyte = _safe_filename(name)
+    if not analyte or analyte == "dbaylo":  # _safe_filename's fallback for an empty/garbage name
+        analyte = locale.CHART_PNG_FALLBACK
+    return locale.CHART_PNG_FILENAME.format(analyte=analyte)
 
 
 def _safe_filename(name: str) -> str:

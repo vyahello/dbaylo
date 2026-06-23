@@ -159,7 +159,11 @@ def test_pdf_cover_uses_readable_category_names() -> None:
     assert any("14" in n for n in cover.notes)  # qualitative count surfaced
 
 
-def test_chart_filename_strips_control_chars() -> None:
+def test_chart_filename_is_descriptive_and_control_char_safe() -> None:
+    # A saved chart says WHAT it is ("Дбайло-динаміка-<analyte>.png"), not a bare "Еритроцити.png".
+    assert _chart_filename("Еритроцити") == "Дбайло-динаміка-Еритроцити.png"
+    # Spaces become dashes for a tidy name.
+    assert _chart_filename("Загальний білок") == "Дбайло-динаміка-Загальний-білок.png"
     # The series key carries a \x1f separator; using it (or any name with control chars) as the
     # attachment filename made aiohttp reject the upload ("Forbidden control character"), which
     # silently killed every single-chart pick. The filename must be control-char-free.
@@ -168,9 +172,8 @@ def test_chart_filename_strips_control_chars() -> None:
     fname = _chart_filename(key)
     assert not any(ord(ch) < 0x20 for ch in fname)
     assert fname.endswith(".png")
-    # A normal display name is preserved; an empty/blank name still yields a usable filename.
-    assert _chart_filename("Еритроцити") == "Еритроцити.png"
-    assert _chart_filename("\x1f\x00") == "chart.png"
+    # An empty / unreadable name still yields a usable, descriptive filename.
+    assert _chart_filename("\x1f\x00") == "Дбайло-динаміка-показник.png"
 
 
 def test_chart_nav_keyboard_lets_you_flip_without_scrolling_up() -> None:

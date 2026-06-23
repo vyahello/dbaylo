@@ -650,6 +650,10 @@ CHART_PDF_FILENAME = "Дбайло-динаміка-{kind}{date}-{lab}.pdf"  # {
 CHART_SOURCE_FILENAME = (
     "Аналіз-{kind}{date}-{lab}{ext}"  # the original uploaded file, sensibly named
 )
+# A single trend-chart PNG: a multi-date trend of ONE indicator, so the analyte is its context
+# (a single date would mislead). "Дбайло-динаміка-Еритроцити.png".
+CHART_PNG_FILENAME = "Дбайло-динаміка-{analyte}.png"
+CHART_PNG_FALLBACK = "показник"  # when the analyte name is empty / unreadable
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
