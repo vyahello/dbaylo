@@ -270,16 +270,21 @@ def test_qual_table_png_renders() -> None:
     assert png[:8] == b"\x89PNG\r\n\x1a\n"
 
 
-def test_picker_shows_the_reports_flagged_indicators_at_the_top() -> None:
-    # The report's out-of-range indicators are named at the TOP — even qualitative ones (here
-    # "Лейкоцити") that have NO chart and so never appear as a pickable button.
-    items = [_pick("Об'єм", "обєм", flagged=False)]
-    flagged = ("Аглютинація сперматозоїдів", "Лейкоцити", "Слиз")
-    text, _ = _charts_picker_view(items, report_id=5, page=0, flagged_names=flagged)
+def test_picker_banner_is_a_bold_count_not_a_run_on_list() -> None:
+    # Premium, readable: a bold "Поза нормою: N" header (the flagged ones are the ⚠️ buttons),
+    # NOT a wall of names. A flagged indicator WITHOUT dynamics is named so it is not lost.
+    items = [_pick("Об'єм", "обєм", flagged=True)]
+    text, _ = _charts_picker_view(items, report_id=5, page=0, flagged_total=7, no_dynamics=())
     first_line = text.splitlines()[0]
-    assert first_line.startswith("⚠️") and "(3)" in first_line
-    assert "Лейкоцити" in first_line and "Слиз" in first_line  # qualitative flagged ones surfaced
-    # With nothing flagged, no such banner — just the pick instruction.
+    assert first_line.startswith("⚠️") and "<b>" in first_line and "7" in first_line
+    # No comma/middle-dot run-on of every name on the header line.
+    assert "·" not in first_line
+    # A single-measurement flagged one (no button) IS named on a second line.
+    text2, _ = _charts_picker_view(
+        items, report_id=5, page=0, flagged_total=8, no_dynamics=("Новий показник",)
+    )
+    assert "Новий показник" in text2
+    # With nothing flagged, no banner — just the pick instruction.
     plain, _ = _charts_picker_view(items, report_id=5, page=0)
     assert not plain.startswith("⚠️")
 

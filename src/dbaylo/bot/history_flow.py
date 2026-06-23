@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import html
 import re
 from datetime import datetime
 from pathlib import Path
@@ -551,11 +552,13 @@ def _charts_picker_view(
     items: list[history.PickItem],
     report_id: int,
     page: int,
-    flagged_names: tuple[str, ...] = (),
+    flagged_total: int = 0,
+    no_dynamics: tuple[str, ...] = (),
 ) -> tuple[str, InlineKeyboardMarkup]:
     """A paginated list — one button per pickable indicator (flagged first, ⚠️-marked; a 📋 marks a
-    qualitative one that opens a TABLE instead of a chart), a pager, and opt-in exports. The
-    ``flagged_names`` are the report's out-of-range indicators, shown at the top as a summary."""
+    qualitative one that opens a TABLE instead of a chart), a pager, and opt-in exports. Rendered as
+    HTML: a bold "Поза нормою: N" header (the flagged ones are the ⚠️ buttons), and any flagged
+    indicator WITHOUT a chart/table yet (single measurement) is named so it is not lost."""
     pages = max(1, -(-len(items) // _CHART_PAGE_SIZE))
     page = max(0, min(page, pages - 1))
     start = page * _CHART_PAGE_SIZE
@@ -578,13 +581,26 @@ def _charts_picker_view(
     pick = locale.CHART_PICK_HEADER
     if pages > 1:
         pick += " · " + locale.HIST_PAGE_LABEL.format(page=page + 1, pages=pages)
-    header = pick
-    if flagged_names:
-        flagged_line = locale.CHART_PICK_FLAGGED.format(
-            n=len(flagged_names), names=" · ".join(flagged_names)
-        )
-        header = f"{flagged_line}\n\n{pick}"
-    return header, InlineKeyboardMarkup(inline_keyboard=rows)
+    lines: list[str] = []
+    if flagged_total:
+        lines.append(locale.CHART_PICK_FLAGGED.format(n=flagged_total))
+        if no_dynamics:
+            names = " · ".join(html.escape(n) for n in no_dynamics)
+            lines.append(locale.CHART_PICK_FLAGGED_NODYN.format(names=names))
+        lines.append("")  # blank line before the pick instruction
+    lines.append(pick)
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _flagged_summary(
+    report: LabReport | None, items: list[history.PickItem]
+) -> tuple[int, tuple[str, ...]]:
+    """(total flagged in this report, names of the flagged ones that have NO dynamics button yet) —
+    so the picker banner shows a count and never silently drops a single-measurement flagged one."""
+    fmap = history.report_flagged_map(report)
+    pickable_flagged = {it.key for it in items if it.flagged}
+    no_dyn = tuple(name for key, name in fmap.items() if key not in pickable_flagged)
+    return len(fmap), no_dyn
 
 
 async def open_charts_picker(
@@ -602,7 +618,6 @@ async def open_charts_picker(
         user = await ensure_user(session, telegram_id=telegram_id)
         items = await history.list_report_pickables(session, user_id=user.id, report_id=report_id)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
-    flagged = tuple(history.flagged_indicator_names(report))
     if not items:
         if not silent_if_empty:
             # No typed command — offer the values as a BUTTON (📊 Показники) + back to the card.
@@ -616,7 +631,8 @@ async def open_charts_picker(
             )
             await _show_view(message, locale.HIST_DYNAMICS_EMPTY, empty_kb, edit=edit)
         return
-    text, keyboard = _charts_picker_view(items, report_id, 0, flagged)
+    flagged_total, no_dyn = _flagged_summary(report, items)
+    text, keyboard = _charts_picker_view(items, report_id, 0, flagged_total, no_dyn)
     await _show_view(message, text, keyboard, edit=edit)
 
 
@@ -661,10 +677,10 @@ async def on_chart_page(callback: CallbackQuery) -> None:
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
     if not items:
         return
-    flagged = tuple(history.flagged_indicator_names(report))
-    text, keyboard = _charts_picker_view(items, report_id, page, flagged)
+    flagged_total, no_dyn = _flagged_summary(report, items)
+    text, keyboard = _charts_picker_view(items, report_id, page, flagged_total, no_dyn)
     with contextlib.suppress(TelegramBadRequest):  # ignore "message is not modified"
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.edit_text(text, reply_markup=keyboard, parse_mode=ParseMode.HTML)
 
 
 async def _render_pickable(

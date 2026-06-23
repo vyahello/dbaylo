@@ -362,22 +362,19 @@ def _strip_section_prefix(analyte: str, section: str | None) -> str:
     return analyte
 
 
-def flagged_indicator_names(report: LabReport | None) -> list[str]:
-    """Display names of a report's out-of-range (⚠️) indicators, deduped in order — so the dynamics
-    picker can show WHICH indicators are flagged at the top, even the qualitative ones that have no
-    chart (e.g. spermogram 'Лейкоцити 10-15 в п/з'). Deterministic, no LLM."""
+def report_flagged_map(report: LabReport | None) -> dict[str, str]:
+    """{series_key: display name} of a report's out-of-range (⚠️) indicators, deduped by key — so
+    the picker can show a count and tell which flagged indicators have a dynamics button vs not.
+    Deterministic, no LLM."""
+    out: dict[str, str] = {}
     if report is None:
-        return []
-    names: list[str] = []
-    seen: set[str] = set()
+        return out
     for r in ordered_results(report):
-        if not r.flagged:
-            continue
-        name = _strip_section_prefix(r.analyte, r.section)
-        if name not in seen:
-            seen.add(name)
-            names.append(name)
-    return names
+        if r.flagged:
+            out.setdefault(
+                series_key(r.section, r.analyte), _strip_section_prefix(r.analyte, r.section)
+            )
+    return out
 
 
 def _period_suffix(summary: TrendSummary) -> str:

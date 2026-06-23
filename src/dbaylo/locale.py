@@ -427,9 +427,11 @@ LAB_CHARTS_PROMPT = "📈 Показати динаміку показників
 BTN_CHARTS_SHOW = "📈 Так, показати"
 BTN_CHARTS_SKIP = "Ні, дякую"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
-# Shown at the TOP of the picker so the report's out-of-range indicators are visible up front —
-# even the qualitative ones with no chart (not tappable here; full details in «📊 Показники»).
-CHART_PICK_FLAGGED = "⚠️ Поза нормою ({n}): {names}"
+# Shown at the TOP of the picker (rendered as HTML): a clean bold count of the report's out-of-range
+# indicators. The flagged ones with dynamics are the ⚠️ buttons below; any WITHOUT a chart/table (a
+# single measurement so far) are named on the second line so they are not lost.
+CHART_PICK_FLAGGED = "⚠️ <b>Поза нормою: {n}</b> — нижче позначені ⚠️."
+CHART_PICK_FLAGGED_NODYN = "Поки без динаміки (1 вимір): {names}."
 BTN_CHART_ALL = "📋 Звіт по динаміці"  # one scannable text report, not a flood of chart images
 BTN_CHART_PDF = "📄 PDF з усіма графіками"  # one PDF: every chart + a short description
 # Carousel nav UNDER each chart photo, so you flip indicators without scrolling back to the picker.
