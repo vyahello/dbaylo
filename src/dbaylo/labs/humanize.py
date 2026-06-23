@@ -109,6 +109,16 @@ _SPECIMEN_UK: dict[str, str] = {
 
 _indicator_note_cache: dict[str, str] = {}
 
+# Bump when INDICATOR_NOTE_PERSONA changes — it becomes part of the persisted cache key, so old
+# notes are ignored and regenerated with the new wording.
+INDICATOR_NOTE_VERSION = "1"
+
+
+def note_cache_key(specimen: str | None, analyte: str) -> str:
+    """Stable key for an indicator note: a note depends ONLY on (persona version, specimen,
+    normalized analyte) — never on measured values — so it is global and never stale by new data."""
+    return f"{INDICATOR_NOTE_VERSION}\x1f{specimen or ''}\x1f{normalize_analyte(analyte)}"
+
 
 async def describe_indicator(
     analyte: str,

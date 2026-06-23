@@ -173,8 +173,9 @@ async def test_gather_notes_bounded_keeps_order_and_handles_empty(monkeypatch) -
     assert await history_flow._gather_notes_bounded([]) == []
 
 
-def test_pdf_cover_uses_readable_category_names() -> None:
-    # The cover must read like prose ("Аналіз сечі — 19"), not the crude chip "Сеча — 19".
+def test_pdf_cover_reads_as_plain_what_is_inside() -> None:
+    # The cover must read as a plain "what is inside": total + how the dynamics are shown
+    # (графіки for numeric, таблиці for qualitative), not a dense jargon block.
     from dbaylo.bot.history_flow import _pdf_cover
     from dbaylo.companion.history import ReportBreakdown
 
@@ -183,9 +184,21 @@ def test_pdf_cover_uses_readable_category_names() -> None:
         total=39, numeric=19, qualitative=14, single=6, categories=[("urine", 19)]
     )
     cover = _pdf_cover(report, breakdown)
-    assert cover.category_rows == ("Аналіз сечі — 19",)
-    assert "39" in cover.notes[-1]  # the honest total
-    assert any("14" in n for n in cover.notes)  # qualitative count surfaced
+    assert "39" in cover.summary_line  # the honest total leads
+    body = " | ".join(cover.category_rows)
+    assert "Графіки" in body and "19" in body  # numeric -> charts
+    assert "Таблиці" in body and "14" in body  # qualitative -> tables ("словами" is gone)
+    assert "6" in body  # the single-measurement ones are accounted for
+    # A single-category report does NOT show the redundant "Розділи:" line.
+    assert all("Розділи" not in n for n in cover.notes)
+    # A multi-category report DOES.
+    multi = _pdf_cover(
+        report,
+        ReportBreakdown(
+            total=20, numeric=20, qualitative=0, single=0, categories=[("blood", 10), ("urine", 10)]
+        ),
+    )
+    assert any("Розділи" in n and "Аналіз крові" in n for n in multi.notes)
 
 
 def test_chart_filename_is_descriptive_and_control_char_safe() -> None:

@@ -251,3 +251,18 @@ class Goal(TimestampMixin, Base):
     status: Mapped[GoalStatus] = mapped_column(SAEnum(GoalStatus), default=GoalStatus.ACTIVE)
 
     user: Mapped[User] = relationship(back_populates="goals")
+
+
+class IndicatorNote(TimestampMixin, Base):
+    """A persisted educational note about an indicator ("що це / до чого призводить відхилення").
+
+    The note is a pure function of (persona version, specimen, normalized analyte name) — it does
+    NOT depend on any measured values — so it is GLOBAL (not per-user) and never goes stale by new
+    data. It is generated once by claude and reused forever (across restarts, reports, the PDF), so
+    charts/tables can carry a description without the user ever waiting twice. Bumping the persona
+    version changes the key, so old notes are simply ignored (and re-generated)."""
+
+    __tablename__ = "indicator_notes"
+
+    cache_key: Mapped[str] = mapped_column(primary_key=True)  # version \x1f specimen \x1f analyte
+    text: Mapped[str] = mapped_column(Text)

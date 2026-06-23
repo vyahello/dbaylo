@@ -341,6 +341,16 @@ def _clip(text: str, limit: int = 42) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+def _wrap_title(text: str, width: int = 48, max_lines: int = 2) -> str:
+    """Wrap a chart-page title to AT MOST two lines (a long panel-prefixed name was clipped with
+    '…'); only an extreme third line is ellipsised."""
+    lines = textwrap.wrap(text, width=width) or [text]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1][: width - 1].rstrip() + "…"
+    return "\n".join(lines)
+
+
 def _load_avatar() -> Any:
     """The Дбайло avatar (the README icon), bundled as package data, as an image array. None if it
     can't be read, so the PDF still renders without it."""
@@ -463,15 +473,26 @@ def _chart_page(pdf: PdfPages, chart: PdfChart, *, page_no: int, total: int) -> 
     numeric = sorted((p for p in chart.points if p.value is not None), key=lambda p: p.taken_on)
     fig = plt.figure(figsize=_A4)
     try:
-        # Header band with the marker name + its panel.
+        # Header band with the marker name + its panel. The title wraps to up to 2 lines (long names
+        # like "Фізико-хімічні властивості: Відносна щільність" were clipped with "…").
+        title = _wrap_title(_pdf_text(chart.title))
+        two_lines = "\n" in title
         fig.patches.append(
-            Rectangle((0, 0.90), 1, 0.10, transform=fig.transFigure, color=_BRAND, zorder=0)
+            Rectangle(
+                (0, 0.88 if two_lines else 0.90),
+                1,
+                0.12 if two_lines else 0.10,
+                transform=fig.transFigure,
+                color=_BRAND,
+                zorder=0,
+            )
         )
         fig.text(
-            0.08, 0.945, _clip(_pdf_text(chart.title)), fontsize=18, color="white", weight="bold"
+            0.08, 0.965, title, fontsize=15, color="white", weight="bold", va="top", linespacing=1.2
         )
         if chart.subtitle:
-            fig.text(0.08, 0.915, _pdf_text(chart.subtitle), fontsize=11, color="#dcfce7")
+            sub_y = 0.895 if two_lines else 0.915
+            fig.text(0.08, sub_y, _pdf_text(chart.subtitle), fontsize=11, color="#dcfce7")
 
         ax = fig.add_axes((0.10, 0.42, 0.82, 0.42))
         if numeric:
