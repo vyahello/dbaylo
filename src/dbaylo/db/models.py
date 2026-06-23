@@ -107,6 +107,9 @@ class LabReport(TimestampMixin, Base):
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     report_date: Mapped[date | None] = mapped_column(Date, default=None)
     lab: Mapped[str | None] = mapped_column(default=None)
+    # The patient's date of birth, when the report header carries it. Used to resolve AGE-STRATIFIED
+    # references (e.g. ПСА: <40 -> <1.4) deterministically — the lab's own age table, picked by age.
+    birth_date: Mapped[date | None] = mapped_column(Date, default=None)
     # Original file is always kept and linked (safety rail #2: OCR never trusted silently).
     source_file: Mapped[str | None] = mapped_column(default=None)
     # SHA-256 of the uploaded bytes, so re-uploading the exact same file is detected and not

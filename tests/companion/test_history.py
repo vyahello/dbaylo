@@ -663,6 +663,36 @@ async def test_aggregate_indicators_groups_by_category(async_session: AsyncSessi
     assert [it.name for it in history.indicators_in(items, grouping.BIOCHEM)] == ["Натрій"]
 
 
+async def test_age_stratified_reference_resolved_at_load(async_session: AsyncSession) -> None:
+    # ПСА prints an age table; with the patient's DOB known, load_series_points resolves it to the
+    # row for their age (30 -> <1.4), so the chart gets a real band instead of "норму не вказано".
+    from dbaylo.labs.pipeline import load_series_points
+
+    user = await _user(async_session)
+    report = LabReport(
+        user_id=user.id,
+        report_date=date(2023, 4, 23),
+        birth_date=date(1993, 3, 23),  # age 30 at report date
+        lab="ДІЛА",
+        status=ReportStatus.CONFIRMED,
+        results=[
+            LabResult(
+                analyte="ПСА",
+                value=0.519,
+                section="Імунохімія",
+                ref_text="<40: <1.4; 40-50: <2.0; 50-60: <3.1; 60-70: <4.1; >70: <4.4",
+                flag=compute_flag(0.519, None, None),
+                flagged=False,
+            )
+        ],
+    )
+    async_session.add(report)
+    await async_session.flush()
+    points = await load_series_points(async_session, user.id)
+    psa = next(p for p in points if "ПСА" in p.analyte)
+    assert psa.ref_high == 1.4 and psa.ref_low is None  # age 30 -> "<40: <1.4"
+
+
 async def test_all_dynamics_span_reports_grouped_by_category(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     # A blood numeric trend + a urine qualitative trend, each on two dates.

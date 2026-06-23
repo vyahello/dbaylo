@@ -102,6 +102,7 @@ async def persist_confirmed(
     analytes: list[ExtractedAnalyte],
     report_date: date | None,
     lab: str | None,
+    birth_date: date | None = None,
     conclusion: str | None = None,
     report_type: str | None = None,
     narrative: str | None = None,
@@ -114,6 +115,7 @@ async def persist_confirmed(
     A narrative document (``narrative`` set, no analytes) is stored as kind=NARRATIVE.
     """
     report.report_date = report_date
+    report.birth_date = birth_date or report.birth_date  # keep an already-known DOB
     report.lab = normalize_lab(lab)
     report.conclusion = conclusion
     report.report_type = report_type

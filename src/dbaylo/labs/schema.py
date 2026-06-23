@@ -59,6 +59,9 @@ class ExtractedReport:
     results: list[ExtractedAnalyte] = field(default_factory=list)
     report_date: date | None = None
     lab: str | None = None
+    # The patient's date of birth if the header prints it ("Дата народження") — used only to resolve
+    # AGE-STRATIFIED references (e.g. ПСА) against the lab's own age table. Never shown to the user.
+    birth_date: date | None = None
     # The report's own overall conclusion if it prints one (e.g. "Нормозооспермія").
     conclusion: str | None = None
     # Stage 6 — set for a NARRATIVE document (МРТ/УЗД/висновок): the human label

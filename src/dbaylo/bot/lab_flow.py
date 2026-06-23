@@ -310,6 +310,7 @@ def _report_to_state(report: ExtractedReport) -> dict[str, object]:
     # confirmed МРТ into an empty 'tabular' report, whose interpretation hallucinated "table empty".
     return {
         "report_date": report.report_date.isoformat() if report.report_date else None,
+        "birth_date": report.birth_date.isoformat() if report.birth_date else None,
         "lab": report.lab,
         "conclusion": report.conclusion,
         "report_type": report.report_type,
@@ -320,6 +321,7 @@ def _report_to_state(report: ExtractedReport) -> dict[str, object]:
 
 def _report_from_state(data: Mapping[str, Any]) -> ExtractedReport:
     raw_date = data.get("report_date")
+    raw_birth = data.get("birth_date")
     raw_results = cast("list[dict[str, Any]]", data.get("results") or [])
 
     def _str(key: str) -> str | None:
@@ -329,6 +331,7 @@ def _report_from_state(data: Mapping[str, Any]) -> ExtractedReport:
     return ExtractedReport(
         results=[ExtractedAnalyte(**row) for row in raw_results],
         report_date=date.fromisoformat(raw_date) if isinstance(raw_date, str) else None,
+        birth_date=date.fromisoformat(raw_birth) if isinstance(raw_birth, str) else None,
         lab=_str("lab"),
         conclusion=_str("conclusion"),
         report_type=_str("report_type"),
@@ -625,6 +628,7 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
             analytes=report.results,
             report_date=report.report_date,
             lab=report.lab,
+            birth_date=report.birth_date,
             conclusion=report.conclusion,
             report_type=report.report_type,
             narrative=report.narrative,

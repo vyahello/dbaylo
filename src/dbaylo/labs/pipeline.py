@@ -22,6 +22,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.db.models import LabReport, LabResult, ReportStatus
+from dbaylo.labs.agerefs import age_on, resolve_age_reference
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.humanize import humanize, interpret
@@ -39,7 +40,10 @@ class ReportSummary:
 
 
 async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoint]:
-    """Load all confirmed, dated results for a user as engine input points."""
+    """Load all confirmed, dated results for a user as engine input points. An AGE-STRATIFIED
+    reference (e.g. ПСА: a table by age) carried in ``ref_text`` is resolved here against the
+    patient's age at the report date, so the trend/chart get a real numeric band — the lab's own
+    table, picked deterministically, never a guessed threshold."""
     stmt = (
         select(
             LabResult.analyte,
@@ -49,8 +53,10 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             LabResult.unit,
             LabResult.ref_low,
             LabResult.ref_high,
+            LabResult.ref_text,
             LabResult.flagged,
             LabResult.section,
+            LabReport.birth_date,
         )
         .join(LabReport, LabResult.report_id == LabReport.id)
         .where(
@@ -60,20 +66,29 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
         )
     )
     rows = (await session.execute(stmt)).all()
-    return [
-        LabPoint(
-            analyte=row.analyte,
-            taken_on=row.report_date,
-            value=row.value,
-            value_text=row.value_text,
-            unit=row.unit,
-            ref_low=row.ref_low,
-            ref_high=row.ref_high,
-            flagged=bool(row.flagged),
-            section=row.section,
+
+    def _point(row: object) -> LabPoint:
+        low, high = row.ref_low, row.ref_high  # type: ignore[attr-defined]
+        if low is None and high is None:  # try an age-stratified table from the lab
+            resolved = resolve_age_reference(
+                row.ref_text,  # type: ignore[attr-defined]
+                age_on(row.birth_date, row.report_date),  # type: ignore[attr-defined]
+            )
+            if resolved is not None:
+                low, high = resolved
+        return LabPoint(
+            analyte=row.analyte,  # type: ignore[attr-defined]
+            taken_on=row.report_date,  # type: ignore[attr-defined]
+            value=row.value,  # type: ignore[attr-defined]
+            value_text=row.value_text,  # type: ignore[attr-defined]
+            unit=row.unit,  # type: ignore[attr-defined]
+            ref_low=low,
+            ref_high=high,
+            flagged=bool(row.flagged),  # type: ignore[attr-defined]
+            section=row.section,  # type: ignore[attr-defined]
         )
-        for row in rows
-    ]
+
+    return [_point(row) for row in rows]
 
 
 async def compute_report_summary(
