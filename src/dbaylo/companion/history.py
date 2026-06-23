@@ -32,6 +32,7 @@ from dbaylo.db.models import (
     Reminder,
     ReportKind,
     ReportStatus,
+    ResultFlag,
 )
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.labnames import normalize_lab
@@ -627,6 +628,104 @@ async def report_qualitative_dynamics(
         )
     out.sort(key=lambda q: (not q.changed, not q.flagged, q.title.casefold()))
     return out
+
+
+# --- Cross-lab "all indicators" dynamics (for the by-category PDF export) --------
+
+
+def _category_rank(section: str | None, analyte: str) -> int:
+    """Position of an analyte's category in the display order — for grouping the all-indicators PDF
+    by category (Кров → Сеча → Біохімія → …)."""
+    key = grouping.categorize(section, analyte)
+    order = {c: i for i, c in enumerate(grouping.CATEGORY_ORDER)}
+    return order.get(key, len(order))
+
+
+async def all_trend_charts(session: AsyncSession, *, user_id: int) -> list[TrendChartData]:
+    """EVERY numeric-trend analyte across ALL reports, grouped by category then flagged-first — the
+    chart data behind the cross-lab 'PDF by categories' export. Deterministic, no LLM."""
+    series = build_series(await load_series_points(session, user_id))
+    out: list[tuple[int, TrendChartData]] = []
+    for pts in series.values():
+        if len(_numeric_dates(pts)) < 2:
+            continue
+        latest = pts[-1]
+        summary = compute_trend(pts)
+        cat_key = grouping.categorize(latest.section, summary.analyte)
+        flagged = bool(latest.flagged) or summary.latest_flag in (ResultFlag.LOW, ResultFlag.HIGH)
+        out.append(
+            (
+                _category_rank(latest.section, summary.analyte),
+                TrendChartData(
+                    title=_strip_section_prefix(summary.analyte, latest.section),
+                    category=locale.CATEGORY_NAMES.get(cat_key, cat_key),
+                    points=pts,
+                    dynamics=chart_dynamics_caption(summary),
+                    specimen=specimen(latest.section, summary.analyte),
+                    flagged=flagged,
+                ),
+            )
+        )
+    out.sort(key=lambda t: (t[0], not t[1].flagged, t[1].title.casefold()))
+    return [d for _, d in out]
+
+
+async def all_qualitative_dynamics(session: AsyncSession, *, user_id: int) -> list[QualTrend]:
+    """EVERY qualitative-timeline analyte across ALL reports, grouped by category then
+    changed/flagged-first — the table data for the cross-lab PDF export. Deterministic, no LLM."""
+    series = build_series(await load_series_points(session, user_id))
+    out: list[tuple[int, QualTrend]] = []
+    for key, pts in series.items():
+        if len(_numeric_dates(pts)) >= 2:  # already a numeric chart
+            continue
+        qpts = [p for p in pts if p.value is None and (p.value_text or "").strip()]
+        if len({p.taken_on for p in qpts}) < 2:
+            continue
+        latest = pts[-1]
+        by_date: dict[date, QualMeasurement] = {}
+        for p in sorted(qpts, key=lambda x: x.taken_on):
+            by_date[p.taken_on] = QualMeasurement(
+                taken_on=p.taken_on, text=(p.value_text or "").strip(), flagged=bool(p.flagged)
+            )
+        timeline = list(by_date.values())
+        distinct_text = {m.text.casefold() for m in timeline}
+        out.append(
+            (
+                _category_rank(latest.section, latest.analyte),
+                QualTrend(
+                    title=_strip_section_prefix(latest.analyte, latest.section),
+                    key=key,
+                    category=_category_label(latest.section, latest.analyte),
+                    specimen=specimen(latest.section, latest.analyte),
+                    timeline=timeline,
+                    flagged=timeline[-1].flagged,
+                    changed=len(distinct_text) > 1,
+                ),
+            )
+        )
+    out.sort(key=lambda t: (t[0], not t[1].changed, not t[1].flagged, t[1].title.casefold()))
+    return [q for _, q in out]
+
+
+async def all_indicator_breakdown(session: AsyncSession, *, user_id: int) -> ReportBreakdown:
+    """Counts for the cross-lab PDF cover: how many indicators are charts vs tables, by category."""
+    series = build_series(await load_series_points(session, user_id))
+    numeric = qualitative = 0
+    cat_counts: Counter[str] = Counter()
+    for pts in series.values():
+        if len(_numeric_dates(pts)) >= 2:
+            numeric += 1
+            cat_counts[grouping.categorize(pts[-1].section, pts[-1].analyte)] += 1
+        elif len(_qual_dates(pts)) >= 2:
+            qualitative += 1
+    ordered = [c for c in grouping.CATEGORY_ORDER if cat_counts.get(c)]
+    return ReportBreakdown(
+        total=numeric + qualitative,
+        numeric=numeric,
+        qualitative=qualitative,
+        single=0,
+        categories=[(c, cat_counts[c]) for c in ordered],
+    )
 
 
 @dataclass(frozen=True)

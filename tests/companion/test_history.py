@@ -663,6 +663,49 @@ async def test_aggregate_indicators_groups_by_category(async_session: AsyncSessi
     assert [it.name for it in history.indicators_in(items, grouping.BIOCHEM)] == ["Натрій"]
 
 
+async def test_all_dynamics_span_reports_grouped_by_category(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    # A blood numeric trend + a urine qualitative trend, each on two dates.
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 1, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Гемоглобін", value=140.0, low=130.0, high=160.0, section="Загальний аналіз крові"
+            ),
+            _result("Бактерії", value_text="не виявлені", section="Загальний аналіз сечі"),
+        ],
+    )
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 2, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Гемоглобін", value=145.0, low=130.0, high=160.0, section="Загальний аналіз крові"
+            ),
+            _result("Бактерії", value_text="виявлено", section="Загальний аналіз сечі"),
+        ],
+    )
+    charts = await history.all_trend_charts(async_session, user_id=user.id)
+    quals = await history.all_qualitative_dynamics(async_session, user_id=user.id)
+    bd = await history.all_indicator_breakdown(async_session, user_id=user.id)
+    assert [c.title for c in charts] == ["Гемоглобін"]  # numeric -> chart
+    assert [q.title for q in quals] == ["Бактерії"]  # qualitative -> table
+    assert (bd.numeric, bd.qualitative, bd.total) == (1, 1, 2)
+    assert bd.categories == [("blood", 1)]  # the numeric one's category
+
+
+def test_dynamics_home_has_a_pdf_and_back_buttons() -> None:
+    _, kb = history_flow._dyn_home_view([(grouping.BLOOD, 3), (grouping.URINE, 2)])
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.DYN_PDF in datas  # one PDF with everything, by category
+    assert callbacks.MENU_OPEN_LABS in datas  # ◀ back to the hub
+
+
 def test_dynamics_home_has_a_back_to_the_labs_hub() -> None:
     # The dynamics browser's top level (category list) must offer ◀ Назад to the "Аналізи" hub —
     # otherwise, opened from the hub, you'd be stranded with no way back.
