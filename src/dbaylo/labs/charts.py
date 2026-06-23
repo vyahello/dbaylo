@@ -118,6 +118,22 @@ def _draw(
     elif lo is not None:
         ax.axhspan(ylo, lo, color=_RED_ZONE, zorder=0)
         ax.axhspan(lo, yhi, color=_GREEN_ZONE, zorder=0)
+    else:
+        # No numeric reference was captured for this analyte -> there is no green/red band to draw.
+        # Say so on the chart itself (a faint watermark), so a bandless plot doesn't look broken —
+        # the points are still coloured by the lab's own flag (red ✕ / green ●).
+        ax.text(
+            0.5,
+            0.5,
+            locale.CHART_NO_REFERENCE,
+            transform=ax.transAxes,
+            ha="center",
+            va="center",
+            fontsize=11,
+            color=_BOUND,
+            alpha=0.6,
+            zorder=0,
+        )
     for bound in (lo, hi):
         if bound is not None:
             ax.axhline(bound, color=_BOUND, linestyle="--", linewidth=1, zorder=1)

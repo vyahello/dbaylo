@@ -284,6 +284,33 @@ async def test_report_button_label_and_card_show_flag_count(async_session: Async
     assert "⚠️ 1 поза нормою" in history.render_card(report, results)
 
 
+def test_report_kind_label_says_what_the_analysis_is() -> None:
+    # The list button must hint blood vs urine vs both vs spermogram — not just date + lab.
+    blood = LabResult(analyte="Гемоглобін", section="Загальний аналіз крові", value=140.0)
+    urine = LabResult(analyte="Лейкоцити", section="Загальний аналіз сечі", value_text="2-3")
+    semen = LabResult(analyte="Об'єм", section="Спермограма", value=2.0)
+    assert history.report_kind_label([blood]) == "Кров"
+    assert history.report_kind_label([semen]) == "Спермограма"
+    assert history.report_kind_label([blood, urine]) == "Кров+Сеча"
+    assert history.report_kind_label([]) == ""
+
+
+async def test_report_button_label_shows_the_kind(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    report = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2026, 2, 1),
+        lab="Сінево",
+        results=[
+            LabResult(analyte="Гемоглобін", section="Загальний аналіз крові", value=140.0),
+            LabResult(analyte="Лейкоцити", section="Загальний аналіз сечі", value_text="2-3"),
+        ],
+    )
+    label = history.report_button_label(report, history.ordered_results(report))
+    assert "Кров+Сеча" in label and "Сінево" in label  # what it is, then where
+
+
 def test_short_type_truncates_long_study_names() -> None:
     assert history.short_type("МРТ головного мозку") == "МРТ головного мозку"  # short -> unchanged
     long = "КТ сечовивідної системи з внутрішньовенним контрастуванням"

@@ -446,6 +446,16 @@ CATEGORY_NAMES: dict[str, str] = {
     "other": "📋 Інше",
     "imaging": "🩻 Описові (МРТ/УЗД)",
 }
+# Compact, emoji-free category names for the report-list button ("про що аналіз": Кров/Сеча/…).
+CATEGORY_SHORT: dict[str, str] = {
+    "blood": "Кров",
+    "urine": "Сеча",
+    "biochem": "Біохімія",
+    "hormones": "Гормони",
+    "semen": "Спермограма",
+    "other": "Інше",
+    "imaging": "Опис",
+}
 DYN_HEADER = "📈 Динаміка показників. Обери категорію:"
 DYN_CATEGORY_HEADER = "{category} — обери показник (📈 є динаміка, ⚠️ востаннє поза нормою):"
 DYN_IMAGING_HEADER = "🩻 Описові дослідження. Обери, щоб переглянути:"
@@ -515,7 +525,7 @@ HIST_TITLE_DOC = "📄 {parts}"
 # Master-detail list: one tappable button per report; a card with actions on open.
 HIST_LIST_HEADER = "🗂 Твої аналізи ({n}). Обери, щоб переглянути:"
 HIST_PAGE_LABEL = "сторінка {page} з {pages}"
-HIST_BTN_REPORT = "🔬 {date} · {lab} · {count}{flags}"
+HIST_BTN_REPORT = "🔬 {date} · {kind}{lab} · {count}{flags}"  # kind = "Кров+Сеча · " or ""
 HIST_BTN_REPORT_DOC = "📄 {date} · {lab} · {report_type}"
 HIST_BTN_REPORT_DOC_NOLAB = "📄 {date} · {report_type}"  # imaging study with no lab brand
 HIST_FLAGS_SUFFIX = " ⚠️{n}"  # appended to the button when {n} values are out of range
@@ -581,6 +591,9 @@ TREND_LINE = "📈 {analyte}: {value} — {movement}. Вимірів: {n}."
 CHART_DYNAMICS_LINE = "📈 {value} — {movement} · вимірів: {n}{period}"
 CHART_PERIOD_SUFFIX = " за {span}"  # e.g. " за 2021–2026" / " за 2026"
 CHART_NOTE_DISCLAIMER = "ℹ️ Загальна інформація, не діагноз — тлумачить лікар."
+# Drawn on a chart whose analyte has no numeric reference captured — so a band-less plot is not
+# mistaken for a broken one (the points are still coloured by the lab's own out-of-range flag).
+CHART_NO_REFERENCE = "норму не вказано в аналізі"
 # When a chart is opened FROM a specific report, this line keeps that context visible and the
 # report's own point is ringed on the chart as "цей аналіз", so you never lose where you are.
 CHART_SOURCE_CONTEXT = "🔬 З аналізу {date} · {lab}"

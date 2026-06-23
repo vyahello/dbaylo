@@ -721,6 +721,18 @@ def short_type(report_type: str | None) -> str:
     return head + "…"
 
 
+def report_kind_label(results: list[LabResult]) -> str:
+    """A very short 'what kind of analysis' tag for the list button — Кров / Сеча / Кров+Сеча /
+    Спермограма / … — derived deterministically from the rows' clinical categories so a glance tells
+    you blood vs urine vs both, not just date + lab. Up to two categories, then '…'."""
+    cats = {grouping.categorize(r.section, r.analyte) for r in results}
+    ordered = [c for c in grouping.CATEGORY_ORDER if c in cats]
+    labels = [locale.CATEGORY_SHORT.get(c, c) for c in ordered]
+    if not labels:
+        return ""
+    return "+".join(labels) if len(labels) <= 2 else "+".join(labels[:2]) + "…"
+
+
 def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     """The one-line button label for a report in the master list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
@@ -732,8 +744,10 @@ def report_button_label(report: LabReport, results: list[LabResult]) -> str:
         return locale.HIST_BTN_REPORT_DOC_NOLAB.format(date=date_txt, report_type=rtype)
     n_flagged = flagged_count(results)
     flags = locale.HIST_FLAGS_SUFFIX.format(n=n_flagged) if n_flagged else ""
+    kind = report_kind_label(results)
+    kind_part = f"{kind} · " if kind else ""
     return locale.HIST_BTN_REPORT.format(
-        date=date_txt, lab=lab_txt, count=len(results), flags=flags
+        date=date_txt, kind=kind_part, lab=lab_txt, count=len(results), flags=flags
     )
 
 
