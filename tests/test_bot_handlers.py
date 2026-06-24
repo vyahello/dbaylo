@@ -46,8 +46,8 @@ def test_build_dispatcher_registers_routers_and_owner_lock() -> None:
     from dbaylo.bot.state_reset import CommandStateResetMiddleware
 
     dispatcher = build_dispatcher()
-    # commands + menu + lab_flow + navigator + proactive + history + companion.
-    assert len(dispatcher.sub_routers) == 7
+    # commands + menu + lab_flow + navigator + proactive + history + consult + companion.
+    assert len(dispatcher.sub_routers) == 8
     # The owner lock is an outer update middleware (runs before any router).
     assert any(isinstance(m, OwnerOnlyMiddleware) for m in dispatcher.update.outer_middleware)
     # A /command cancels any FSM dialog before handlers resolve (message-level outer mw).

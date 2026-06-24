@@ -221,14 +221,16 @@ def test_chart_filename_is_descriptive_and_control_char_safe() -> None:
 def test_chart_nav_keyboard_lets_you_flip_without_scrolling_up() -> None:
     from dbaylo.bot.history_flow import _chart_nav_keyboard
 
-    # Middle of 5: one row — ⬅️ / 📋 i/n / ➡️.
+    # Middle of 5: nav row (⬅️ / 📋 i/n / ➡️) + a consult row ("Запитати Дбайло").
     kb = _chart_nav_keyboard(report_id=7, index=2, total=5)
-    assert len(kb.inline_keyboard) == 1  # single row, no separate list button
+    assert len(kb.inline_keyboard) == 2  # nav row, then the consult row
     datas = _datas(kb)
     assert callbacks.chart_nav(7, 1) in datas  # ⬅️ prev
     assert callbacks.chart_nav(7, 3) in datas  # ➡️ next
     # The position counter IS the back-to-list button — exactly once, not duplicated.
     assert datas.count(callbacks.history_dynamics(7)) == 1
+    # Ask Дбайло about THIS indicator, anchored to the carousel index.
+    assert callbacks.consult_chart(7, 2) in datas
     middle = next(b for row in kb.inline_keyboard for b in row if "/" in b.text)
     assert "3/5" in middle.text  # 1-based position (index 2 of 5)
     # First chart has no prev arrow; last has no next arrow.

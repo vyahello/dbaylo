@@ -18,6 +18,7 @@ from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from dbaylo import locale
 from dbaylo.bot import (
     companion_flow,
+    consult_flow,
     history_flow,
     lab_flow,
     menu_flow,
@@ -70,6 +71,9 @@ def build_dispatcher(
     dispatcher.include_router(navigator_flow.router)
     dispatcher.include_router(proactive_flow.router)
     dispatcher.include_router(history_flow.router)
+    # Consult: its entry callbacks + the ConsultStates free-text turn. Before the companion so the
+    # consult state is served here (the companion catch-all is StateFilter(None), so no clash).
+    dispatcher.include_router(consult_flow.router)
     dispatcher.include_router(companion_flow.router)
     return dispatcher
 

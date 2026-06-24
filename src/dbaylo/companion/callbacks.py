@@ -317,6 +317,34 @@ def parse_history_trend(data: str) -> tuple[int, int] | None:
     return None
 
 
+# --- Contextual consultation ("Запитати Дбайло") ---------------------------------
+# A consult is anchored to a subject. The anchor is small (ids/index, < 64 B); the indicator's
+# full series key + name are re-derived at tap time and held in FSM state, never in the callback.
+CONSULT_CHART = "consult_chart"  # ask about ONE indicator (by carousel index into a report)
+CONSULT_REPORT = "consult_report"  # ask about a whole report's reading
+CONSULT_END = "consult_end"  # end the active consultation
+
+
+def consult_chart(report_id: int, index: int) -> str:
+    return f"{CONSULT_CHART}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_consult_chart(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == CONSULT_CHART and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
+    return None
+
+
+def consult_report(report_id: int) -> str:
+    return _make(CONSULT_REPORT, report_id)
+
+
+def parse_consult_report(data: str) -> int | None:
+    return _parse(CONSULT_REPORT, data)
+
+
 # --- Tier 1.3: button-menu section actions (static, no ids) ----------------------
 
 MENU_OPEN_LABS = "menu_labs_hub"  # back to the "Аналізи" hub (from the history list)

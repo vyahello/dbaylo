@@ -167,7 +167,9 @@ def _chart_nav_keyboard(report_id: int, index: int, total: int) -> InlineKeyboar
     )
     if index < total - 1:
         row.append(_btn(locale.BTN_CHART_NEXT, callbacks.chart_nav(report_id, index + 1)))
-    return InlineKeyboardMarkup(inline_keyboard=[row])
+    # A second row: ask Дбайло about THIS indicator (grounded consultation on its trend).
+    consult_row = [_btn(locale.BTN_CONSULT, callbacks.consult_chart(report_id, index))]
+    return InlineKeyboardMarkup(inline_keyboard=[row, consult_row])
 
 
 def _chart_caption(report: LabReport | None, summary: TrendSummary) -> str:
@@ -1232,8 +1234,13 @@ def _refresh_delete_row(report_id: int) -> list[InlineKeyboardButton]:
 
 
 def _analysis_actions(report_id: int) -> InlineKeyboardMarkup:
-    """Fallback keyboard (narrative / deterministic reading sent whole): just refresh / delete."""
-    return InlineKeyboardMarkup(inline_keyboard=[_refresh_delete_row(report_id)])
+    """Fallback keyboard (narrative / deterministic reading whole): refresh / delete + consult."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            _refresh_delete_row(report_id),
+            [_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))],
+        ]
+    )
 
 
 def _analysis_keyboard(
@@ -1253,6 +1260,8 @@ def _analysis_keyboard(
     rows = [nav[i : i + 2] for i in range(0, len(nav), 2)]
     if idx == 0:
         rows.append(_refresh_delete_row(report_id))
+    # Ask Дбайло about this report's results — available from every section of the reading.
+    rows.append([_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))])
     if back_page is not None:
         rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, back_page))])
     return InlineKeyboardMarkup(inline_keyboard=rows)

@@ -671,6 +671,28 @@ CHART_SOURCE_FILENAME = (
 CHART_PNG_FILENAME = "Дбайло-динаміка-{analyte}.png"
 CHART_PNG_FALLBACK = "показник"  # when the analyte name is empty / unreadable
 
+# --- Contextual consultation ("Запитати Дбайло") --------------------------------
+# A button on a chart / indicator / report reading that opens a grounded, multi-turn consultation
+# about THAT subject — the bot answers from the real data. Every user turn is screened by the gate.
+BTN_CONSULT = "💬 Запитати Дбайло"
+CONSULT_PROMPT_INDICATOR = (
+    "Питай, що хочеш дізнатися про «{subject}» — поясню простими словами, що це означає "
+    "саме для тебе. 🩺"
+)
+CONSULT_PROMPT_REPORT = (
+    "Питай про цей аналіз ({subject}) — що означають результати, на що звернути увагу, "
+    "що робити далі. Розберемо разом. 🩺"
+)
+CONSULT_BTN_END = "✅ Завершити розмову"
+CONSULT_ENDED = "Гаразд, завершили. Звертайся, коли матимеш ще питання. 🙂"
+CONSULT_EMPTY = "Напиши, будь ласка, своє питання текстом. 🙂"
+CONSULT_GONE = "Не вдалося відкрити цей показник — можливо, звіт уже видалено."
+# Deterministic, safe-by-construction reply used when the LLM is unavailable or trips the guard.
+CONSULT_FALLBACK = (
+    "Зараз не виходить розібрати це детально. Спробуй, будь ласка, ще раз за хвилину. "
+    "А якщо щось турбує — варто показати ці результати лікарю, він прочитає їх у твоєму контексті."
+)
+
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
 # Medication reminder text never carries a dose (rail #1): it names the medication
