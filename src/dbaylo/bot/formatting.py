@@ -54,6 +54,9 @@ _PANEL_PREFIX = locale.LAB_SECTION_HEADER.split("{", 1)[0].strip()
 # never break Telegram's parser. Non-greedy and single-line, so an unbalanced marker stays literal.
 _BOLD_RE = re.compile(r"\*([^*\n]+)\*")
 _ITALIC_RE = re.compile(r"_([^_\n]+)_")
+# A [text](https://url) markdown link — used by the clinic finder for sources / clinic sites.
+# Telegram HTML mode does not interpret markdown, so without this it shows a literal "[text](url)".
+_MD_LINK_RE = re.compile(r"\[([^\]\n]+)\]\((https?://[^)\s]+)\)")
 
 
 def _escape(text: str) -> str:
@@ -63,8 +66,10 @@ def _escape(text: str) -> str:
 
 
 def _inline_markup(escaped: str) -> str:
-    """Convert *bold* / _italic_ markers to HTML tags. Run on already-escaped text."""
-    return _ITALIC_RE.sub(r"<i>\1</i>", _BOLD_RE.sub(r"<b>\1</b>", escaped))
+    """Convert *bold* / _italic_ markers and [text](url) links to HTML. Run on already-escaped text;
+    links last so the URL is not mangled by the italic rule."""
+    out = _ITALIC_RE.sub(r"<i>\1</i>", _BOLD_RE.sub(r"<b>\1</b>", escaped))
+    return _MD_LINK_RE.sub(r'<a href="\2">\1</a>', out)
 
 
 def _match_header(line: str) -> tuple[str, str] | None:

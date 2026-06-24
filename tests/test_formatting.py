@@ -63,6 +63,19 @@ def test_inline_bold_and_italic_markers_become_tags() -> None:
     assert "*" not in out.split(locale.INTERPRET_DIVIDER)[0]  # markers consumed in the body
 
 
+def test_markdown_links_become_clickable_html_anchors() -> None:
+    # The clinic finder cites sources as [text](url); Telegram HTML mode shows the literal markdown
+    # unless we convert it, so the link must become a real clickable <a> tag.
+    text = (
+        f"{locale.INTERPRET_SECTION_OVERALL}\n"
+        "• Джерело: [UROSVIT — літотрипсія](https://urosvit.com/litotripsiya/)\n\n"
+        f"{DISCLAIMER}"
+    )
+    out = render_interpretation_html(text)
+    assert '<a href="https://urosvit.com/litotripsiya/">UROSVIT — літотрипсія</a>' in out
+    assert "[UROSVIT" not in out  # the literal markdown is gone
+
+
 def test_markers_around_a_dangerous_char_stay_safe() -> None:
     # A bold span containing '<' must still be escaped (tag injected around &lt;, never a real <).
     text = f"{locale.INTERPRET_SECTION_OVERALL}\n• *Лейкоцити < 5* — норма\n\n{DISCLAIMER}"
