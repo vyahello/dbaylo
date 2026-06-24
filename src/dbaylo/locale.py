@@ -710,9 +710,16 @@ CONSULT_BTN_WHEN_2W = "Через 2 тижні"
 CONSULT_BTN_WHEN_1M = "Через місяць"
 CONSULT_BTN_WHEN_3M = "Через 3 місяці"
 CONSULT_BTN_WHEN_OTHER = "📅 Інша дата"
-# #3 — the question the 🏥 button injects into the conversation, so "where to do it" is answered IN
-# context (transparent guidance + НСЗУ verify, no ranking — rail #4), not as a separate lookup.
-CONSULT_CLINICS_QUESTION = "Підкажи, де можна зробити це обстеження, і чи може це покривати НСЗУ?"
+# #3 — the 🏥 finder: a real web search for clinics in the user's city (addresses/ratings/contacts).
+CONSULT_CLINICS_ASK_CITY = (
+    "У якому місті шукати заклади? Напиши, наприклад «Львів» — і я знайду конкретні варіанти "
+    "з адресами й контактами. 🏥"
+)
+CONSULT_CLINICS_SEARCHING = "Шукаю заклади у відкритих джерелах… 🔎"
+CONSULT_CLINICS_FALLBACK = (
+    "Не вийшло знайти заклади зараз 🤔 Спробуй ще раз трохи пізніше, або глянь на Google Maps "
+    "(«<послуга> <місто>») чи на сайті НСЗУ."
+)
 # Reminder fired for a consult-set item (an exam / recheck / visit) — no dose, no diagnosis.
 REMINDER_CONSULT = "🔔 Нагадування: {name}. Подбай про себе вчасно. 🌿"
 CONSULT_EMPTY = "Напиши, будь ласка, своє питання текстом. 🙂"

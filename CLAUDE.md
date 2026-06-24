@@ -49,7 +49,13 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
    recommendations) + a deterministic "reviews, not outcomes" label. Extended to price
    data: never a fabricated "free" (coverage exposes only `may_be_covered`) or "overpriced"
    (`CeilingStatus.NO_CEILING` for unregulated drugs). Named-drug boundary: `/price` never
-   picks a drug for a condition.
+   picks a drug for a condition. **OWNER-AUTHORIZED EXCEPTION (personal bot only):** the
+   consult clinic finder (`consult.find_clinics`, the 🏥 button) web-searches REAL clinic
+   options (name · address · contacts · public rating) for an exam in the user's city, with
+   an honest "options from open sources; ratings are opinions, not outcomes — verify" frame.
+   It is the ONE place provider ranking is allowed; the OTHER rails still hold (no
+   dose/diagnosis/skip-doctor; a red flag in the query still escalates via the gate), and the
+   navigator's own guard is unchanged.
 5. **OCR never trusted silently** (L2) — always surface for confirmation, always keep
    the original file (`LabReport.source_file`).
 6. **Friend, not sycophant; no crash diets / disordered-eating; beauty via health** (L1).

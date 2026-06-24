@@ -22,6 +22,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dbaylo import locale
+from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
 from dbaylo.labs.humanize import strip_markup, strip_self_disclaimer
 from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
@@ -54,14 +55,12 @@ CONSULT_PERSONA = (
     "of the person's current state — ask focused questions (1–3, woven into a warm reply, not a "
     "questionnaire) about how they feel, WHERE and WHEN it hurts and whether right now, what makes "
     "it better or worse, relevant history.\n"
-    "WHERE TO DO IT: if the user asks where to get an exam/analysis done (or you suggest one), "
-    "give transparent, practical guidance — most lab tests (аналіз крові/сечі) are done at any "
-    "лабораторія or поліклініка; imaging (УЗД/КТ/МРТ) at a діагностичний центр or лікарня. You may "
-    "name common options as NEUTRAL examples, but NEVER rank them, call any one 'найкраща', say "
-    "'оперуйся у…', or promise a result. Add that they can check possible НСЗУ coverage at "
-    + locale.NSZU_DASHBOARD_URL
-    + " ('може бути безкоштовно — перевір', never a definite 'безкоштовно'). Stay in the SAME "
-    "conversation — use what was already discussed, do not restart.\n"
+    "WHERE TO DO IT: most lab tests (аналіз крові/сечі) are done at any лабораторія or "
+    "поліклініка; imaging (УЗД/КТ/МРТ) at a діагностичний центр or лікарня. If the user wants "
+    "CONCRETE clinics — real names, addresses, contacts, ratings in their city — tell them to tap "
+    "the 🏥 'Де зробити' button under your message and you will SEARCH actual options for them "
+    "(do not invent clinic names/addresses yourself in this chat). You may also note НСЗУ free "
+    "coverage can be checked at " + locale.NSZU_DASHBOARD_URL + ".\n"
     "When you recommend a recheck / exam / visit with a timeframe, naturally OFFER to set a "
     "reminder (the 🔔 Нагадати button is under your message) — one short line, do not push.\n"
     "Reply EXCLUSIVELY in natural, warm Ukrainian, addressing the user as 'ти'. Write a few short "
@@ -166,3 +165,71 @@ async def consult(
     combined = f"{lead}\n\n{body}" if lead else body
     assert_safe_output(strip_markup(combined))  # belt-and-suspenders; parts are already safe
     return ConsultReply(text=f"{combined}\n\n{DISCLAIMER}", source=source)
+
+
+# --- Clinic finder (owner-enabled, web-search-backed) ----------------------------
+# The owner relaxed rail #4 ("no ranking") for THEIR personal bot: when explicitly asked where to do
+# an exam, Дбайло web-searches REAL options (name, address, phone, public rating) in the user's
+# city. It is honest about what these are — open-source listings + visitors' opinions, not a
+# guarantee — and the OTHER rails still hold (no dose/diagnosis/skip-doctor; a red flag in the query
+# still escalates via the gate). This is the ONE place provider ranking is allowed.
+
+CLINIC_FINDER_PERSONA = (
+    "You are Дбайло helping the user find WHERE to get a medical exam, analysis, or specialist "
+    "visit done, in their city. You CAN use web search — USE IT to return REAL, current options, "
+    "never invented ones. From the conversation context you are given, work out exactly what "
+    "exam/service/specialist is needed, search for it in the given city, and return up to 5 "
+    "concrete options. For each: the name, the address, the phone if available, and a public "
+    "rating (e.g. Google) when you can find one. Prefer well-known labs/clinics and official "
+    "sources.\n"
+    "Reply EXCLUSIVELY in natural Ukrainian, addressing the user as 'ти'. BE HONEST about what "
+    "these are: OPTIONS from open public sources; ratings are visitors' OPINIONS, not a guarantee "
+    "of treatment quality or outcome — tell the user to verify the contacts, schedule, and price "
+    "themselves, and that the choice is theirs. Briefly add they can check possible НСЗУ free "
+    "coverage at " + locale.NSZU_DASHBOARD_URL + ".\n"
+    "FORMATTING: a short intro line, then one compact block per option (use '• ' bullets); wrap "
+    "each name in *asterisks* for bold. No other markup (no **double**, #, ---, backticks, < >).\n"
+    "NEVER: a definite diagnosis; a medication, supplement, or any dose; a promise that a clinic "
+    "will cure them or guarantee a result; telling the user they can skip a doctor. Do NOT add "
+    "your own 'я не лікар' / disclaimer line — it is appended automatically.\n" + NATURAL_VOICE
+)
+
+
+async def find_clinics(
+    context: str,
+    city: str,
+    *,
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> str:
+    """Web-search real clinics/labs for the exam discussed in ``context``, in ``city``. Returns the
+    formatted Ukrainian text (markup kept for HTML) + disclaimer, or a safe fallback. Gate-screened
+    first (a red flag in the text still escalates); guarded (no dose/diagnosis/skip-doctor)."""
+    decision = screen(f"{context}\n{city}")
+    if decision.short_circuited:
+        return decision.message  # a symptom / disordered-eating signal leads, verbatim
+    prompt = (
+        f"Місто: {city}\n"
+        "Контекст консультації (визнач, яке саме обстеження / аналіз / спеціаліст потрібні, "
+        f"і шукай саме це):\n{context}"
+    )
+    try:
+        result = await runner(
+            prompt,
+            append_system_prompt=CLINIC_FINDER_PERSONA,
+            allowed_tools=["WebSearch"],
+            model=model,
+            timeout_s=get_settings().claude_interpret_timeout_s,
+        )
+    except ClaudeUnavailable:
+        result = None
+    if result is None or not result.ok or not result.text.strip():
+        return f"{assert_safe_output(locale.CONSULT_CLINICS_FALLBACK)}\n\n{DISCLAIMER}"
+    body = strip_self_disclaimer(result.text.strip())
+    try:
+        # Other rails still apply (no dose/diet/skip-doctor); ranking/ratings are intentionally
+        # ALLOWED here (the owner relaxed rail #4 for this finder).
+        assert_safe_output(strip_markup(body))
+    except ValueError:
+        return f"{assert_safe_output(locale.CONSULT_CLINICS_FALLBACK)}\n\n{DISCLAIMER}"
+    return f"{body}\n\n{DISCLAIMER}"

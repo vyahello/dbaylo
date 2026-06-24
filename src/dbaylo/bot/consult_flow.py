@@ -12,6 +12,7 @@ companion's ``StateFilter(None)`` catch-all or the symptom-intake state.
 
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -59,6 +60,10 @@ class ConsultStates(StatesGroup):
 class ConsultRemindStates(StatesGroup):
     waiting_label = State()  # awaiting the reminder's subject text
     waiting_date = State()  # awaiting a typed date/period (offset buttons also work here)
+
+
+class ConsultClinicStates(StatesGroup):
+    waiting_city = State()  # awaiting the city to search clinics in (remembered after)
 
 
 def _now() -> datetime:
@@ -124,7 +129,9 @@ async def _open(
         return
     _context, label = built
     await state.set_state(ConsultStates.active)
-    await state.update_data(consult_subject=subject.to_dict(), consult_transcript=[])
+    await state.update_data(
+        consult_subject=subject.to_dict(), consult_transcript=[], consult_label=label
+    )
     await message.answer(prompt_template.format(subject=label), reply_markup=_end_keyboard())
 
 
@@ -219,11 +226,15 @@ async def on_consult_end(callback: CallbackQuery, state: FSMContext) -> None:
 
 async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, tg: int) -> None:
     """One consultation turn: append the user's text, re-derive the grounded context, answer in the
-    SAME conversation, and keep it open. Shared by the typed turn and the 🏥 'де зробити' button, so
-    'where to do it' is answered IN context (not a separate, context-losing lookup)."""
+    SAME conversation, and keep it open."""
     text = text.strip()
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
+        return
+    # An explicit ask for concrete clinics (addresses / contacts / ratings) goes to the web-search
+    # finder instead of the general (grounded, tool-free) consult.
+    if _wants_clinics(text):
+        await _do_clinic_search(message, state, user_text=text)
         return
     data = await state.get_data()
     subject = Subject.from_dict(dict(data.get("consult_subject") or {}))
@@ -370,20 +381,87 @@ def _parse_when(text: str) -> datetime | None:
     return when if when.date() > _now().date() else None
 
 
-# --- #3: WHERE to do an exam — answered IN the conversation (context-aware, no ranking) ---
+# --- #3: WHERE to do an exam — a REAL web-search clinic finder (owner-enabled) ---
+
+# An explicit ask for concrete clinics — addresses, contacts, ratings — routes to the finder.
+_CLINIC_INTENT_RE = re.compile(
+    r"(адрес|телефон|контакт|рейтинг|де (можна )?(зроби|здат|пройт|зробл)|"
+    r"яку?\s+(клінік|лаборатор)|куди (піти|звернут|їхати)|"
+    r"знайди.{0,25}(клінік|лаборатор|центр|лікар)|порекоменду.{0,25}(клінік|лікар|центр))",
+    re.IGNORECASE,
+)
+
+
+def _wants_clinics(text: str) -> bool:
+    return bool(_CLINIC_INTENT_RE.search(text.casefold()))
+
+
+async def _run_clinic_search(
+    message: Message, state: FSMContext, *, city: str, transcript: list[consult.Turn]
+) -> None:
+    """Web-search real clinics for what was discussed, in ``city``, then resume the consultation."""
+    data = await state.get_data()
+    label = str(data.get("consult_label") or "")
+    recent = "\n".join(t["text"] for t in transcript[-6:] if t.get("role") == "user")
+    context = f"Обговорюємо: {label}.\nОстанні повідомлення користувача:\n{recent}".strip()
+    await message.answer(locale.CONSULT_CLINICS_SEARCHING)
+    async with keep_typing(message):  # web search + generation can take a while
+        text = await consult.find_clinics(context, city)
+    transcript.append({"role": "assistant", "text": text})
+    await state.set_state(ConsultStates.active)
+    await state.update_data(consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :])
+    await answer_chunked(
+        message,
+        render_interpretation_html(text),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_reply_keyboard(),
+    )
+
+
+async def _do_clinic_search(message: Message, state: FSMContext, *, user_text: str = "") -> None:
+    """Start the clinic search: search now if the city is known, else ask for it (then remember)."""
+    data = await state.get_data()
+    if not data.get("consult_subject"):
+        return  # not inside a consultation
+    transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    if user_text:
+        transcript.append({"role": "user", "text": user_text})
+    city = str(data.get("consult_city") or "").strip()
+    if not city:
+        await state.update_data(consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :])
+        await state.set_state(ConsultClinicStates.waiting_city)
+        await message.answer(
+            locale.CONSULT_CLINICS_ASK_CITY,
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
+            ),
+        )
+        return
+    await _run_clinic_search(message, state, city=city, transcript=transcript)
 
 
 @router.callback_query(F.data == callbacks.CONSULT_CLINICS)
 async def on_consult_clinics(callback: CallbackQuery, state: FSMContext) -> None:
-    """🏥 Де зробити — a one-tap 'where can I do this?' answered as a normal consult turn, so it
-    uses everything already discussed (transparent guidance + НСЗУ verify, no ranking — rail #4)."""
+    """🏥 Де зробити — find REAL clinics (web search) for what was discussed, in the user's city."""
     tg = _telegram_id(callback)
     data = await state.get_data()
     if tg is None or not isinstance(callback.message, Message) or not data.get("consult_subject"):
         await callback.answer()
         return
     await callback.answer()
-    await _run_consult_turn(callback.message, state, locale.CONSULT_CLINICS_QUESTION, tg=tg)
+    await _do_clinic_search(callback.message, state)
+
+
+@router.message(ConsultClinicStates.waiting_city, F.text & ~F.text.startswith("/"))
+async def on_clinic_city(message: Message, state: FSMContext) -> None:
+    city = (message.text or "").strip()
+    if not city:
+        await message.answer(locale.CONSULT_CLINICS_ASK_CITY)
+        return
+    await state.update_data(consult_city=city)
+    data = await state.get_data()
+    transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    await _run_clinic_search(message, state, city=city, transcript=transcript)
 
 
 @router.callback_query(F.data == callbacks.CONSULT_RESUME)

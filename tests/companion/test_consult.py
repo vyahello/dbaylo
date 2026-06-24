@@ -23,10 +23,11 @@ _CONTEXT = (
 
 
 def _runner(text: str, ok: bool = True):
-    captured: dict[str, str] = {}
+    captured: dict[str, object] = {}
 
     async def run(prompt: str, *args, **kwargs) -> ClaudeResult:
         captured["prompt"] = prompt
+        captured.update(kwargs)  # capture allowed_tools / append_system_prompt / model / ...
         return ClaudeResult(ok=ok, text=text, raw_stdout=text, exit_code=0 if ok else 1)
 
     run.captured = captured  # type: ignore[attr-defined]
@@ -103,6 +104,30 @@ async def test_consult_rejects_a_superlative_clinic_recommendation() -> None:
     assert "Найкраща клініка" not in reply.text and reply.source == "fallback"
 
 
+async def test_find_clinics_returns_web_results_and_allows_ratings() -> None:
+    # The owner-enabled finder uses web search and MAY include ratings (rail #4 relaxed here) — but
+    # the other rails hold and the disclaimer is appended. The web tool must be requested.
+    body = "Ось варіанти:\n• *ДІЛА* — вул. Тестова 1, ☎ 000, ⭐ 4.5 Google\nПеревір контакти."
+    runner = _runner(body)
+    out = await consult.find_clinics("аналіз сечі", "Львів", runner=runner)
+    assert "ДІЛА" in out and "4.5" in out  # ratings kept (no superlative guard here)
+    assert out.endswith(DISCLAIMER)
+    assert runner.captured.get("allowed_tools") == ["WebSearch"]  # type: ignore[attr-defined]
+
+
+async def test_find_clinics_still_escalates_a_red_flag() -> None:
+    # The gate runs first: a red flag in the text must lead, not a clinic list.
+    out = await consult.find_clinics("не можу помочитися", "Львів", runner=_runner("список клінік"))
+    escalation = screen("не можу помочитися").triage
+    assert escalation is not None and escalation.message in out
+
+
+async def test_find_clinics_falls_back_when_unavailable() -> None:
+    out = await consult.find_clinics("аналіз сечі", "Львів", runner=_runner("", ok=False))
+    assert locale.CONSULT_CLINICS_FALLBACK in out and out.endswith(DISCLAIMER)
+
+
 def test_consult_fallback_and_persona_are_safe() -> None:
     assert contains_forbidden_reassurance(locale.CONSULT_FALLBACK) is None
     assert contains_dose_directive(locale.CONSULT_FALLBACK) is None
+    assert contains_forbidden_reassurance(locale.CONSULT_CLINICS_FALLBACK) is None
