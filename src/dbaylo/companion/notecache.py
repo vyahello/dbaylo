@@ -13,8 +13,9 @@ through ``describe_indicator`` (which routes to ``run_claude``), so no new path 
 from __future__ import annotations
 
 import contextlib
+from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import CursorResult, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.db.models import IndicatorNote
@@ -29,6 +30,17 @@ async def fetch_cached(session: AsyncSession, keys: list[str]) -> dict[str, str]
         select(IndicatorNote).where(IndicatorNote.cache_key.in_(list(set(keys))))
     )
     return {row.cache_key: row.text for row in rows}
+
+
+async def purge_stale_versions(session: AsyncSession, *, current_version: str) -> int:
+    """Delete notes from a PREVIOUS persona version (their cache key does not start with the current
+    version tag), so a bumped ``INDICATOR_NOTE_VERSION`` leaves no orphan rows that are never read
+    again. Returns how many were removed. Keys are ``"{version}\\x1f{specimen}\\x1f{analyte}"``."""
+    prefix = f"{current_version}\x1f"
+    result = await session.execute(
+        delete(IndicatorNote).where(~IndicatorNote.cache_key.like(f"{prefix}%"))
+    )
+    return cast("CursorResult[Any]", result).rowcount or 0
 
 
 async def store_many(session: AsyncSession, mapping: dict[str, str]) -> None:

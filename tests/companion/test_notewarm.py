@@ -27,7 +27,7 @@ async def _user(session: AsyncSession) -> User:
     return user
 
 
-async def _numeric_trend(session: AsyncSession, user_id: int) -> None:
+async def _numeric_trend(session: AsyncSession, user_id: int, analyte: str = "Гемоглобін") -> None:
     """One blood analyte measured on two dates — a real numeric trend, so it is a charted indicator
     whose note the warmer should fill."""
     for d, v in [(date(2023, 1, 1), 140.0), (date(2023, 2, 1), 145.0)]:
@@ -39,7 +39,7 @@ async def _numeric_trend(session: AsyncSession, user_id: int) -> None:
                 status=ReportStatus.CONFIRMED,
                 results=[
                     LabResult(
-                        analyte="Гемоглобін",
+                        analyte=analyte,
                         value=v,
                         ref_low=130.0,
                         ref_high=160.0,
@@ -125,3 +125,62 @@ async def test_warm_on_no_indicators_is_a_noop(
 
     monkeypatch.setattr(notewarm, "describe_indicator", boom)
     assert await notewarm.warm_user_notes(user.id) == 0
+
+
+async def test_warm_retries_a_transiently_failed_note(
+    _patch_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The real-world bug: during the warm burst some notes hit a transient claude blip, returned "",
+    # and were lost. A later round (this loop) must retry ONLY the still-missing ones and recover.
+    monkeypatch.setattr(notewarm, "_WARM_BACKOFF_S", 0)  # no real wait in the test
+    session = _patch_session
+    user = await _user(session)
+    await _numeric_trend(session, user.id, analyte="Гемоглобін")  # succeeds round 1
+    await _numeric_trend(session, user.id, analyte="Еритроцити")  # fails round 1, succeeds round 2
+
+    fail_once = {"Еритроцити"}
+
+    async def stub(t: str, *, specimen: str | None = None) -> str:
+        if t in fail_once:
+            fail_once.discard(t)
+            return ""  # one transient failure, then it works
+        return f"опис: {t}"
+
+    monkeypatch.setattr(notewarm, "describe_indicator", stub)
+
+    warmed = await notewarm.warm_user_notes(user.id)
+    assert warmed == 2  # both eventually persisted (one on a retry round)
+    keys = [note_cache_key("blood", a) for a in ("Гемоглобін", "Еритроцити")]
+    cached = await notecache.fetch_cached(session, keys)
+    assert set(cached) == set(keys)
+
+
+async def test_warm_purges_stale_version_orphans(
+    _patch_session: AsyncSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A previous persona version's notes carry an old version tag and are never read again; the warm
+    # drops them so they don't linger. A current-version note is kept.
+    session = _patch_session
+    user = await _user(session)
+    await _numeric_trend(session, user.id)
+    title, spec = (await notewarm._collect_note_items(user.id))[0]
+    await notecache.store_many(
+        session,
+        {
+            "1\x1furine\x1fстарий показник": "застаріла нотатка",  # v1 orphan
+            note_cache_key(spec, title): "поточна нотатка",  # current (v2) note
+        },
+    )
+    await session.commit()
+
+    async def stub(t: str, *, specimen: str | None = None) -> str:
+        return f"опис: {t}"
+
+    monkeypatch.setattr(notewarm, "describe_indicator", stub)
+    await notewarm.warm_user_notes(user.id)
+
+    remaining = await notecache.fetch_cached(
+        session, ["1\x1furine\x1fстарий показник", note_cache_key(spec, title)]
+    )
+    assert "1\x1furine\x1fстарий показник" not in remaining  # orphan purged
+    assert remaining[note_cache_key(spec, title)] == "поточна нотатка"  # current kept
