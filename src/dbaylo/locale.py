@@ -687,7 +687,36 @@ CONSULT_PROMPT_SECTION = (
     "Питай про «{subject}» з цього розбору — розберемо детальніше саме цей бік. 🩺"
 )
 CONSULT_BTN_END = "✅ Завершити розмову"
+CONSULT_BTN_REMIND = "🔔 Нагадати"
+CONSULT_BTN_CLINICS = "🏥 Де зробити"
+CONSULT_BTN_RESUME = "↩️ Назад до розмови"
 CONSULT_ENDED = "Гаразд, завершили. Звертайся, коли матимеш ще питання. 🙂"
+CONSULT_RESUMED = "Гаразд, повертаємось до розмови. Питай далі. 🩺"
+# #4d — set a reminder for something agreed in the consultation (an exam / recheck / visit).
+CONSULT_REMIND_ASK_LABEL = (
+    "Про що нагадати? Напиши коротко — наприклад «повторити аналіз сечі», «УЗД нирок» "
+    "чи «консультація уролога»."
+)
+CONSULT_REMIND_ASK_WHEN = (
+    "Коли нагадати про «{label}»? Обери нижче або напиши дату (напр. 2026-09-01) "
+    "чи період («через 2 місяці»)."
+)
+CONSULT_REMIND_BAD_DATE = "Не зрозумів дату 🤔 Спробуй формат РРРР-ММ-ДД або «через 2 місяці»."
+CONSULT_REMIND_SET = (
+    "🔔 Готово — нагадаю про «{label}» {when}. Можеш писати далі або завершити розмову."
+)
+CONSULT_BTN_WHEN_1W = "Через тиждень"
+CONSULT_BTN_WHEN_2W = "Через 2 тижні"
+CONSULT_BTN_WHEN_1M = "Через місяць"
+CONSULT_BTN_WHEN_3M = "Через 3 місяці"
+CONSULT_BTN_WHEN_OTHER = "📅 Інша дата"
+# #3 — find transparent options of where to do an exam (НСЗУ coverage; reviews-as-reviews, no rank).
+CONSULT_CLINICS_ASK = (
+    "Яке обстеження чи послугу шукаємо? Напиши назву — наприклад «УЗД нирок», «КТ» "
+    "чи «консультація уролога». Підкажу, що з цього може покривати НСЗУ (перевір) — без рейтингів."
+)
+# Reminder fired for a consult-set item (an exam / recheck / visit) — no dose, no diagnosis.
+REMINDER_CONSULT = "🔔 Нагадування: {name}. Подбай про себе вчасно. 🌿"
 CONSULT_EMPTY = "Напиши, будь ласка, своє питання текстом. 🙂"
 CONSULT_GONE = "Не вдалося відкрити цей показник — можливо, звіт уже видалено."
 # Deterministic, safe-by-construction reply used when the LLM is unavailable or trips the guard.

@@ -327,6 +327,18 @@ CONSULT_SECTION = (
     "consult_sec"  # ask about ONE section of a report's reading (idx into SECTION_KEYS)
 )
 CONSULT_END = "consult_end"  # end the active consultation
+CONSULT_REMIND = "consult_remind"  # open the "set a reminder" mini-flow during a consult (#4d)
+CONSULT_REMIND_WHEN = "consult_rwhen"  # pick a relative offset for the reminder (carries days)
+CONSULT_CLINICS = "consult_clinics"  # find transparent options of where to do an exam (#3)
+CONSULT_RESUME = "consult_resume"  # back to the consultation from a sub-flow
+
+
+def consult_remind_when(days: int) -> str:
+    return f"{CONSULT_REMIND_WHEN}{_SEP}{days}"
+
+
+def parse_consult_remind_when(data: str) -> int | None:
+    return _parse(CONSULT_REMIND_WHEN, data)
 
 
 def consult_chart(report_id: int, index: int) -> str:

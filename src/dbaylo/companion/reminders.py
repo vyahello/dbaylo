@@ -56,6 +56,7 @@ def parse_relative_when(text: str, *, base: datetime) -> datetime | None:
 TYPE_CHECKIN = "checkin"
 TYPE_MEDICATION = "medication"
 TYPE_REPEAT_LAB = "repeat_lab"
+TYPE_CONSULT = "consult"  # a one-off the user set during a consultation (an exam / recheck / visit)
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,15 @@ async def create_repeat_lab(
     )
 
 
+async def create_consult_reminder(
+    session: AsyncSession, *, user: User, run_at: datetime, label: str
+) -> Reminder:
+    """Create a one-off reminder the user set during a consultation (an exam, recheck, or visit)."""
+    return await create_reminder(
+        session, user=user, type=TYPE_CONSULT, schedule=once(run_at), payload=label
+    )
+
+
 async def ensure_checkin_reminder(
     session: AsyncSession, *, user: User, hour: int = 21, minute: int = 0
 ) -> Reminder:
@@ -212,6 +222,8 @@ def render_reminder(reminder: Reminder) -> str:
         body = locale.REMINDER_MEDICATION.format(name=name)
     elif reminder.type == TYPE_REPEAT_LAB:
         body = locale.REMINDER_REPEAT_LAB.format(name=name)
+    elif reminder.type == TYPE_CONSULT:
+        body = locale.REMINDER_CONSULT.format(name=name)
     else:  # check-in
         body = locale.CHECKIN_PROMPT
     return assert_safe_output(body)

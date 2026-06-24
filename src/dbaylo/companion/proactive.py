@@ -95,6 +95,22 @@ async def add_repeat_lab(
     return reminder
 
 
+async def add_consult_reminder(
+    session: AsyncSession,
+    *,
+    user: User,
+    run_at: datetime,
+    label: str,
+    scheduler: ReminderScheduler,
+) -> Reminder:
+    """Create + live-schedule a one-off reminder agreed during a consultation."""
+    reminder = await reminders.create_consult_reminder(
+        session, user=user, run_at=run_at, label=label
+    )
+    scheduler.schedule(reminder)
+    return reminder
+
+
 async def turn_off_reminder(
     session: AsyncSession, *, reminder: Reminder, scheduler: ReminderScheduler
 ) -> None:

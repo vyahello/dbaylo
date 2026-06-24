@@ -12,7 +12,8 @@ companion's ``StateFilter(None)`` catch-all or the symptom-intake state.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -28,7 +29,7 @@ from aiogram.types import (
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, consult, history
+from dbaylo.companion import callbacks, consult, history, proactive, reminders
 from dbaylo.companion.consult_context import (
     KIND_INDICATOR,
     KIND_REPORT,
@@ -36,26 +37,82 @@ from dbaylo.companion.consult_context import (
     Subject,
     build_context,
 )
+from dbaylo.companion.scheduler import ReminderScheduler
+from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
+from dbaylo.navigator.pipeline import run_coverage
 
 router = Router(name="consult")
+
+_WHEN_OFFSETS = (
+    (locale.CONSULT_BTN_WHEN_1W, 7),
+    (locale.CONSULT_BTN_WHEN_2W, 14),
+    (locale.CONSULT_BTN_WHEN_1M, 30),
+    (locale.CONSULT_BTN_WHEN_3M, 90),
+)
 
 
 class ConsultStates(StatesGroup):
     active = State()  # a consultation is open; the next free-text turn is a question about it
 
 
+class ConsultRemindStates(StatesGroup):
+    waiting_label = State()  # awaiting the reminder's subject text
+    waiting_date = State()  # awaiting a typed date/period (offset buttons also work here)
+
+
+class ConsultClinicStates(StatesGroup):
+    waiting_service = State()  # awaiting the exam/service to look up coverage for
+
+
+def _now() -> datetime:
+    return datetime.now(ZoneInfo(get_settings().timezone))
+
+
 def _telegram_id(event: Message | CallbackQuery) -> int | None:
     return event.from_user.id if event.from_user else None
 
 
-def _end_keyboard() -> InlineKeyboardMarkup:
+def _btn(text: str, data: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(text=text, callback_data=data)
+
+
+def _reply_keyboard() -> InlineKeyboardMarkup:
+    """Under each consult reply: set a reminder (#4d), find where to do an exam (#3), or finish."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=locale.CONSULT_BTN_END, callback_data=callbacks.CONSULT_END)]
+            [
+                _btn(locale.CONSULT_BTN_REMIND, callbacks.CONSULT_REMIND),
+                _btn(locale.CONSULT_BTN_CLINICS, callbacks.CONSULT_CLINICS),
+            ],
+            [_btn(locale.CONSULT_BTN_END, callbacks.CONSULT_END)],
         ]
     )
+
+
+def _end_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(locale.CONSULT_BTN_END, callbacks.CONSULT_END)]]
+    )
+
+
+def _when_keyboard() -> InlineKeyboardMarkup:
+    offsets = [_btn(label, callbacks.consult_remind_when(days)) for label, days in _WHEN_OFFSETS]
+    rows = [offsets[0:2], offsets[2:4]]
+    rows.append([_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _resume_consult(message: Message, state: FSMContext) -> None:
+    """Return from a reminder/clinic sub-flow to the open consultation (its subject + transcript are
+    still in FSM data — we never cleared them). If there is none, just clear."""
+    data = await state.get_data()
+    if data.get("consult_subject"):
+        await state.set_state(ConsultStates.active)
+        await message.answer(locale.CONSULT_RESUMED, reply_markup=_reply_keyboard())
+    else:
+        await state.clear()
 
 
 async def _open(
@@ -201,5 +258,141 @@ async def on_consult_turn(message: Message, state: FSMContext) -> None:
         message,
         render_interpretation_html(reply.text),
         parse_mode=ParseMode.HTML,
-        reply_markup=_end_keyboard(),
+        reply_markup=_reply_keyboard(),
     )
+
+
+# --- #4d: set a reminder agreed during the consultation -------------------------
+
+
+@router.callback_query(F.data == callbacks.CONSULT_REMIND)
+async def on_consult_remind(callback: CallbackQuery, state: FSMContext) -> None:
+    """Дбайло proposes a reminder; this opens the mini-flow — ask WHAT, then WHEN."""
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await state.set_state(ConsultRemindStates.waiting_label)
+    await callback.message.answer(
+        locale.CONSULT_REMIND_ASK_LABEL,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
+        ),
+    )
+
+
+@router.message(ConsultRemindStates.waiting_label, F.text & ~F.text.startswith("/"))
+async def on_remind_label(message: Message, state: FSMContext) -> None:
+    label = (message.text or "").strip()
+    if not label:
+        await message.answer(locale.CONSULT_EMPTY)
+        return
+    await state.set_state(ConsultRemindStates.waiting_date)
+    await state.update_data(consult_remind_label=label)
+    await message.answer(
+        locale.CONSULT_REMIND_ASK_WHEN.format(label=label), reply_markup=_when_keyboard()
+    )
+
+
+async def _create_consult_reminder(
+    message: Message,
+    state: FSMContext,
+    *,
+    run_at: datetime,
+    scheduler: ReminderScheduler,
+) -> None:
+    """Persist + live-schedule the reminder, confirm, and resume the consultation."""
+    data = await state.get_data()
+    label = str(data.get("consult_remind_label") or "").strip() or locale.LAB_REPEAT_LABEL
+    tg = _telegram_id(message)
+    if tg is None:
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        await proactive.add_consult_reminder(
+            session, user=user, run_at=run_at, label=label, scheduler=scheduler
+        )
+        await session.commit()
+    await message.answer(
+        locale.CONSULT_REMIND_SET.format(label=label, when=run_at.date().isoformat())
+    )
+    await _resume_consult(message, state)
+
+
+@router.callback_query(F.data.startswith(callbacks.CONSULT_REMIND_WHEN + ":"))
+async def on_remind_when(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    days = callbacks.parse_consult_remind_when(callback.data or "")
+    if days is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await _create_consult_reminder(
+        callback.message, state, run_at=_now() + timedelta(days=days), scheduler=reminder_scheduler
+    )
+
+
+@router.message(ConsultRemindStates.waiting_date, F.text & ~F.text.startswith("/"))
+async def on_remind_date(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    """A typed date (YYYY-MM-DD) or a period ('через 2 місяці') — the offset buttons also work."""
+    run_at = _parse_when((message.text or "").strip())
+    if run_at is None:
+        await message.answer(locale.CONSULT_REMIND_BAD_DATE)  # stay in state, let them retry
+        return
+    await _create_consult_reminder(message, state, run_at=run_at, scheduler=reminder_scheduler)
+
+
+def _parse_when(text: str) -> datetime | None:
+    """A future moment from a typed period ('через 2 місяці') or an ISO date ('2026-09-01'), or
+    None. A past date is rejected (a reminder is always in the future)."""
+    relative = reminders.parse_relative_when(text, base=_now())
+    if relative is not None:
+        return relative
+    try:
+        parsed = date.fromisoformat(text)
+    except ValueError:
+        return None
+    when = datetime.combine(parsed, datetime.min.time(), tzinfo=ZoneInfo(get_settings().timezone))
+    return when if when.date() > _now().date() else None
+
+
+# --- #3: find transparent options of WHERE to do an exam (НСЗУ coverage, no ranking) ---
+
+
+@router.callback_query(F.data == callbacks.CONSULT_CLINICS)
+async def on_consult_clinics(callback: CallbackQuery, state: FSMContext) -> None:
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await state.set_state(ConsultClinicStates.waiting_service)
+    await callback.message.answer(
+        locale.CONSULT_CLINICS_ASK,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
+        ),
+    )
+
+
+@router.message(ConsultClinicStates.waiting_service, F.text & ~F.text.startswith("/"))
+async def on_clinic_service(message: Message, state: FSMContext) -> None:
+    service = (message.text or "").strip()
+    if not service:
+        await message.answer(locale.CONSULT_EMPTY)
+        return
+    # run_coverage gate-screens FIRST (a symptom short-circuits to triage), then returns the
+    # compliant НСЗУ-coverage answer ('може бути безкоштовно — перевір') — no ranking (rail #4).
+    async with keep_typing(message):
+        result = await run_coverage(service)
+    await message.answer(result.text)
+    await _resume_consult(message, state)
+
+
+@router.callback_query(F.data == callbacks.CONSULT_RESUME)
+async def on_consult_resume(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await _resume_consult(callback.message, state)
