@@ -93,6 +93,16 @@ async def test_consult_strips_a_model_added_duplicate_disclaimer() -> None:
     assert reply.text.endswith(DISCLAIMER)  # the one canonical disclaimer remains
 
 
+async def test_consult_rejects_a_superlative_clinic_recommendation() -> None:
+    # The consult may discuss clinics now, so rail #4 applies: ranking a provider as "best" /
+    # "operate here" must trip the guard -> deterministic fallback, never sent.
+    body = "Найкраща клініка для цього — «Оберіг», оперуйся саме там."
+    reply = await consult.consult(
+        _CONTEXT, [{"role": "user", "text": "де зробити?"}], runner=_runner(body)
+    )
+    assert "Найкраща клініка" not in reply.text and reply.source == "fallback"
+
+
 def test_consult_fallback_and_persona_are_safe() -> None:
     assert contains_forbidden_reassurance(locale.CONSULT_FALLBACK) is None
     assert contains_dose_directive(locale.CONSULT_FALLBACK) is None

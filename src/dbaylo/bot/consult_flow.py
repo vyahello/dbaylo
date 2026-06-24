@@ -41,7 +41,6 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
-from dbaylo.navigator.pipeline import run_coverage
 
 router = Router(name="consult")
 
@@ -60,10 +59,6 @@ class ConsultStates(StatesGroup):
 class ConsultRemindStates(StatesGroup):
     waiting_label = State()  # awaiting the reminder's subject text
     waiting_date = State()  # awaiting a typed date/period (offset buttons also work here)
-
-
-class ConsultClinicStates(StatesGroup):
-    waiting_service = State()  # awaiting the exam/service to look up coverage for
 
 
 def _now() -> datetime:
@@ -222,20 +217,17 @@ async def on_consult_end(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(locale.CONSULT_ENDED)
 
 
-@router.message(ConsultStates.active, F.text & ~F.text.startswith("/"))
-async def on_consult_turn(message: Message, state: FSMContext) -> None:
-    """One consultation turn: re-derive the grounded context, answer the question, keep the
-    conversation open (multi-turn). A '/command' or menu-label tap ends it (reset middleware)."""
-    text = (message.text or "").strip()
+async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, tg: int) -> None:
+    """One consultation turn: append the user's text, re-derive the grounded context, answer in the
+    SAME conversation, and keep it open. Shared by the typed turn and the 🏥 'де зробити' button, so
+    'where to do it' is answered IN context (not a separate, context-losing lookup)."""
+    text = text.strip()
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
         return
     data = await state.get_data()
     subject = Subject.from_dict(dict(data.get("consult_subject") or {}))
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
-    tg = _telegram_id(message)
-    if tg is None:
-        return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         built = await build_context(session, user.id, subject, today=date.today())
@@ -251,6 +243,7 @@ async def on_consult_turn(message: Message, state: FSMContext) -> None:
     transcript.append({"role": "assistant", "text": reply.text})
     # Keep only the recent exchange in state so it never grows unbounded across a long consult.
     trimmed = transcript[-2 * consult.MAX_CONTEXT_TURNS :]
+    await state.set_state(ConsultStates.active)
     await state.update_data(consult_transcript=trimmed)
     # Premium formatting: the light *bold*/_italic_ markers become real HTML; the single canonical
     # disclaimer becomes an italic P.S. (the engine already dropped any model-added duplicate).
@@ -260,6 +253,15 @@ async def on_consult_turn(message: Message, state: FSMContext) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=_reply_keyboard(),
     )
+
+
+@router.message(ConsultStates.active, F.text & ~F.text.startswith("/"))
+async def on_consult_turn(message: Message, state: FSMContext) -> None:
+    """A typed turn during an open consultation. A '/command' or menu-label tap ends it (the reset
+    middleware), so a command is never consumed as a question."""
+    tg = _telegram_id(message)
+    if tg is not None:
+        await _run_consult_turn(message, state, message.text or "", tg=tg)
 
 
 # --- #4d: set a reminder agreed during the consultation -------------------------
@@ -316,6 +318,15 @@ async def _create_consult_reminder(
     await message.answer(
         locale.CONSULT_REMIND_SET.format(label=label, when=run_at.date().isoformat())
     )
+    # Record the reminder in the transcript so the consultation stays aware of it (context).
+    transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    transcript.append(
+        {
+            "role": "assistant",
+            "text": f"(Я створив нагадування: «{label}» на {run_at.date().isoformat()}.)",
+        }
+    )
+    await state.update_data(consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :])
     await _resume_consult(message, state)
 
 
@@ -359,36 +370,20 @@ def _parse_when(text: str) -> datetime | None:
     return when if when.date() > _now().date() else None
 
 
-# --- #3: find transparent options of WHERE to do an exam (НСЗУ coverage, no ranking) ---
+# --- #3: WHERE to do an exam — answered IN the conversation (context-aware, no ranking) ---
 
 
 @router.callback_query(F.data == callbacks.CONSULT_CLINICS)
 async def on_consult_clinics(callback: CallbackQuery, state: FSMContext) -> None:
-    if not isinstance(callback.message, Message):
+    """🏥 Де зробити — a one-tap 'where can I do this?' answered as a normal consult turn, so it
+    uses everything already discussed (transparent guidance + НСЗУ verify, no ranking — rail #4)."""
+    tg = _telegram_id(callback)
+    data = await state.get_data()
+    if tg is None or not isinstance(callback.message, Message) or not data.get("consult_subject"):
         await callback.answer()
         return
     await callback.answer()
-    await state.set_state(ConsultClinicStates.waiting_service)
-    await callback.message.answer(
-        locale.CONSULT_CLINICS_ASK,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
-        ),
-    )
-
-
-@router.message(ConsultClinicStates.waiting_service, F.text & ~F.text.startswith("/"))
-async def on_clinic_service(message: Message, state: FSMContext) -> None:
-    service = (message.text or "").strip()
-    if not service:
-        await message.answer(locale.CONSULT_EMPTY)
-        return
-    # run_coverage gate-screens FIRST (a symptom short-circuits to triage), then returns the
-    # compliant НСЗУ-coverage answer ('може бути безкоштовно — перевір') — no ranking (rail #4).
-    async with keep_typing(message):
-        result = await run_coverage(service)
-    await message.answer(result.text)
-    await _resume_consult(message, state)
+    await _run_consult_turn(callback.message, state, locale.CONSULT_CLINICS_QUESTION, tg=tg)
 
 
 @router.callback_query(F.data == callbacks.CONSULT_RESUME)

@@ -25,6 +25,7 @@ from dbaylo import locale
 from dbaylo.labs.extraction import Runner
 from dbaylo.labs.humanize import strip_markup, strip_self_disclaimer
 from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
+from dbaylo.navigator.guard import contains_superlative_recommendation
 from dbaylo.safety import GateSource, screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 from dbaylo.triage.types import Action
@@ -50,9 +51,17 @@ CONSULT_PERSONA = (
     "такий аналіз був N тому').\n"
     "Be a real expert: explain plainly what it means FOR THIS CASE, what an out-of-range value MAY "
     "point to (cautiously — 'може свідчити про…', never a definite diagnosis), and the concrete "
-    "next step (which doctor, how soon). When you recommend a recheck / exam / visit with a "
-    "timeframe, briefly OFFER to set a reminder and to look up where to do it (the buttons "
-    "🔔 Нагадати / 🏥 Де зробити are under your message) — ONE short line, do not push.\n"
+    "next step (which doctor, how soon).\n"
+    "WHERE TO DO IT: if the user asks where to get an exam/analysis done (or you suggest one), "
+    "give transparent, practical guidance — most lab tests (аналіз крові/сечі) are done at any "
+    "лабораторія or поліклініка; imaging (УЗД/КТ/МРТ) at a діагностичний центр or лікарня. You may "
+    "name common options as NEUTRAL examples, but NEVER rank them, call any one 'найкраща', say "
+    "'оперуйся у…', or promise a result. Add that they can check possible НСЗУ coverage at "
+    + locale.NSZU_DASHBOARD_URL
+    + " ('може бути безкоштовно — перевір', never a definite 'безкоштовно'). Stay in the SAME "
+    "conversation — use what was already discussed, do not restart.\n"
+    "When you recommend a recheck / exam / visit with a timeframe, briefly OFFER to set a reminder "
+    "(the 🔔 Нагадати button is under your message) — ONE short line, do not push.\n"
     "Reply EXCLUSIVELY in natural, warm Ukrainian, addressing the user as 'ти'. FORMATTING (light "
     "— a few per message, never on every word): wrap a key term or the bottom line in single "
     "*asterisks* for bold, and a gentle caveat in _underscores_ for italic; use '• ' for bullets. "
@@ -138,8 +147,13 @@ async def consult(
         # to HTML at send time), and guard the marker-STRIPPED text so a forbidden phrase can't hide
         # behind a marker (e.g. "все *добре*").
         candidate = strip_self_disclaimer(result.text.strip())
+        guarded = strip_markup(candidate)
         try:
-            assert_safe_output(strip_markup(candidate))
+            assert_safe_output(guarded)
+            # Rail #4: the consult may mention clinics, so it must never rank a provider or call one
+            # 'best' / 'operate here' / promise a result — reject that like the navigator does.
+            if contains_superlative_recommendation(guarded) is not None:
+                raise ValueError("superlative provider recommendation")
             body, source = candidate, "llm"
         except ValueError:
             body, source = locale.CONSULT_FALLBACK, "fallback"

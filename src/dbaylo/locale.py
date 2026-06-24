@@ -710,11 +710,9 @@ CONSULT_BTN_WHEN_2W = "Через 2 тижні"
 CONSULT_BTN_WHEN_1M = "Через місяць"
 CONSULT_BTN_WHEN_3M = "Через 3 місяці"
 CONSULT_BTN_WHEN_OTHER = "📅 Інша дата"
-# #3 — find transparent options of where to do an exam (НСЗУ coverage; reviews-as-reviews, no rank).
-CONSULT_CLINICS_ASK = (
-    "Яке обстеження чи послугу шукаємо? Напиши назву — наприклад «УЗД нирок», «КТ» "
-    "чи «консультація уролога». Підкажу, що з цього може покривати НСЗУ (перевір) — без рейтингів."
-)
+# #3 — the question the 🏥 button injects into the conversation, so "where to do it" is answered IN
+# context (transparent guidance + НСЗУ verify, no ranking — rail #4), not as a separate lookup.
+CONSULT_CLINICS_QUESTION = "Підкажи, де можна зробити це обстеження, і чи може це покривати НСЗУ?"
 # Reminder fired for a consult-set item (an exam / recheck / visit) — no dose, no diagnosis.
 REMINDER_CONSULT = "🔔 Нагадування: {name}. Подбай про себе вчасно. 🌿"
 CONSULT_EMPTY = "Напиши, будь ласка, своє питання текстом. 🙂"
