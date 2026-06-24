@@ -353,9 +353,7 @@ _NARRATIVE_SECTION_BASE_PERSONA = (
     "FOCUS: ground EVERY statement in the printed findings and conclusion — NEVER invent a "
     "finding, a measurement, a size, or a structure not in the document. Use the printed sizes and "
     "locations EXACTLY. Discuss the notable / abnormal findings; mention normal structures only "
-    "briefly, where it genuinely reassures.\n"
-    + NATURAL_VOICE
-    + "\nTHE SECTION TO WRITE — "
+    "briefly, where it genuinely reassures.\n" + NATURAL_VOICE + "\nTHE SECTION TO WRITE — "
 )
 
 
