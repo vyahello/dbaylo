@@ -9,11 +9,13 @@ in Ukrainian). Pure retrieval / formatting — NO LLM, NO escalation; it only re
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import history, notecache
+from dbaylo.companion import concerns, history, notecache
+from dbaylo.labs.agerefs import age_on
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
@@ -24,6 +26,8 @@ from dbaylo.labs.trends import (
     is_out_of_range,
     specimen,
 )
+
+_SEX_EN = {"m": "male", "f": "female"}
 
 KIND_INDICATOR = "indicator"
 KIND_REPORT = "report"
@@ -170,15 +174,60 @@ async def _section_context(
     return f"{report_ctx}\n\n{focus}", name
 
 
+async def _patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
+    """A compact, grounded profile of THIS patient — so the consult acts like an assistant who knows
+    them: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
+    judge how old a key exam is). Deterministic, read-only."""
+    reports = await history.list_confirmed(session, user_id=user_id, limit=8)
+    conditions = await concerns.list_active(session, user_id=user_id)
+    age = sex = None
+    for r in reports:  # newest first — take the first report that printed each
+        if age is None and r.birth_date is not None:
+            age = age_on(r.birth_date, today)
+        if sex is None and r.sex:
+            sex = r.sex
+    lines = [f"PATIENT PROFILE (personalise to THIS patient; today is {today.isoformat()}):"]
+    who = []
+    if age is not None:
+        who.append(f"~{age} years old")
+    if sex:
+        who.append(_SEX_EN.get(sex, sex))
+    if who:
+        lines.append(f"- {', '.join(who)}.")
+    names = "; ".join(c.name for c in conditions if c.name)
+    if names:
+        lines.append(f"- Health concerns the user is currently tracking: {names}.")
+    if reports:
+        lines.append("- Recent reports (most recent first):")
+        for r in reports[:8]:
+            d = r.report_date.isoformat() if r.report_date else "?"
+            what = r.report_type or normalize_lab(r.lab) or "аналіз"
+            n_flag = sum(1 for x in r.results if x.flagged)
+            flag = f" — {n_flag} поза нормою" if n_flag else ""
+            lines.append(f"  · {d}: {what}{flag}")
+    lines.append(
+        "Use these dates to judge how recent each exam is, and tailor your questions and advice to "
+        "this person."
+    )
+    return "\n".join(lines)
+
+
 async def build_context(
-    session: AsyncSession, user_id: int, subject: Subject
+    session: AsyncSession, user_id: int, subject: Subject, *, today: date
 ) -> tuple[str, str] | None:
     """Build the (grounded English context, Ukrainian subject label) for a subject, or ``None`` when
-    it no longer resolves (the report was deleted). Re-derived from the DB on every turn."""
+    it no longer resolves (the report was deleted). The patient profile is prepended so the consult
+    always knows the person's broader state + dates. Re-derived from the DB on every turn."""
     if subject.kind == KIND_INDICATOR:
-        return await _indicator_context(session, user_id, subject)
-    if subject.kind == KIND_REPORT:
-        return await _report_context(session, user_id, subject.report_id)
-    if subject.kind == KIND_SECTION:
-        return await _section_context(session, user_id, subject.report_id, subject.section_idx)
-    return None
+        built = await _indicator_context(session, user_id, subject)
+    elif subject.kind == KIND_REPORT:
+        built = await _report_context(session, user_id, subject.report_id)
+    elif subject.kind == KIND_SECTION:
+        built = await _section_context(session, user_id, subject.report_id, subject.section_idx)
+    else:
+        return None
+    if built is None:
+        return None
+    context, label = built
+    profile = await _patient_profile(session, user_id, today)
+    return f"{profile}\n\n{context}", label

@@ -12,9 +12,10 @@ companion's ``StateFilter(None)`` catch-all or the symptom-intake state.
 
 from __future__ import annotations
 
-import contextlib
+from datetime import date
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -25,6 +26,8 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
+from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
+from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import callbacks, consult, history
 from dbaylo.companion.consult_context import (
     KIND_INDICATOR,
@@ -55,11 +58,6 @@ def _end_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-async def _typing(message: Message) -> None:
-    with contextlib.suppress(Exception):
-        await message.bot.send_chat_action(message.chat.id, "typing")  # type: ignore[union-attr]
-
-
 async def _open(
     message: Message, state: FSMContext, subject: Subject, prompt_template: str
 ) -> None:
@@ -67,7 +65,7 @@ async def _open(
     template is filled with the subject's resolved Ukrainian label (analyte / report / section)."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=message.chat.id)
-        built = await build_context(session, user.id, subject)
+        built = await build_context(session, user.id, subject, today=date.today())
     if built is None:
         await message.answer(locale.CONSULT_GONE)
         await state.clear()
@@ -183,17 +181,25 @@ async def on_consult_turn(message: Message, state: FSMContext) -> None:
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        built = await build_context(session, user.id, subject)
+        built = await build_context(session, user.id, subject, today=date.today())
     if built is None:  # the report was deleted mid-consult — end gracefully
         await state.clear()
         await message.answer(locale.CONSULT_GONE)
         return
     context, _label = built
     transcript.append({"role": "user", "text": text})
-    await _typing(message)
-    reply = await consult.consult(context, transcript)
+    # Keep 'typing…' alive for the whole (multi-second) LLM call — it stops the moment we reply.
+    async with keep_typing(message):
+        reply = await consult.consult(context, transcript)
     transcript.append({"role": "assistant", "text": reply.text})
     # Keep only the recent exchange in state so it never grows unbounded across a long consult.
     trimmed = transcript[-2 * consult.MAX_CONTEXT_TURNS :]
     await state.update_data(consult_transcript=trimmed)
-    await message.answer(reply.text, reply_markup=_end_keyboard())
+    # Premium formatting: the light *bold*/_italic_ markers become real HTML; the single canonical
+    # disclaimer becomes an italic P.S. (the engine already dropped any model-added duplicate).
+    await answer_chunked(
+        message,
+        render_interpretation_html(reply.text),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_end_keyboard(),
+    )

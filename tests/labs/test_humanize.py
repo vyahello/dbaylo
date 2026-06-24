@@ -44,6 +44,17 @@ def _runner(text: str, ok: bool = True):
     return run
 
 
+def test_strip_self_disclaimer_drops_only_a_trailing_model_disclaimer() -> None:
+    from dbaylo.labs.humanize import strip_self_disclaimer
+
+    assert (
+        strip_self_disclaimer("Корисна порада.\n\nЯ не лікар, це не медичний висновок.")
+        == "Корисна порада."
+    )
+    assert strip_self_disclaimer("Просто текст без дисклеймера.") == "Просто текст без дисклеймера."
+    assert strip_self_disclaimer("Я не лікар.") == "Я не лікар."  # never strips everything
+
+
 def test_deterministic_summary_is_safe_and_mentions_values() -> None:
     text = deterministic_summary(_summaries())
     assert contains_forbidden_reassurance(text) is None

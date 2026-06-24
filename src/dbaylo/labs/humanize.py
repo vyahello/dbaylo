@@ -11,6 +11,7 @@ disclaimer is always appended.
 from __future__ import annotations
 
 import asyncio
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -39,6 +40,28 @@ def strip_markup(text: str) -> str:
     (so a forbidden phrase can't hide behind a marker) and by the plain ``/history`` rendering;
     the Telegram renderer (``bot.formatting``) is what turns the markers into real bold/italic."""
     return text.replace("*", "").replace("_", "")
+
+
+# A model sometimes appends its OWN 'я не лікар…' line despite being told not to; we always append
+# the canonical DISCLAIMER, so a model-added one is a visible duplicate. These stems catch the usual
+# self-disclaimer phrasings (checked on marker-stripped text).
+_SELF_DISCLAIMER_RE = re.compile(
+    r"(я\s+не\s+лікар|не\s+замінює\s+(?:консультац|візит|огляд|фахів)"
+    r"|це\s+не\s+(?:медичн|діагноз|заміна)|інформаційн\w*\s+(?:підтримк|характер|мет)"
+    r"|не\s+призначаю\s+лікуванн|звернись\s+до\s+лікаря.*консультац)",
+    re.IGNORECASE,
+)
+
+
+def strip_self_disclaimer(text: str) -> str:
+    """Drop a TRAILING paragraph the model added that just restates the disclaimer ('я не лікар…',
+    'це не медичний висновок', 'не замінює консультацію'). The canonical ``DISCLAIMER`` is appended
+    by us, so a model-added one only duplicates it. Never strips everything — falls back to the
+    original if the whole body matched."""
+    paras = re.split(r"\n\s*\n", text.strip())
+    while len(paras) > 1 and _SELF_DISCLAIMER_RE.search(strip_markup(paras[-1])):
+        paras.pop()
+    return "\n\n".join(paras).strip() or text.strip()
 
 
 def _movement_phrase(summary: TrendSummary) -> str:

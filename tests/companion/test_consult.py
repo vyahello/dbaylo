@@ -76,6 +76,23 @@ async def test_consult_triage_backstop_leads_on_emergency() -> None:
     assert reply.source == "triage"
 
 
+async def test_consult_preserves_light_markup_for_premium_rendering() -> None:
+    # The reply KEEPS the *bold*/_italic_ markers (the flow renders them to HTML) — it no longer
+    # strips them to plain text.
+    body = "Твій *холестерин 6.2* трохи вищий. _Не гостро, але варто перевірити._"
+    reply = await consult.consult(_CONTEXT, [{"role": "user", "text": "?"}], runner=_runner(body))
+    assert "*холестерин 6.2*" in reply.text and "_Не гостро" in reply.text
+
+
+async def test_consult_strips_a_model_added_duplicate_disclaimer() -> None:
+    # The model sometimes appends its OWN 'я не лікар' line; we always append the canonical
+    # DISCLAIMER, so the duplicate is dropped — exactly one disclaimer remains.
+    body = "Холестерин трохи вищий.\n\nЯ не лікар, і це не замінює консультацію з фахівцем."
+    reply = await consult.consult(_CONTEXT, [{"role": "user", "text": "?"}], runner=_runner(body))
+    assert "не замінює консультацію з фахівцем" not in reply.text  # the model's duplicate is gone
+    assert reply.text.endswith(DISCLAIMER)  # the one canonical disclaimer remains
+
+
 def test_consult_fallback_and_persona_are_safe() -> None:
     assert contains_forbidden_reassurance(locale.CONSULT_FALLBACK) is None
     assert contains_dose_directive(locale.CONSULT_FALLBACK) is None

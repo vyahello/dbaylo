@@ -24,6 +24,8 @@ from dbaylo.labs.intake import create_pending_report, ensure_user, persist_confi
 from dbaylo.labs.schema import ExtractedAnalyte
 from dbaylo.labs.trends import series_key
 
+_TODAY = date(2026, 6, 24)
+
 
 def _analyte(name, value, low=None, high=None, unit="ммоль/л", section=None):
     return ExtractedAnalyte(
@@ -66,7 +68,7 @@ async def test_indicator_context_carries_values_dates_status_and_trend(
     await _confirm(async_session, user, 10, 5.0)  # back in range
     key = series_key(None, "Холестерин")
     subject = Subject(kind=KIND_INDICATOR, report_id=0, analyte_key=key, analyte_name="Холестерин")
-    built = await build_context(async_session, user.id, subject)
+    built = await build_context(async_session, user.id, subject, today=_TODAY)
     assert built is not None
     context, label = built
     assert label == "Холестерин"
@@ -87,7 +89,7 @@ async def test_report_context_carries_the_panel_table(async_session: AsyncSessio
         lab="Synevo",
     )
     subject = Subject(kind=KIND_REPORT, report_id=report.id)
-    built = await build_context(async_session, user.id, subject)
+    built = await build_context(async_session, user.id, subject, today=_TODAY)
     assert built is not None
     context, label = built
     assert "2023-05-02" in label and "Сінево" in label  # canonicalized lab in the label
@@ -109,7 +111,7 @@ async def test_section_context_focuses_on_the_section_and_labels_it(
     )
     # Section index 2 == "Що допоможе": context keeps the full report data, plus a focus line.
     subject = Subject(kind=KIND_SECTION, report_id=report.id, section_idx=2)
-    built = await build_context(async_session, user.id, subject)
+    built = await build_context(async_session, user.id, subject, today=_TODAY)
     assert built is not None
     context, label = built
     assert label == locale.INTERPRET_SECTION_HELP  # the subject label is the section's name
@@ -117,9 +119,41 @@ async def test_section_context_focuses_on_the_section_and_labels_it(
     assert locale.INTERPRET_SECTION_HELP in context  # the focus names the section
 
 
+async def test_context_prepends_a_state_aware_patient_profile(
+    async_session: AsyncSession,
+) -> None:
+    # The consult acts like an assistant who knows the patient: every context carries a profile —
+    # age/sex (from the report), today's date, tracked concerns, and recent reports WITH dates.
+    from dbaylo.companion import concerns
+
+    user = await ensure_user(async_session, 1)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/p.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)],
+        report_date=date(2023, 5, 2),
+        lab="Synevo",
+        birth_date=date(1993, 3, 24),
+        sex="m",
+    )
+    await concerns.add_active(async_session, user=user, name="Камені в нирках")
+
+    subject = Subject(kind=KIND_REPORT, report_id=report.id)
+    context, _label = await build_context(async_session, user.id, subject, today=_TODAY)  # type: ignore[misc]
+    assert "PATIENT PROFILE" in context
+    assert _TODAY.isoformat() in context  # today's date, so the model can judge recency
+    assert "~33 years old" in context and "male" in context  # 1993-03-24 -> 33 on 2026-06-24
+    assert "Камені в нирках" in context  # the tracked concern
+    assert "2023-05-02" in context  # the recent report's date
+
+
 async def test_missing_subject_resolves_to_none(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     # A report id that does not exist, and an unknown analyte key -> None, never a crash.
-    assert await build_context(async_session, user.id, Subject(KIND_REPORT, 999_999)) is None
+    assert (
+        await build_context(async_session, user.id, Subject(KIND_REPORT, 999_999), today=_TODAY)
+        is None
+    )
     gone = Subject(kind=KIND_INDICATOR, report_id=0, analyte_key="nope", analyte_name="Невідомо")
-    assert await build_context(async_session, user.id, gone) is None
+    assert await build_context(async_session, user.id, gone, today=_TODAY) is None
