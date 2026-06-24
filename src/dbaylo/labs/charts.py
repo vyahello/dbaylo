@@ -60,6 +60,11 @@ def _readable_ticks(values: list[float], *, max_ticks: int = 7) -> list[float]:
     for v in unique[1:-1]:
         if v - kept[-1] >= min_gap:
             kept.append(v)
+    # The most recent date is ALWAYS shown. If it crowds the previously kept tick (e.g. the last two
+    # samples are a month apart while the rest span years), drop that neighbour so the two labels do
+    # not overlap into an unreadable smear — only the final date stands there.
+    if len(kept) > 1 and unique[-1] - kept[-1] < min_gap:
+        kept.pop()
     kept.append(unique[-1])
     return kept
 

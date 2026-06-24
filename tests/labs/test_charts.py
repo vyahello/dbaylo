@@ -48,6 +48,19 @@ def test_readable_ticks_thins_a_time_cluster_between_two_far_dates() -> None:
     assert len(in_cluster) <= 2  # the smear is gone
 
 
+def test_readable_ticks_never_crowds_the_final_date() -> None:
+    # The reported bug: the two most recent measurements were ~a month apart while the rest spanned
+    # years, so the last two x-axis labels overlapped into an unreadable smear ("2023-04-37"). The
+    # final date is always shown, but a neighbour that would collide with it must be dropped.
+    values = [0.0, 130.0, 260.0, 390.0, 520.0, 650.0, 820.0, 850.0]  # last two only 30 apart
+    ticks = _readable_ticks(values, max_ticks=7)
+    assert ticks[-1] == 850.0  # the latest date is kept
+    assert 820.0 not in ticks  # its crowding neighbour is dropped — no overlap
+    min_gap = (values[-1] - values[0]) / 7
+    gaps = [b - a for a, b in zip(ticks, ticks[1:], strict=False)]
+    assert all(g >= min_gap for g in gaps)  # every adjacent label pair is readably spaced
+
+
 def test_pdf_text_strips_emoji_keeps_punctuation() -> None:
     # matplotlib's PDF font has no emoji glyphs; strip them but keep the dash, middle dot, bullet.
     assert _pdf_text("📈 6 — норма · вимірів: 2") == "6 — норма · вимірів: 2"
