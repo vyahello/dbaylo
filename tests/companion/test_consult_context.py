@@ -11,7 +11,15 @@ from pathlib import Path
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dbaylo.companion.consult_context import KIND_INDICATOR, KIND_REPORT, Subject, build_context
+from dbaylo import locale
+from dbaylo.companion.consult_context import (
+    KIND_INDICATOR,
+    KIND_REPORT,
+    KIND_SECTION,
+    Subject,
+    build_context,
+    section_label,
+)
 from dbaylo.labs.intake import create_pending_report, ensure_user, persist_confirmed
 from dbaylo.labs.schema import ExtractedAnalyte
 from dbaylo.labs.trends import series_key
@@ -38,8 +46,16 @@ async def _confirm(session: AsyncSession, user, day: int, value: float):
 def test_subject_roundtrips_through_a_dict() -> None:
     s = Subject(kind=KIND_INDICATOR, report_id=7, analyte_key="k", analyte_name="Глюкоза")
     assert Subject.from_dict(s.to_dict()) == s
+    sec = Subject(kind=KIND_SECTION, report_id=3, section_idx=2)
+    assert Subject.from_dict(sec.to_dict()) == sec  # section index survives the round-trip
     # A malformed dict degrades safely (no crash) rather than raising.
-    assert Subject.from_dict({}).kind == ""
+    assert Subject.from_dict({}).kind == "" and Subject.from_dict({}).section_idx == -1
+
+
+def test_section_label_maps_index_to_name() -> None:
+    assert section_label(0) == locale.INTERPRET_SECTION_OVERALL
+    assert section_label(2) == locale.INTERPRET_SECTION_HELP
+    assert section_label(99) == "" and section_label(-1) == ""
 
 
 async def test_indicator_context_carries_values_dates_status_and_trend(
@@ -77,6 +93,28 @@ async def test_report_context_carries_the_panel_table(async_session: AsyncSessio
     assert "2023-05-02" in label and "Сінево" in label  # canonicalized lab in the label
     assert "Глюкоза" in context and "7" in context  # the value is grounded
     assert "ATTENTION" in context  # 7.0 > 6.1 -> the lab table marks it
+
+
+async def test_section_context_focuses_on_the_section_and_labels_it(
+    async_session: AsyncSession,
+) -> None:
+    user = await ensure_user(async_session, 1)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/s.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)],
+        report_date=date(2023, 5, 2),
+        lab="Synevo",
+    )
+    # Section index 2 == "Що допоможе": context keeps the full report data, plus a focus line.
+    subject = Subject(kind=KIND_SECTION, report_id=report.id, section_idx=2)
+    built = await build_context(async_session, user.id, subject)
+    assert built is not None
+    context, label = built
+    assert label == locale.INTERPRET_SECTION_HELP  # the subject label is the section's name
+    assert "Глюкоза" in context  # the full grounded report data is still there
+    assert locale.INTERPRET_SECTION_HELP in context  # the focus names the section
 
 
 async def test_missing_subject_resolves_to_none(async_session: AsyncSession) -> None:

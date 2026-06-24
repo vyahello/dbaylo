@@ -29,6 +29,7 @@ from dbaylo.companion import callbacks, consult, history
 from dbaylo.companion.consult_context import (
     KIND_INDICATOR,
     KIND_REPORT,
+    KIND_SECTION,
     Subject,
     build_context,
 )
@@ -59,8 +60,11 @@ async def _typing(message: Message) -> None:
         await message.bot.send_chat_action(message.chat.id, "typing")  # type: ignore[union-attr]
 
 
-async def _open(message: Message, state: FSMContext, subject: Subject, prompt: str) -> None:
-    """Validate the subject resolves, then enter the consult state and prompt the user."""
+async def _open(
+    message: Message, state: FSMContext, subject: Subject, prompt_template: str
+) -> None:
+    """Validate the subject resolves, then enter the consult state and prompt the user. The prompt
+    template is filled with the subject's resolved Ukrainian label (analyte / report / section)."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=message.chat.id)
         built = await build_context(session, user.id, subject)
@@ -68,9 +72,10 @@ async def _open(message: Message, state: FSMContext, subject: Subject, prompt: s
         await message.answer(locale.CONSULT_GONE)
         await state.clear()
         return
+    _context, label = built
     await state.set_state(ConsultStates.active)
     await state.update_data(consult_subject=subject.to_dict(), consult_transcript=[])
-    await message.answer(prompt, reply_markup=_end_keyboard())
+    await message.answer(prompt_template.format(subject=label), reply_markup=_end_keyboard())
 
 
 @router.callback_query(F.data.startswith(callbacks.CONSULT_CHART + ":"))
@@ -93,12 +98,29 @@ async def on_consult_chart(callback: CallbackQuery, state: FSMContext) -> None:
     subject = Subject(
         kind=KIND_INDICATOR, report_id=report_id, analyte_key=item.key, analyte_name=item.name
     )
-    await _open(
-        callback.message,
-        state,
-        subject,
-        locale.CONSULT_PROMPT_INDICATOR.format(subject=item.name),
-    )
+    await _open(callback.message, state, subject, locale.CONSULT_PROMPT_INDICATOR)
+
+
+@router.callback_query(F.data.startswith(callbacks.CONSULT_DYN + ":"))
+async def on_consult_dyn(callback: CallbackQuery, state: FSMContext) -> None:
+    """Open a consultation anchored to ONE indicator from the dynamics browser (category index)."""
+    parsed = callbacks.parse_consult_dyn(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    category, index = parsed
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        items = await history.aggregate_indicators(session, user_id=user.id)
+        indicators = history.indicators_in(items, category)
+    if not 0 <= index < len(indicators):
+        await callback.message.answer(locale.CONSULT_GONE)
+        return
+    it = indicators[index]
+    subject = Subject(kind=KIND_INDICATOR, report_id=0, analyte_key=it.key, analyte_name=it.name)
+    await _open(callback.message, state, subject, locale.CONSULT_PROMPT_INDICATOR)
 
 
 @router.callback_query(F.data.startswith(callbacks.CONSULT_REPORT + ":"))
@@ -110,16 +132,30 @@ async def on_consult_report(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     await callback.answer()
-    subject = Subject(kind=KIND_REPORT, report_id=report_id)
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
-        built = await build_context(session, user.id, subject)
-    if built is None:
-        await callback.message.answer(locale.CONSULT_GONE)
-        return
-    _, label = built
     await _open(
-        callback.message, state, subject, locale.CONSULT_PROMPT_REPORT.format(subject=label)
+        callback.message,
+        state,
+        Subject(kind=KIND_REPORT, report_id=report_id),
+        locale.CONSULT_PROMPT_REPORT,
+    )
+
+
+@router.callback_query(F.data.startswith(callbacks.CONSULT_SECTION + ":"))
+async def on_consult_section(callback: CallbackQuery, state: FSMContext) -> None:
+    """Open a consultation anchored to ONE section of a report's reading (Загалом / Звернути увагу
+    / Що допоможе / Коли до лікаря) — the same data, focused on that aspect."""
+    parsed = callbacks.parse_consult_section(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id, idx = parsed
+    await callback.answer()
+    await _open(
+        callback.message,
+        state,
+        Subject(kind=KIND_SECTION, report_id=report_id, section_idx=idx),
+        locale.CONSULT_PROMPT_SECTION,
     )
 
 

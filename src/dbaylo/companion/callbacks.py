@@ -321,7 +321,11 @@ def parse_history_trend(data: str) -> tuple[int, int] | None:
 # A consult is anchored to a subject. The anchor is small (ids/index, < 64 B); the indicator's
 # full series key + name are re-derived at tap time and held in FSM state, never in the callback.
 CONSULT_CHART = "consult_chart"  # ask about ONE indicator (by carousel index into a report)
+CONSULT_DYN = "consult_dyn"  # ask about ONE indicator (by index into a dynamics category)
 CONSULT_REPORT = "consult_report"  # ask about a whole report's reading
+CONSULT_SECTION = (
+    "consult_sec"  # ask about ONE section of a report's reading (idx into SECTION_KEYS)
+)
 CONSULT_END = "consult_end"  # end the active consultation
 
 
@@ -337,12 +341,36 @@ def parse_consult_chart(data: str) -> tuple[int, int] | None:
     return None
 
 
+def consult_dyn(category: str, index: int) -> str:
+    return f"{CONSULT_DYN}{_SEP}{category}{_SEP}{index}"
+
+
+def parse_consult_dyn(data: str) -> tuple[str, int] | None:
+    head, _, rest = data.partition(_SEP)
+    category, _, idx = rest.partition(_SEP)
+    if head == CONSULT_DYN and category and idx.isdigit():
+        return category, int(idx)
+    return None
+
+
 def consult_report(report_id: int) -> str:
     return _make(CONSULT_REPORT, report_id)
 
 
 def parse_consult_report(data: str) -> int | None:
     return _parse(CONSULT_REPORT, data)
+
+
+def consult_section(report_id: int, index: int) -> str:
+    return f"{CONSULT_SECTION}{_SEP}{report_id}{_SEP}{index}"
+
+
+def parse_consult_section(data: str) -> tuple[int, int] | None:
+    head, _, rest = data.partition(_SEP)
+    rid, _, idx = rest.partition(_SEP)
+    if head == CONSULT_SECTION and rid.isdigit() and idx.isdigit():
+        return int(rid), int(idx)
+    return None
 
 
 # --- Tier 1.3: button-menu section actions (static, no ids) ----------------------

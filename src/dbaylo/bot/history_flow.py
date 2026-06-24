@@ -274,6 +274,8 @@ def _card_keyboard(
                 _btn(locale.BTN_HIST_FILE, callbacks.history_file(report_id)),
             ]
         )
+    # Ask Дбайло about this whole report (a narrative doc has its findings/conclusion too).
+    rows.append([_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))])
     rows.append(
         [
             _btn(locale.BTN_HIST_DELETE, callbacks.history_delete(report_id)),
@@ -517,6 +519,7 @@ async def on_history_results(callback: CallbackQuery) -> None:
                         _btn(locale.BTN_HIST_RESULTS_ALL, callbacks.history_results_all(report_id)),
                         _btn(locale.BTN_HIST_DYNAMICS, callbacks.history_dynamics(report_id)),
                     ],
+                    [_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))],
                     [_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, 0))],
                 ]
             )
@@ -1203,12 +1206,16 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
             session, user_id=user.id, analyte=indicators[index].name
         )
     if view.chart is not None:
+        consult_kb = InlineKeyboardMarkup(
+            inline_keyboard=[[_btn(locale.BTN_CONSULT, callbacks.consult_dyn(category, index))]]
+        )
         await _send_chart(
             callback.message,
             png=view.chart,
             dynamics=view.text,
             analyte=view.analyte,
             specimen=view.specimen,
+            keyboard=consult_kb,
         )
     else:
         await callback.message.answer(view.text)
@@ -1260,8 +1267,9 @@ def _analysis_keyboard(
     rows = [nav[i : i + 2] for i in range(0, len(nav), 2)]
     if idx == 0:
         rows.append(_refresh_delete_row(report_id))
-    # Ask Дбайло about this report's results — available from every section of the reading.
-    rows.append([_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))])
+    # Ask Дбайло about THIS section of the reading (Загалом / Звернути увагу / Що допоможе / лікар),
+    # so the consultation is centred on the aspect the user is reading right now.
+    rows.append([_btn(locale.BTN_CONSULT, callbacks.consult_section(report_id, idx))])
     if back_page is not None:
         rows.append([_btn(locale.BTN_HIST_BACK, callbacks.history_open(report_id, back_page))])
     return InlineKeyboardMarkup(inline_keyboard=rows)

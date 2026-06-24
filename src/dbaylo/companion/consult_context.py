@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dbaylo import locale
 from dbaylo.companion import history, notecache
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
@@ -26,6 +27,21 @@ from dbaylo.labs.trends import (
 
 KIND_INDICATOR = "indicator"
 KIND_REPORT = "report"
+KIND_SECTION = "section"
+
+# The four reading sections, in the SAME order as bot.formatting.SECTION_KEYS — so a section index
+# from the analysis drill-down maps to its Ukrainian name here without importing the bot layer.
+_SECTION_NAMES: tuple[str, ...] = (
+    locale.INTERPRET_SECTION_OVERALL,
+    locale.INTERPRET_SECTION_ATTENTION,
+    locale.INTERPRET_SECTION_HELP,
+    locale.INTERPRET_SECTION_DOCTOR,
+)
+
+
+def section_label(index: int) -> str:
+    """The Ukrainian name of a reading section by its index, or '' when out of range."""
+    return _SECTION_NAMES[index] if 0 <= index < len(_SECTION_NAMES) else ""
 
 
 @dataclass(frozen=True)
@@ -37,6 +53,7 @@ class Subject:
     report_id: int
     analyte_key: str = ""  # indicator: the series key (cross-report)
     analyte_name: str = ""  # indicator: display name
+    section_idx: int = -1  # section: index into the four reading sections
 
     def to_dict(self) -> dict[str, str | int]:
         return {
@@ -44,17 +61,19 @@ class Subject:
             "report_id": self.report_id,
             "key": self.analyte_key,
             "name": self.analyte_name,
+            "sec": self.section_idx,
         }
 
     @classmethod
     def from_dict(cls, data: dict[str, object]) -> Subject:
         raw_id = data.get("report_id", 0)
-        report_id = raw_id if isinstance(raw_id, int) else 0
+        raw_sec = data.get("sec", -1)
         return cls(
             kind=str(data.get("kind", "")),
-            report_id=report_id,
+            report_id=raw_id if isinstance(raw_id, int) else 0,
             analyte_key=str(data.get("key", "")),
             analyte_name=str(data.get("name", "")),
+            section_idx=raw_sec if isinstance(raw_sec, int) else -1,
         )
 
 
@@ -132,6 +151,25 @@ async def _report_context(
     return "\n".join(lines), f"{date_txt} · {lab}"
 
 
+async def _section_context(
+    session: AsyncSession, user_id: int, report_id: int, section_idx: int
+) -> tuple[str, str] | None:
+    """A report's full grounded context, focused on ONE reading section (e.g. 'Що допоможе') — the
+    same data, but the consultation is centred on that aspect. Label is the section's name."""
+    built = await _report_context(session, user_id, report_id)
+    if built is None:
+        return None
+    report_ctx, _report_label = built
+    name = section_label(section_idx)
+    if not name:
+        return report_ctx, _report_label  # unknown section -> treat as a whole-report consult
+    focus = (
+        f"The user is reading the '{name}' part of this report's reading and wants to dig into "
+        "THAT aspect specifically — centre the consultation there (still using all the data above)."
+    )
+    return f"{report_ctx}\n\n{focus}", name
+
+
 async def build_context(
     session: AsyncSession, user_id: int, subject: Subject
 ) -> tuple[str, str] | None:
@@ -141,4 +179,6 @@ async def build_context(
         return await _indicator_context(session, user_id, subject)
     if subject.kind == KIND_REPORT:
         return await _report_context(session, user_id, subject.report_id)
+    if subject.kind == KIND_SECTION:
+        return await _section_context(session, user_id, subject.report_id, subject.section_idx)
     return None

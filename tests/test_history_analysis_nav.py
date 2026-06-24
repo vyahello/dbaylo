@@ -57,6 +57,8 @@ def test_overview_shows_section_buttons_plus_refresh_delete() -> None:
     # Refresh / delete live only on the overview.
     assert callbacks.history_interpret_refresh(3) in datas
     assert callbacks.history_interpret_del(3) in datas
+    # "Запитати Дбайло" anchors to THIS section (the overview, idx 0).
+    assert callbacks.consult_section(3, 0) in datas
 
 
 def test_section_view_offers_back_to_overview_and_other_sections() -> None:
@@ -70,6 +72,9 @@ def test_section_view_offers_back_to_overview_and_other_sections() -> None:
     assert callbacks.history_interpret_view(3, 1) not in datas  # never to itself
     # No refresh / delete on a section view (they belong to the overview).
     assert callbacks.history_interpret_refresh(3) not in datas
+    # Consult anchors to the section the user is reading (idx 1 = Звернути увагу), not the overview.
+    assert callbacks.consult_section(3, 1) in datas
+    assert callbacks.consult_section(3, 0) not in datas
 
 
 def test_analysis_back_to_card_when_in_history_flow() -> None:
@@ -118,6 +123,17 @@ def test_narrative_card_has_no_dynamics_button() -> None:
     assert callbacks.history_dynamics(7) not in narrative  # narrative omits it
     assert callbacks.history_file(7) in narrative  # but still offers the file
     assert callbacks.history_interpret(7) in narrative  # and the expert reading
+    # Both card kinds offer "Запитати Дбайло" about the whole report.
+    assert callbacks.consult_report(7) in tabular and callbacks.consult_report(7) in narrative
+
+
+def test_consult_callbacks_roundtrip() -> None:
+    assert callbacks.parse_consult_chart(callbacks.consult_chart(4, 2)) == (4, 2)
+    assert callbacks.parse_consult_dyn(callbacks.consult_dyn("blood", 3)) == ("blood", 3)
+    assert callbacks.parse_consult_report(callbacks.consult_report(9)) == 9
+    assert callbacks.parse_consult_section(callbacks.consult_section(9, 1)) == (9, 1)
+    # Cross-parsers reject a foreign token (no accidental collision).
+    assert callbacks.parse_consult_dyn(callbacks.consult_section(9, 1)) is None
 
 
 def test_chart_caption_leads_with_the_source_report_context() -> None:
