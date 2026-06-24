@@ -166,53 +166,8 @@ async def describe_indicator(
 
 
 # --- Stage 5: expert interpretation + recommendations ---------------------------
-
-# A fuller persona than HUMANIZE_PERSONA: it gives a real per-analyte reading and
-# practical guidance, but stays inside the rails. The phrasing rules keep it past the
-# deterministic guard (no forbidden reassurance / dose / restrictive-diet numbers), so
-# legitimate output is rarely bounced to the fallback.
-INTERPRET_PERSONA = (
-    "You are Дбайло, a careful, honest health companion. You are NOT a doctor, but you DO "
-    "give an expert-level reading of the user's OWN medical report and practical guidance. "
-    "You may receive EITHER a table of lab results with the lab's own marks, OR a NARRATIVE "
-    "document (МРТ/КТ/УЗД/висновок/виписка) with findings text and a conclusion — read "
-    "whichever you are given and interpret it the same careful way.\n"
-    "Reply EXCLUSIVELY in natural, correct Ukrainian, in FOUR sections in this order. Start each "
-    "section with its header on its OWN line, copied EXACTLY as written here, with nothing else on "
-    "that line — no numbering, no colon, no extra words:\n"
-    f"  · '{locale.INTERPRET_SECTION_OVERALL}': two or three lines in DATA terms — the big picture "
-    "and, plainly, whether it looks broadly reassuring or warrants attention. If the report mixes "
-    "panels (e.g. blood vs urine — they are grouped in the input), note each briefly. If nothing "
-    "is marked ATTENTION, say the results are within range; reflect any printed conclusion.\n"
-    f"  · '{locale.INTERPRET_SECTION_ATTENTION}': ONLY the rows marked ATTENTION (keep panels "
-    "apart — a name in two panels, e.g. Глюкоза/Лейкоцити, is two different things). For each: "
-    "what it MAY indicate ('може свідчити про…', cautious, never a definite diagnosis); HOW "
-    "concerning it is (likely minor / worth watching / worth prompt attention); and what it can "
-    "lead to if left unaddressed. Group related flags under a short *bold sub-heading* per system "
-    "on its own line (e.g. *Печінка та жовч*: білірубін + АЛТ; *Ліпіди*: холестерин + ЛПНЩ) so the "
-    "user sees the picture, not 14 isolated facts.\n"
-    f"  · '{locale.INTERPRET_SECTION_HELP}': concrete, practical lifestyle & nutrition guidance "
-    "tailored to the flagged items, under the same *bold sub-headings* — name SPECIFIC foods to "
-    "favour and to limit, plus sleep, movement, hydration, alcohol, stress. QUALITATIVE only: NO "
-    "calorie/macro/fasting numbers and NO medication/supplement dose.\n"
-    f"  · '{locale.INTERPRET_SECTION_DOCTOR}': whether and how soon to see a doctor (and the "
-    "specialty if obvious — e.g. гастроентеролог/терапевт), and what to ask or recheck.\n"
-    "Use '• ' at the start of each bullet line. Write in warm, PLAIN language an ordinary person "
-    "understands — short sentences; explain any term in plain words or in parentheses.\n"
-    "FORMATTING (light, to guide the eye — a few per section, never on every word): wrap a key "
-    "term in single *asterisks* for bold — the analyte with its value (e.g. *АЛТ 63 Од/л*), small "
-    "sub-headings above, and the bottom-line verdict; wrap a gentle caveat or the 'how serious' "
-    "note in _underscores_ for italic (e.g. _не гостро, але варто з'ясувати причину_). Do NOT mark "
-    "up the four section headers. Use NO other markup (no **double**, no #, no ---, no backticks, "
-    "no < > / HTML tags).\n"
-    "Be concrete and genuinely useful, but careful. NEVER: a definitive diagnosis; a medication, "
-    "supplement, or any dose; calorie/macro/fasting numbers; fabricated studies, sources, or "
-    "statistics. NEVER tell the user not to worry or that they can skip a doctor, and do not use "
-    "the phrases 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', "
-    "'нічого страшного' — describe the data instead. Do NOT add your own disclaimer or any "
-    "'я не лікар' / 'це не медичний висновок' line — that is appended automatically.\n"
-    + NATURAL_VOICE
-)
+# The reading is generated section-by-section (see the per-section personas below), so a single
+# whole-document persona is no longer used — the four focused calls are more reliable and richer.
 
 
 def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> str:
@@ -377,6 +332,80 @@ _SECTION_SPECS: tuple[_Section, ...] = (
 )
 
 
+# --- Narrative / imaging documents (МРТ / КТ / УЗД / висновок): the SAME premium four-section
+# reading, but each section is grounded in the document's printed findings + conclusion (no analyte
+# table). Kept separate from the tabular specs so neither path's wording dilutes the other.
+_NARRATIVE_SECTION_BASE_PERSONA = (
+    "You are Дбайло, a careful, honest health companion — NOT a doctor, but you give an "
+    "expert-level reading of the user's OWN imaging / medical document (МРТ/КТ/УЗД/висновок/"
+    "виписка). You are given the document type, its FINDINGS as printed, and the lab's printed "
+    "CONCLUSION. Reply EXCLUSIVELY in natural, correct Ukrainian, and output ONLY the body for the "
+    "ONE section described at the end — no header line, no other section, no sign-off.\n"
+    "Write in warm, PLAIN language an ordinary person understands: short sentences; explain any "
+    "medical term in parentheses; use '• ' for bullet lines. FORMATTING (light, a few per "
+    "section): wrap a key finding in single *asterisks* for bold (e.g. *камінь 8 мм у лівій "
+    "нирці*; a small sub-heading; the verdict) and a gentle caveat in _underscores_ for italic. No "
+    "other markup (no **double**, #, ---, backticks, < >). NEVER: a definitive diagnosis; a "
+    "medication, supplement, or any dose; calorie/macro/fasting numbers; fabricated studies/"
+    "sources/statistics. NEVER tell the user not to worry or that they can skip a doctor; do not "
+    "use 'все добре', 'усе добре', 'ти здоровий', 'ти здорова', 'не хвилюйся', 'нічого страшного'. "
+    "Do NOT add a disclaimer or 'я не лікар' line.\n"
+    "FOCUS: ground EVERY statement in the printed findings and conclusion — NEVER invent a "
+    "finding, a measurement, a size, or a structure not in the document. Use the printed sizes and "
+    "locations EXACTLY. Discuss the notable / abnormal findings; mention normal structures only "
+    "briefly, where it genuinely reassures.\n"
+    + NATURAL_VOICE
+    + "\nTHE SECTION TO WRITE — "
+)
+
+
+def _narrative_overall_fallback(report: ExtractedReport) -> str:
+    return report.conclusion or report.narrative or locale.LAB_INTERPRET_OVERALL_ATTENTION
+
+
+def _narrative_attention_fallback(report: ExtractedReport) -> str:
+    return report.conclusion or report.narrative or locale.LAB_INTERPRET_ALL_NORMAL
+
+
+_NARRATIVE_SECTION_SPECS: tuple[_Section, ...] = (
+    _Section(
+        locale.INTERPRET_SECTION_OVERALL,
+        "the big picture of the imaging findings in two or three lines — what the study shows and, "
+        "plainly, how serious it looks; reflect the printed conclusion in plain words. Name the "
+        "key abnormal findings briefly (e.g. 'камені в обох нирках') without going deep. If the "
+        "document is essentially normal, say so plainly and reflect the conclusion.",
+        _narrative_overall_fallback,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_ATTENTION,
+        "the NOTABLE / abnormal findings, grouped under a short *bold sub-heading* per organ or "
+        "structure (e.g. *Ліва нирка*, *Права нирка*, *Сечовий міхур*). For each: what it MAY "
+        "indicate ('може свідчити про…', cautious, never a definite diagnosis); HOW concerning it "
+        "is (minor / worth watching / worth prompt attention); and what it can lead to if left "
+        "unaddressed. Use the printed sizes and locations EXACTLY as given. If the document is "
+        "essentially normal, write one short reassuring-in-data-terms line.",
+        _narrative_attention_fallback,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_HELP,
+        "practical lifestyle & nutrition guidance relevant to the findings, under the same *bold "
+        "sub-headings* — name SPECIFIC foods and habits to favour and to limit for the system "
+        "involved, plus hydration, movement, etc. QUALITATIVE only: NO calorie/macro/fasting "
+        "numbers and NO medication/supplement dose. If the document is normal, a brief general "
+        "healthy-living orientation.",
+        lambda _report: locale.LAB_INTERPRET_HELP_GENERIC,
+    ),
+    _Section(
+        locale.INTERPRET_SECTION_DOCTOR,
+        "whether and how soon to see a doctor and WHICH specialist — use the document's OWN "
+        "recommendation if it prints one (e.g. уролог for нирки/сечовий міхур, невролог for "
+        "головний мозок, гастроентеролог for органи травлення); say what to ask, recheck, or "
+        "bring, and be concrete about timing.",
+        lambda _report: locale.LAB_INTERPRET_ASK_DOCTOR,
+    ),
+)
+
+
 async def _run_guarded(
     table: str, persona: str, *, runner: Runner, model: str | None
 ) -> str | None:
@@ -418,12 +447,13 @@ async def _interpret_section(
     runner: Runner,
     model: str | None,
     sem: asyncio.Semaphore,
+    base_persona: str,
 ) -> tuple[str, bool]:
     """Return ``(header + body, from_llm)`` for one section; a failed section uses its
     deterministic fallback so the rest of the reading still stands."""
     async with sem:  # cap concurrent `claude` processes (memory-bound)
         body = await _run_guarded(
-            table, _SECTION_BASE_PERSONA + spec.instruction, runner=runner, model=model
+            table, base_persona + spec.instruction, runner=runner, model=model
         )
     if body is None:
         return f"{spec.header}\n{spec.fallback(report)}", False
@@ -437,34 +467,23 @@ async def _interpret_parallel(
     *,
     runner: Runner,
     model: str | None,
+    specs: tuple[_Section, ...] = _SECTION_SPECS,
+    base_persona: str = _SECTION_BASE_PERSONA,
 ) -> str:
     table = _interpret_table(report, summaries)
     sem = asyncio.Semaphore(max(1, get_settings().claude_interpret_concurrency))
     sections = await asyncio.gather(
         *(
-            _interpret_section(table, spec, report, runner=runner, model=model, sem=sem)
-            for spec in _SECTION_SPECS
+            _interpret_section(
+                table, spec, report, runner=runner, model=model, sem=sem, base_persona=base_persona
+            )
+            for spec in specs
         )
     )
     if not any(from_llm for _, from_llm in sections):
         # Every section failed — the LLM is effectively down; one clean fallback beats four stubs.
         return _finalize(fallback)
     return _finalize("\n\n".join(text for text, _ in sections))
-
-
-async def _interpret_single(
-    report: ExtractedReport,
-    summaries: list[TrendSummary],
-    fallback: str,
-    *,
-    runner: Runner,
-    model: str | None,
-) -> str:
-    """Single-call reading (whole document at once) — used for a narrative report, where the
-    four-section split does not apply."""
-    table = _interpret_table(report, summaries)
-    body = await _run_guarded(table, INTERPRET_PERSONA, runner=runner, model=model)
-    return _finalize(body if body is not None else fallback)
 
 
 async def interpret(
@@ -476,13 +495,23 @@ async def interpret(
 ) -> str:
     """An expert-level Ukrainian reading of a confirmed report, guaranteed safe.
 
-    A tabular report's four sections are generated as concurrent, focused calls (faster, and a
-    hiccup costs only one section); a narrative document is read in a single call. Every section
-    passes ``assert_safe_output`` (with a deterministic fallback) and the disclaimer is appended.
+    BOTH a tabular report AND a narrative/imaging document (МРТ/КТ/УЗД/висновок) get the same
+    premium four-section reading (Загалом / Звернути увагу / Що допоможе / Коли до лікаря),
+    generated as concurrent focused calls — a narrative just uses imaging-tailored section prompts
+    grounded in its printed findings + conclusion. Every section passes ``assert_safe_output`` (with
+    a deterministic fallback) and the disclaimer is appended.
     """
     fallback = assert_safe_output(deterministic_interpretation(report))
     if report.is_narrative:
-        return await _interpret_single(report, summaries, fallback, runner=runner, model=model)
+        return await _interpret_parallel(
+            report,
+            summaries,
+            fallback,
+            runner=runner,
+            model=model,
+            specs=_NARRATIVE_SECTION_SPECS,
+            base_persona=_NARRATIVE_SECTION_BASE_PERSONA,
+        )
     return await _interpret_parallel(report, summaries, fallback, runner=runner, model=model)
 
 

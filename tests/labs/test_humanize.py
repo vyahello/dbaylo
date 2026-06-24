@@ -6,9 +6,19 @@ from datetime import date
 
 from dbaylo import locale
 from dbaylo.labs.humanize import _run_guarded, deterministic_summary, humanize, interpret
+from dbaylo.labs.schema import ExtractedReport
 from dbaylo.labs.trends import LabPoint, compute_trend
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable
 from dbaylo.triage.safety import DISCLAIMER, contains_dose_directive, contains_forbidden_reassurance
+
+
+def _narrative_report() -> ExtractedReport:
+    return ExtractedReport(
+        results=[],
+        report_type="УЗД нирок та сечового міхура",
+        narrative="Права нирка: конкременти 7 мм та 5 мм. Ліва нирка: конкременти 8 мм.",
+        conclusion="УЗ-ознаки двобічного нефролітіазу.",
+    )
 
 
 def _summaries():
@@ -240,6 +250,28 @@ async def test_interpret_tabular_assembles_all_four_sections() -> None:
         locale.INTERPRET_SECTION_DOCTOR,
     ):
         assert header in out
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_interpret_narrative_gets_the_same_four_section_reading() -> None:
+    # A narrative/imaging document (МРТ/КТ/УЗД) now gets the SAME premium four-section reading as a
+    # tabular report (previously a single-call wall), grounded in its findings + conclusion.
+    out = await interpret(_narrative_report(), [], runner=_runner("Текст розділу."))
+    for header in (
+        locale.INTERPRET_SECTION_OVERALL,
+        locale.INTERPRET_SECTION_ATTENTION,
+        locale.INTERPRET_SECTION_HELP,
+        locale.INTERPRET_SECTION_DOCTOR,
+    ):
+        assert header in out
+    assert out.endswith(DISCLAIMER)
+
+
+async def test_interpret_narrative_falls_back_to_the_conclusion_when_llm_down() -> None:
+    # Every section call fails -> the unified deterministic fallback, which surfaces the printed
+    # conclusion + "see a doctor" for a narrative (never an empty / unsafe reading).
+    out = await interpret(_narrative_report(), [], runner=_runner("", ok=False))
+    assert "нефролітіаз" in out.lower() and contains_forbidden_reassurance(out) is None
     assert out.endswith(DISCLAIMER)
 
 
