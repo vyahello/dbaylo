@@ -871,11 +871,7 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        data = await history.report_trend_charts(session, user_id=user.id, report_id=report_id)
-        quals = await history.report_qualitative_dynamics(
-            session, user_id=user.id, report_id=report_id
-        )
-        breakdown = await history.report_indicator_breakdown(
+        data, quals, breakdown = await history.report_dynamics_bundle(
             session, user_id=user.id, report_id=report_id
         )
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
@@ -1031,9 +1027,7 @@ async def on_dyn_pdf(callback: CallbackQuery) -> None:
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        data = await history.all_trend_charts(session, user_id=user.id, category=category)
-        quals = await history.all_qualitative_dynamics(session, user_id=user.id, category=category)
-        breakdown = await history.all_indicator_breakdown(
+        data, quals, breakdown = await history.all_dynamics_bundle(
             session, user_id=user.id, category=category
         )
     if not data and not quals:

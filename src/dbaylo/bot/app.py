@@ -28,10 +28,11 @@ from dbaylo.bot.access import OwnerOnlyMiddleware
 from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
 from dbaylo.bot.storage import SQLiteStorage
-from dbaylo.companion import callbacks, history
+from dbaylo.companion import callbacks, history, notewarm
 from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
+from dbaylo.labs.intake import ensure_user
 from dbaylo.labs.labnames import normalize_lab
 
 
@@ -140,6 +141,19 @@ async def recover_interrupted_analyses(bot: Bot, owner_id: int) -> None:
             )
 
 
+async def warm_indicator_notes(owner_id: int) -> None:
+    """Fill the educational-note cache for the owner's indicators in the background, so the dynamics
+    charts/tables/PDF carry a description for EVERY indicator and render with no claude call. Notes
+    are data-independent and persisted, so this is a one-time warm that survives restarts; runs
+    best-effort and never blocks startup."""
+    if not owner_id:
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, owner_id)
+        user_id = user.id
+    notewarm.warm_user_notes_in_background(user_id)
+
+
 async def _run_polling() -> None:
     bot = build_bot()
     dispatcher = build_dispatcher()
@@ -154,6 +168,10 @@ async def _run_polling() -> None:
     # Offer to finish any analysis a restart interrupted (best-effort; never blocks startup).
     with contextlib.suppress(Exception):
         await recover_interrupted_analyses(bot, get_settings().owner_telegram_id)
+    # Warm the indicator-note cache in the background so every chart/table/PDF has a description and
+    # renders without waiting on claude (best-effort; never blocks startup).
+    with contextlib.suppress(Exception):
+        await warm_indicator_notes(get_settings().owner_telegram_id)
     try:
         await dispatcher.start_polling(bot)
     finally:

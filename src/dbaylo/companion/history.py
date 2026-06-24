@@ -459,15 +459,10 @@ class TrendChartData:
     flagged: bool
 
 
-async def report_trend_charts(
-    session: AsyncSession, *, user_id: int, report_id: int
+def _report_trend_charts_from(
+    report: LabReport, series: dict[str, list[LabPoint]]
 ) -> list[TrendChartData]:
-    """Every trending analyte of a report (flagged first), as chart data — for the one-PDF export.
-    Deterministic, no LLM; the handler adds the educational note per analyte."""
-    report = await get_report(session, report_id=report_id, user_id=user_id)
-    if report is None:
-        return []
-    series = build_series(await load_series_points(session, user_id))
+    """A report's trending analytes (flagged-first) from an ALREADY-loaded series map."""
     out: list[TrendChartData] = []
     seen: set[str] = set()
     for r in ordered_results(report):
@@ -492,6 +487,18 @@ async def report_trend_charts(
         )
     out.sort(key=lambda d: (not d.flagged, d.title.casefold()))
     return out
+
+
+async def report_trend_charts(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[TrendChartData]:
+    """Every trending analyte of a report (flagged first), as chart data — for the one-PDF export.
+    Deterministic, no LLM; the handler adds the educational note per analyte."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    return _report_trend_charts_from(report, series)
 
 
 def _category_label(section: str | None, analyte: str) -> str:
@@ -522,16 +529,8 @@ class ReportBreakdown:
     categories: list[tuple[str, int]]  # (category KEY, count) of the charted numeric indicators
 
 
-async def report_indicator_breakdown(
-    session: AsyncSession, *, user_id: int, report_id: int
-) -> ReportBreakdown:
-    """Count how a report's indicators split between numeric charts, qualitative timelines, and
-    single measurements. Categories are returned as KEYS (the presentation layer maps them to a
-    readable name). Deterministic, no LLM — feeds the honest 'N of M' cover line."""
-    report = await get_report(session, report_id=report_id, user_id=user_id)
-    if report is None:
-        return ReportBreakdown(0, 0, 0, 0, [])
-    series = build_series(await load_series_points(session, user_id))
+def _report_breakdown_from(report: LabReport, series: dict[str, list[LabPoint]]) -> ReportBreakdown:
+    """A report's chart/table/single split from an ALREADY-loaded series map (cover counts)."""
     seen: set[str] = set()
     numeric = qualitative = single = 0
     cat_counts: Counter[str] = Counter()
@@ -559,6 +558,19 @@ async def report_indicator_breakdown(
     )
 
 
+async def report_indicator_breakdown(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> ReportBreakdown:
+    """Count how a report's indicators split between numeric charts, qualitative timelines, and
+    single measurements. Categories are returned as KEYS (the presentation layer maps them to a
+    readable name). Deterministic, no LLM — feeds the honest 'N of M' cover line."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return ReportBreakdown(0, 0, 0, 0, [])
+    series = build_series(await load_series_points(session, user_id))
+    return _report_breakdown_from(report, series)
+
+
 @dataclass(frozen=True)
 class QualMeasurement:
     """One dated qualitative result in a timeline (e.g. 2026-06-23 → 'не виявлені')."""
@@ -583,16 +595,11 @@ class QualTrend:
     changed: bool  # the text result differs across dates (a real qualitative change)
 
 
-async def report_qualitative_dynamics(
-    session: AsyncSession, *, user_id: int, report_id: int
+def _report_qual_dynamics_from(
+    report: LabReport, series: dict[str, list[LabPoint]]
 ) -> list[QualTrend]:
-    """The report's qualitative indicators that were recorded on >=2 distinct dates (so they have a
-    timeline worth showing) but have no numeric chart — e.g. urine bacteria 'не виявлені' that could
-    become 'виявлено'. Changed-first, then flagged, then alphabetical. Deterministic, no LLM."""
-    report = await get_report(session, report_id=report_id, user_id=user_id)
-    if report is None:
-        return []
-    series = build_series(await load_series_points(session, user_id))
+    """A report's qualitative timelines (>=2 dates, no numeric chart) from an ALREADY-loaded series
+    map. Changed-first, then flagged, then alphabetical."""
     out: list[QualTrend] = []
     seen: set[str] = set()
     for r in ordered_results(report):
@@ -630,6 +637,35 @@ async def report_qualitative_dynamics(
     return out
 
 
+async def report_qualitative_dynamics(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> list[QualTrend]:
+    """The report's qualitative indicators that were recorded on >=2 distinct dates (so they have a
+    timeline worth showing) but have no numeric chart — e.g. urine bacteria 'не виявлені' that could
+    become 'виявлено'. Changed-first, then flagged, then alphabetical. Deterministic, no LLM."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    return _report_qual_dynamics_from(report, series)
+
+
+async def report_dynamics_bundle(
+    session: AsyncSession, *, user_id: int, report_id: int
+) -> tuple[list[TrendChartData], list[QualTrend], ReportBreakdown]:
+    """Charts + qualitative timelines + cover breakdown for ONE report's PDF, loading the report and
+    its series ONCE (these were three separate loads on every export). Deterministic, no LLM."""
+    report = await get_report(session, report_id=report_id, user_id=user_id)
+    if report is None:
+        return ([], [], ReportBreakdown(0, 0, 0, 0, []))
+    series = build_series(await load_series_points(session, user_id))
+    return (
+        _report_trend_charts_from(report, series),
+        _report_qual_dynamics_from(report, series),
+        _report_breakdown_from(report, series),
+    )
+
+
 # --- Cross-lab "all indicators" dynamics (for the by-category PDF export) --------
 
 
@@ -641,13 +677,12 @@ def _category_rank(section: str | None, analyte: str) -> int:
     return order.get(key, len(order))
 
 
-async def all_trend_charts(
-    session: AsyncSession, *, user_id: int, category: str | None = None
+def _trend_charts_from_series(
+    series: dict[str, list[LabPoint]], category: str | None
 ) -> list[TrendChartData]:
-    """EVERY numeric-trend analyte across ALL reports, grouped by category then flagged-first — the
-    chart data behind the per-category 'PDF' export. When ``category`` is given, only that
-    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
-    series = build_series(await load_series_points(session, user_id))
+    """Build the numeric-trend chart data from an ALREADY-loaded series map (so the per-category PDF
+    can load the user's series once for charts + tables + breakdown). Grouped by category then
+    flagged-first; a ``category`` keeps only that category."""
     out: list[tuple[int, TrendChartData]] = []
     for pts in series.values():
         if len(_numeric_dates(pts)) < 2:
@@ -675,13 +710,11 @@ async def all_trend_charts(
     return [d for _, d in out]
 
 
-async def all_qualitative_dynamics(
-    session: AsyncSession, *, user_id: int, category: str | None = None
+def _qual_dynamics_from_series(
+    series: dict[str, list[LabPoint]], category: str | None
 ) -> list[QualTrend]:
-    """EVERY qualitative-timeline analyte across ALL reports, grouped by category then
-    changed/flagged-first — the table data for the PDF export. When ``category`` is given, only that
-    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
-    series = build_series(await load_series_points(session, user_id))
+    """Build the qualitative-timeline table data from an ALREADY-loaded series map (the table half
+    of the per-category PDF), grouped by category then changed/flagged-first."""
     out: list[tuple[int, QualTrend]] = []
     for key, pts in series.items():
         if len(_numeric_dates(pts)) >= 2:  # already a numeric chart
@@ -717,12 +750,10 @@ async def all_qualitative_dynamics(
     return [q for _, q in out]
 
 
-async def all_indicator_breakdown(
-    session: AsyncSession, *, user_id: int, category: str | None = None
+def _all_breakdown_from_series(
+    series: dict[str, list[LabPoint]], category: str | None
 ) -> ReportBreakdown:
-    """Counts for the PDF cover: how many indicators are charts vs tables, by category. When
-    ``category`` is given, the counts cover only that category (the single-category PDF)."""
-    series = build_series(await load_series_points(session, user_id))
+    """Cover counts (charts vs tables, by category) from an ALREADY-loaded series map."""
     numeric = qualitative = 0
     cat_counts: Counter[str] = Counter()
     for pts in series.values():
@@ -742,6 +773,48 @@ async def all_indicator_breakdown(
         qualitative=qualitative,
         single=0,
         categories=[(c, cat_counts[c]) for c in ordered],
+    )
+
+
+async def all_trend_charts(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> list[TrendChartData]:
+    """EVERY numeric-trend analyte across ALL reports, grouped by category then flagged-first — the
+    chart data behind the per-category 'PDF' export. When ``category`` is given, only that
+    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
+    series = build_series(await load_series_points(session, user_id))
+    return _trend_charts_from_series(series, category)
+
+
+async def all_qualitative_dynamics(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> list[QualTrend]:
+    """EVERY qualitative-timeline analyte across ALL reports, grouped by category then
+    changed/flagged-first — the table data for the PDF export. When ``category`` is given, only that
+    category's analytes are returned (the single-category PDF). Deterministic, no LLM."""
+    series = build_series(await load_series_points(session, user_id))
+    return _qual_dynamics_from_series(series, category)
+
+
+async def all_indicator_breakdown(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> ReportBreakdown:
+    """Counts for the PDF cover: how many indicators are charts vs tables, by category. When
+    ``category`` is given, the counts cover only that category (the single-category PDF)."""
+    series = build_series(await load_series_points(session, user_id))
+    return _all_breakdown_from_series(series, category)
+
+
+async def all_dynamics_bundle(
+    session: AsyncSession, *, user_id: int, category: str | None = None
+) -> tuple[list[TrendChartData], list[QualTrend], ReportBreakdown]:
+    """Charts + qualitative timelines + cover breakdown for the per-category PDF, loading the user's
+    series ONCE (these were three separate full loads on every export). Deterministic, no LLM."""
+    series = build_series(await load_series_points(session, user_id))
+    return (
+        _trend_charts_from_series(series, category),
+        _qual_dynamics_from_series(series, category),
+        _all_breakdown_from_series(series, category),
     )
 
 

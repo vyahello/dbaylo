@@ -37,7 +37,7 @@ from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked
 from dbaylo.bot.history_flow import send_analysis
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
-from dbaylo.companion import callbacks, history, proactive, reminders
+from dbaylo.companion import callbacks, history, notewarm, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -663,6 +663,11 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
     # The analysis comes FIRST (the valuable part). Delivered as a navigable overview (Загалом +
     # per-section buttons), not a 4-message wall.
     await send_analysis(callback.message, summary.text, report_id)
+
+    # Warm the educational-note cache for this user's indicators in the background, so a chart /
+    # table / PDF opened after this report already has a description for every indicator (incl. any
+    # brand-new analyte) and never waits on claude. Best-effort, fire-and-forget.
+    notewarm.warm_user_notes_in_background(user_id)
 
     # The report is saved; the pending FSM data is no longer needed. The follow-up offers are
     # sequenced ONE AT A TIME (repeat → concern → charts picker), each shown only after the prior

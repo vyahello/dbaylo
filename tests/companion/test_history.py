@@ -746,6 +746,93 @@ async def test_all_dynamics_span_reports_grouped_by_category(async_session: Asyn
     assert (urine_bd.numeric, urine_bd.qualitative, urine_bd.total) == (0, 1, 1)
 
 
+async def _two_date_panel(async_session: AsyncSession) -> User:
+    """A blood numeric trend (Гемоглобін) + a urine qualitative trend (Бактерії), on two dates."""
+    user = await _user(async_session)
+    for d, hb, bact in [
+        (date(2023, 1, 1), 140.0, "не виявлені"),
+        (date(2023, 2, 1), 145.0, "виявлено"),
+    ]:
+        await _rich_report(
+            async_session,
+            user_id=user.id,
+            on=d,
+            lab="ДІЛА",
+            results=[
+                _result(
+                    "Гемоглобін", value=hb, low=130.0, high=160.0, section="Загальний аналіз крові"
+                ),
+                _result("Бактерії", value_text=bact, section="Загальний аналіз сечі"),
+            ],
+        )
+    return user
+
+
+async def test_all_dynamics_bundle_matches_individual_calls(async_session: AsyncSession) -> None:
+    # The per-category PDF loads the series ONCE via all_dynamics_bundle; it must return EXACTLY
+    # what the three separate calls did (charts + tables + breakdown) — a perf change, never a
+    # behaviour change. This guards the load-once refactor.
+    user = await _two_date_panel(async_session)
+    charts, quals, bd = await history.all_dynamics_bundle(async_session, user_id=user.id)
+    ref_charts = await history.all_trend_charts(async_session, user_id=user.id)
+    ref_quals = await history.all_qualitative_dynamics(async_session, user_id=user.id)
+    ref_bd = await history.all_indicator_breakdown(async_session, user_id=user.id)
+    assert [c.title for c in charts] == [c.title for c in ref_charts]
+    assert [q.title for q in quals] == [q.title for q in ref_quals]
+    assert bd == ref_bd
+    # A category filter rides through the bundle the same way (no cross-category bleed).
+    bcharts, bquals, _ = await history.all_dynamics_bundle(
+        async_session, user_id=user.id, category="blood"
+    )
+    assert [c.title for c in bcharts] == ["Гемоглобін"] and bquals == []
+
+
+async def test_report_dynamics_bundle_matches_individual_calls(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 1, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Гемоглобін", value=140.0, low=130.0, high=160.0, section="Загальний аналіз крові"
+            ),
+            _result("Бактерії", value_text="не виявлені", section="Загальний аналіз сечі"),
+        ],
+    )
+    rep2 = await _rich_report(
+        async_session,
+        user_id=user.id,
+        on=date(2023, 2, 1),
+        lab="ДІЛА",
+        results=[
+            _result(
+                "Гемоглобін", value=145.0, low=130.0, high=160.0, section="Загальний аналіз крові"
+            ),
+            _result("Бактерії", value_text="виявлено", section="Загальний аналіз сечі"),
+        ],
+    )
+    charts, quals, bd = await history.report_dynamics_bundle(
+        async_session, user_id=user.id, report_id=rep2.id
+    )
+    ref_charts = await history.report_trend_charts(
+        async_session, user_id=user.id, report_id=rep2.id
+    )
+    ref_quals = await history.report_qualitative_dynamics(
+        async_session, user_id=user.id, report_id=rep2.id
+    )
+    ref_bd = await history.report_indicator_breakdown(
+        async_session, user_id=user.id, report_id=rep2.id
+    )
+    assert [c.title for c in charts] == [c.title for c in ref_charts]
+    assert [q.title for q in quals] == [q.title for q in ref_quals]
+    assert bd == ref_bd
+    # A missing report id yields empty products, never raises.
+    empty = await history.report_dynamics_bundle(async_session, user_id=user.id, report_id=999_999)
+    assert empty == ([], [], history.ReportBreakdown(0, 0, 0, 0, []))
+
+
 def test_dynamics_home_has_no_global_pdf_button() -> None:
     # The PDF export is PER CATEGORY now (one giant cross-category file was unwieldy to read), so it
     # lives in each category's view — never on the home, which only lists categories + a way back.
