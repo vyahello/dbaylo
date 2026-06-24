@@ -30,7 +30,7 @@ from aiogram.types import (
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, consult, history, proactive, reminders
+from dbaylo.companion import callbacks, cities, consult, history, proactive, reminders
 from dbaylo.companion.consult_context import (
     KIND_INDICATOR,
     KIND_REPORT,
@@ -231,6 +231,11 @@ async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, t
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
         return
+    # A typed ask to be reminded opens the reminder mini-flow (never the LLM — which would otherwise
+    # wrongly claim it cannot set reminders).
+    if _wants_reminder(text):
+        await _start_reminder(message, state)
+        return
     # An explicit ask for concrete clinics (addresses / contacts / ratings) goes to the web-search
     # finder instead of the general (grounded, tool-free) consult.
     if _wants_clinics(text):
@@ -277,6 +282,26 @@ async def on_consult_turn(message: Message, state: FSMContext) -> None:
 
 # --- #4d: set a reminder agreed during the consultation -------------------------
 
+# A typed ask to be reminded ("зроби нагадування", "нагадай мені") opens the SAME mini-flow as the
+# 🔔 button — so Дбайло never hallucinates that it cannot set reminders.
+_REMIND_INTENT_RE = re.compile(
+    r"(нагада[йєити]|нагадуванн|зроби.{0,15}нагад|постав.{0,15}нагад|\bremind)", re.IGNORECASE
+)
+
+
+def _wants_reminder(text: str) -> bool:
+    return bool(_REMIND_INTENT_RE.search(text.casefold()))
+
+
+async def _start_reminder(message: Message, state: FSMContext) -> None:
+    await state.set_state(ConsultRemindStates.waiting_label)
+    await message.answer(
+        locale.CONSULT_REMIND_ASK_LABEL,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
+        ),
+    )
+
 
 @router.callback_query(F.data == callbacks.CONSULT_REMIND)
 async def on_consult_remind(callback: CallbackQuery, state: FSMContext) -> None:
@@ -285,13 +310,7 @@ async def on_consult_remind(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.answer()
         return
     await callback.answer()
-    await state.set_state(ConsultRemindStates.waiting_label)
-    await callback.message.answer(
-        locale.CONSULT_REMIND_ASK_LABEL,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[[_btn(locale.CONSULT_BTN_RESUME, callbacks.CONSULT_RESUME)]]
-        ),
-    )
+    await _start_reminder(callback.message, state)
 
 
 @router.message(ConsultRemindStates.waiting_label, F.text & ~F.text.startswith("/"))
@@ -427,6 +446,14 @@ async def _do_clinic_search(message: Message, state: FSMContext, *, user_text: s
     if user_text:
         transcript.append({"role": "user", "text": user_text})
     city = str(data.get("consult_city") or "").strip()
+    if not city:
+        # The user may have ALREADY named the city ("де зробити X у Львові?") — detect it from the
+        # request + recent turns before asking, so we never ask for a city they just gave.
+        recent_user = " ".join(t["text"] for t in transcript[-4:] if t.get("role") == "user")
+        detected = cities.parse_city(recent_user)
+        if detected:
+            city = detected
+            await state.update_data(consult_city=detected)
     if not city:
         await state.update_data(consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :])
         await state.set_state(ConsultClinicStates.waiting_city)

@@ -22,6 +22,20 @@ def test_consult_remind_when_callback_roundtrips() -> None:
     assert callbacks.parse_consult_remind_when("not-this") is None
 
 
+def test_typed_intents_route_to_reminder_or_clinic_not_the_llm() -> None:
+    from dbaylo.bot.consult_flow import _wants_clinics, _wants_reminder
+
+    # A typed "remind me" must open the reminder flow (the bug: the LLM claimed it couldn't).
+    for t in ("зроби нагадування", "нагадай мені про запис", "постав нагадування на 22 липня"):
+        assert _wants_reminder(t) and not _wants_clinics(t)
+    # An explicit clinic ask routes to the finder, not the reminder flow.
+    assert _wants_clinics("де зробити аналіз у Львові") and not _wants_reminder(
+        "де зробити аналіз у Львові"
+    )
+    # A plain medical question is neither — it goes to the normal consult.
+    assert not _wants_reminder("що це означає?") and not _wants_clinics("що це означає?")
+
+
 def test_parse_when_accepts_period_and_iso_and_rejects_past_or_garbage() -> None:
     assert _parse_when("через 2 місяці") is not None  # a relative period
     assert _parse_when("2999-01-01") is not None  # an ISO date in the future
