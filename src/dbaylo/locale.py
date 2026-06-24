@@ -889,7 +889,10 @@ NAV_COVERAGE_MAYBE_FREE = (
 NAV_COVERAGE_UNKNOWN = (
     "Не вдалося визначити покриття за ПМГ для цієї послуги. Перевір на дашборді НСЗУ: {url}"
 )
-NSZU_DASHBOARD_URL = "https://nszu.gov.ua/likuvannya"
+# The НСЗУ public dashboards (where a service is provided under ПМГ, the facility map) live under
+# the official site's e-data section. We link the stable homepage — a deep path 404s when the site
+# is restructured; the homepage always resolves and leads to the dashboards / facility map.
+NSZU_DASHBOARD_URL = "https://nszu.gov.ua"
 
 # Conservative keyword map of service kinds that are clearly within a ПМГ package
 # (publicly defined). A match yields only "may be free — verify", never a
