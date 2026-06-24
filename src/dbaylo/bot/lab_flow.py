@@ -115,7 +115,7 @@ def _esc(text: str) -> str:
 
 def _is_oor(a: ExtractedAnalyte) -> bool:
     """The lab flagged the row, or the value is numerically out of its reference range."""
-    return is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range)
+    return is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range, a.value_text)
 
 
 def _is_unread(a: ExtractedAnalyte) -> bool:

@@ -17,6 +17,7 @@ from dbaylo.labs.trends import (
     compute_flag,
     compute_trend,
     find_series,
+    is_negative_qualitative,
     is_out_of_range,
     normalize_analyte,
     polarity,
@@ -94,6 +95,43 @@ def test_qualitative_match(value_text, ref_text, matches) -> None:
 )
 def test_is_out_of_range(value, low, high, out_of_range, expected) -> None:
     assert is_out_of_range(value, low, high, out_of_range) is expected
+
+
+@pytest.mark.parametrize(
+    ("text", "negative"),
+    [
+        ("не виявлено", True),
+        ("не виявлені", True),
+        ("Не виявлено (методом ІФА)", True),  # parens stripped, case-folded
+        ("відсутні", True),
+        ("відсутній", True),
+        ("негативно", True),
+        ("негативний", True),
+        ("немає", True),
+        ("not detected", True),
+        ("absent", True),
+        ("виявлено", False),  # a POSITIVE find is NOT negative
+        ("виявлені поодинокі", False),
+        ("10-15 в п/з", False),
+        ("солом'яний", False),
+        ("", False),
+        (None, False),
+    ],
+)
+def test_is_negative_qualitative(text, negative) -> None:
+    assert is_negative_qualitative(text) is negative
+
+
+def test_is_out_of_range_never_flags_a_negative_qualitative() -> None:
+    # The reported bug: the SAME 'не виявлено' was painted red in one report (its lab mark captured
+    # as out_of_range) and normal in the next. A negative/absence result is the reassuring direction
+    # — never flagged, even when the lab's OCR'd indicator says out-of-range.
+    assert is_out_of_range(None, None, None, True, "не виявлено") is False
+    assert is_out_of_range(None, None, None, True, "відсутні") is False
+    # A POSITIVE qualitative the lab flagged is STILL flagged (we suppress only clear negatives).
+    assert is_out_of_range(None, None, None, True, "виявлено") is True
+    # A numeric out-of-range with a stray text is still flagged (suppression is qualitative-only).
+    assert is_out_of_range(7.0, 3.9, 6.1, None, "не виявлено") is True
 
 
 def test_classify_prefers_numeric_then_qualitative() -> None:

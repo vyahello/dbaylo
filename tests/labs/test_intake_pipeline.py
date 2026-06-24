@@ -183,6 +183,41 @@ async def test_sex_split_band_uses_the_patients_sex(async_session) -> None:
     assert (point.ref_low, point.ref_high) == (4.0, 5.0)  # the MALE adult band
 
 
+async def test_negative_qualitative_is_never_flagged_red(async_session) -> None:
+    # The reported bug: the SAME 'не виявлені' was painted red in one report and normal in the next,
+    # because the lab's out-of-range mark was inconsistently OCR'd on an absence. A negative result
+    # must never be flagged — on persist AND, for already-stored rows, at read time.
+    from sqlalchemy import update
+
+    from dbaylo.db.models import LabResult
+
+    user = await ensure_user(async_session, 1)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/q.png"))
+    results = await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Кристали Бетхера",
+                value=None,
+                value_text="не виявлені",
+                out_of_range=True,  # the lab's mark, inconsistently captured on an absence
+                section="Спермограма",
+            )
+        ],
+        report_date=date(2026, 1, 1),
+        lab="Synevo",
+    )
+    assert results[0].flagged is False  # persist suppresses the flag for a negative result
+
+    # Simulate an OLDER row that predates this fix (stored flagged=True); read-time must self-heal.
+    await async_session.execute(update(LabResult).values(flagged=True))
+    await async_session.flush()
+    pts = await load_series_points(async_session, user.id)
+    point = next(p for p in pts if p.analyte == "Кристали Бетхера")
+    assert point.flagged is False  # the stale True is suppressed on read — never red
+
+
 async def test_load_series_points_only_confirmed_dated(async_session) -> None:
     user = await ensure_user(async_session, 1)
     await _confirm(async_session, user, 1, 7.0)

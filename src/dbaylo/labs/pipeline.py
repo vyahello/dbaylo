@@ -27,7 +27,14 @@ from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.humanize import humanize, interpret
 from dbaylo.labs.schema import ExtractedReport
-from dbaylo.labs.trends import LabPoint, TrendSummary, build_series, compute_flag, compute_trend
+from dbaylo.labs.trends import (
+    LabPoint,
+    TrendSummary,
+    build_series,
+    compute_flag,
+    compute_trend,
+    is_negative_qualitative,
+)
 
 
 @dataclass
@@ -90,7 +97,10 @@ async def load_series_points(session: AsyncSession, user_id: int) -> list[LabPoi
             unit=row.unit,  # type: ignore[attr-defined]
             ref_low=low,
             ref_high=high,
-            flagged=bool(row.flagged),  # type: ignore[attr-defined]
+            # A clearly negative qualitative result ('не виявлено') is never flagged red — this
+            # self-heals an inconsistently OCR'd lab mark on an absence in already-stored rows.
+            flagged=bool(row.flagged)  # type: ignore[attr-defined]
+            and not is_negative_qualitative(row.value_text),  # type: ignore[attr-defined]
             section=row.section,  # type: ignore[attr-defined]
         )
 

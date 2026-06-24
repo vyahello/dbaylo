@@ -44,6 +44,7 @@ from dbaylo.labs.trends import (
     build_series,
     compute_trend,
     find_series,
+    is_negative_qualitative,
     series_key,
     specimen,
 )
@@ -628,8 +629,10 @@ def _report_qual_dynamics_from(
                 specimen=specimen(r.section, r.analyte),
                 timeline=timeline,
                 # Flag means "out of range in THIS report" (so the picker ⚠️ count matches the card /
-                # banner) — NOT the latest measurement across all reports, which could differ.
-                flagged=bool(r.flagged),
+                # banner) — NOT the latest measurement across all reports, which could differ. A
+                # clearly negative result ('не виявлено') is never flagged, even if the lab's OCR'd
+                # mark was inconsistently captured as out-of-range on an absence.
+                flagged=bool(r.flagged) and not is_negative_qualitative(r.value_text),
                 changed=len(distinct_text) > 1,
             )
         )

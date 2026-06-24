@@ -235,7 +235,9 @@ def _interpret_table(report: ExtractedReport, summaries: list[TrendSummary]) -> 
             # Header so the model keeps panels apart (e.g. blood vs urine Глюкоза/Лейкоцити).
             lines.append(f"# Panel: {a.section or 'без секції'}")
         mark = (
-            "ATTENTION" if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range) else "ok"
+            "ATTENTION"
+            if is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range, a.value_text)
+            else "ok"
         )
         lines.append(f"- {a.analyte} | {a.display_value()} | {a.display_reference()} | {mark}")
     if summaries:

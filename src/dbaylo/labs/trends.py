@@ -250,18 +250,48 @@ def qualitative_match(value_text: str | None, ref_text: str | None) -> bool:
     return value in [option for option in _QUAL_SPLIT.split(ref) if option]
 
 
+# Qualitative results that read as a clear NEGATIVE / absence finding — the reassuring direction.
+# Matched against the normalized (parens-stripped, casefolded) value. A POSITIVE find ("виявлено")
+# is deliberately NOT matched; only an explicit negation / absence is, so we never hide a real
+# positive — we only refuse to paint an absence red.
+_NEGATIVE_QUAL_RE = re.compile(
+    r"(не\s+вияв|не\s+знайд|не\s+міст|відсут|негатив|\bнема(?:є)?\b|"
+    r"not\s+(?:detect|found)|\babsent\b|negativ)",
+    re.IGNORECASE,
+)
+
+
+def is_negative_qualitative(value_text: str | None) -> bool:
+    """True when a qualitative result clearly reads as a NEGATIVE / absence finding ('не виявлено',
+    'відсутні', 'негативно') — the reassuring direction. Such a value must NEVER carry an
+    out-of-range ⚠️/red marker, even if the lab's OCR'd indicator was inconsistently captured as
+    flagged (the SAME 'не виявлено' was painted red in one report and normal in the next).
+    Conservative — only an explicit negation/absence matches; 'виявлено' (a positive find) does not.
+    """
+    if not value_text:
+        return False
+    return bool(_NEGATIVE_QUAL_RE.search(_normalize_qual(value_text)))
+
+
 def is_out_of_range(
     value: float | None,
     ref_low: float | None,
     ref_high: float | None,
     out_of_range: bool | None,
+    value_text: str | None = None,
 ) -> bool:
     """Whether a row deserves an attention marker (⚠️).
 
     The lab's own indicator wins when it says so; otherwise we escalate up — a value
     numerically outside its (lab-printed) reference is flagged even if the indicator
     was not captured. A value the lab did not flag and that is in range is not flagged.
+
+    Exception: a clearly NEGATIVE qualitative result ('не виявлено', 'відсутні') is the reassuring
+    direction and is NEVER flagged, even if the lab's (OCR'd) indicator was inconsistently captured
+    as out-of-range on an absence — a negative finding must never look alarming.
     """
+    if value is None and is_negative_qualitative(value_text):
+        return False
     if out_of_range:
         return True
     return compute_flag(value, ref_low, ref_high) in (ResultFlag.LOW, ResultFlag.HIGH)

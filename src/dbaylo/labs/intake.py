@@ -137,7 +137,7 @@ async def persist_confirmed(
             ref_high=a.ref_high,
             ref_text=a.ref_text,
             flag=classify(a.value, a.value_text, a.ref_low, a.ref_high, a.ref_text),
-            flagged=is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range),
+            flagged=is_out_of_range(a.value, a.ref_low, a.ref_high, a.out_of_range, a.value_text),
             section=a.section,
         )
         session.add(result)
