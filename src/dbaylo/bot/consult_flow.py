@@ -262,11 +262,13 @@ async def _run_consult_turn(
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
         return
-    # A typed ask to be reminded opens the smart reminder mini-flow (never the LLM — which would
-    # otherwise wrongly claim it cannot set reminders). The subject/date are inferred from this
-    # message + the conversation, so we don't re-ask what was already said.
-    if _wants_reminder(text):
-        await _start_reminder(message, state, scheduler=scheduler, trigger_text=text)
+    # A typed ask to be reminded — OR to be "booked" (which Дбайло can't do, so it saves a reminder
+    # instead of repeating that it can't) — opens the smart reminder mini-flow (never the LLM). The
+    # subject/date are inferred from this message + the conversation, so we don't re-ask.
+    if _wants_reminder(text) or _wants_booking(text):
+        await _start_reminder(
+            message, state, scheduler=scheduler, trigger_text=text, booking=_wants_booking(text)
+        )
         return
     # An explicit ask for concrete clinics (addresses / contacts / ratings) goes to the web-search
     # finder instead of the general (grounded, tool-free) consult.
@@ -330,10 +332,20 @@ async def on_consult_turn(
 _REMIND_INTENT_RE = re.compile(
     r"(нагада[йєити]|нагадуванн|зроби.{0,15}нагад|постав.{0,15}нагад|\bremind)", re.IGNORECASE
 )
+# A "book me" request ("запиши мене на …", "записати мене", "забронюй на …"). Дбайло can't actually
+# call a clinic, so instead of repeating that, it SAVES the appointment as a reminder + nudges the
+# user to call. Routed to the same smart flow (subject/date inferred), with a booking-aware confirm.
+_BOOKING_INTENT_RE = re.compile(
+    r"\b(запиш[иі]|записа\w*|заброню\w*)\s+(мене|на|до)\b", re.IGNORECASE
+)
 
 
 def _wants_reminder(text: str) -> bool:
     return bool(_REMIND_INTENT_RE.search(text.casefold()))
+
+
+def _wants_booking(text: str) -> bool:
+    return bool(_BOOKING_INTENT_RE.search(text.casefold()))
 
 
 async def _ask_reminder_subject(message: Message, state: FSMContext) -> None:
@@ -353,10 +365,12 @@ async def _start_reminder(
     *,
     scheduler: ReminderScheduler,
     trigger_text: str = "",
+    booking: bool = False,
 ) -> None:
     """Smart reminder entry. Infer WHAT (and, if stated, WHEN) from the user's request + the
     conversation, instead of always asking 'про що?'. Create it outright when both are known; ask
-    only for the missing piece; fall back to asking the subject only when it can't be inferred."""
+    only for the missing piece; fall back to asking the subject only when it can't be inferred.
+    ``booking`` flags a "запиши мене" request, so the confirmation explains Дбайло can't book."""
     data = await state.get_data()
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
     async with keep_typing(message):
@@ -367,7 +381,9 @@ async def _start_reminder(
     await state.update_data(consult_remind_label=draft.subject)
     run_at = _parse_when(draft.date) if draft.date else None
     if run_at is not None:  # we know WHAT and WHEN — just create it
-        await _create_consult_reminder(message, state, run_at=run_at, scheduler=scheduler)
+        await _create_consult_reminder(
+            message, state, run_at=run_at, scheduler=scheduler, booking=booking
+        )
         return
     # We know WHAT but not WHEN — ask only the date (subject pre-filled).
     await state.set_state(ConsultRemindStates.waiting_date)
@@ -407,8 +423,10 @@ async def _create_consult_reminder(
     *,
     run_at: datetime,
     scheduler: ReminderScheduler,
+    booking: bool = False,
 ) -> None:
-    """Persist + live-schedule the reminder, confirm, and resume the consultation."""
+    """Persist + live-schedule the reminder, confirm, and resume the consultation. A ``booking``
+    reminder gets the 'I can't book — call them' confirmation instead of the plain one."""
     data = await state.get_data()
     label = str(data.get("consult_remind_label") or "").strip() or locale.LAB_REPEAT_LABEL
     tg = _telegram_id(message)
@@ -420,9 +438,8 @@ async def _create_consult_reminder(
             session, user=user, run_at=run_at, label=label, scheduler=scheduler
         )
         await session.commit()
-    await message.answer(
-        locale.CONSULT_REMIND_SET.format(label=label, when=run_at.date().isoformat())
-    )
+    template = locale.CONSULT_REMIND_SET_BOOKING if booking else locale.CONSULT_REMIND_SET
+    await message.answer(template.format(label=label, when=run_at.date().isoformat()))
     # Record the reminder in the transcript so the consultation stays aware of it (context).
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
     transcript.append(

@@ -710,6 +710,12 @@ CONSULT_REMIND_BAD_DATE = "Не зрозумів дату 🤔 Спробуй ф
 CONSULT_REMIND_SET = (
     "🔔 Готово — нагадаю про «{label}» {when}. Можеш писати далі або завершити розмову."
 )
+# When the user asked to be "booked": we can't call the clinic, but we save the reminder and nudge.
+CONSULT_REMIND_SET_BOOKING = (
+    "🔔 Поставив нагадування: «{label}» — {when}.\n\n"
+    "Записати тебе сам я не можу (немає доступу до запису клінік) — тож просто подзвони й "
+    "забронюй час. Контакти знайду кнопкою 🏥 «Де зробити». Можеш писати далі або завершити."
+)
 CONSULT_BTN_WHEN_1W = "Через тиждень"
 CONSULT_BTN_WHEN_2W = "Через 2 тижні"
 CONSULT_BTN_WHEN_1M = "Через місяць"

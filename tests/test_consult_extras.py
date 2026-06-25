@@ -36,6 +36,23 @@ def test_typed_intents_route_to_reminder_or_clinic_not_the_llm() -> None:
     assert not _wants_reminder("що це означає?") and not _wants_clinics("що це означає?")
 
 
+def test_booking_requests_route_to_the_reminder_flow() -> None:
+    # "запиши мене …" can't be a real booking, so it must reach the reminder flow (which saves it +
+    # nudges to call), instead of the LLM repeating "I can't book you".
+    from dbaylo.bot.consult_flow import _wants_booking
+
+    for t in (
+        "запиши мене на Огієнка у Львові Уросвіт 11 липня",
+        "запиши мене на консультацію і УЗД нирок на 11 липня в Уросвіт",
+        "зможеш записати мене в уросвіт на узд",
+        "забронюй на 3 вересня",
+    ):
+        assert _wants_booking(t)
+    # A pure advice question is NOT a booking (so it still gets a real consult answer).
+    assert not _wants_booking("що порадиш робити з каменями?")
+    assert not _wants_booking("запиши собі на майбутнє")  # not "мене/на/до" -> not a booking
+
+
 def test_parse_when_accepts_period_and_iso_and_rejects_past_or_garbage() -> None:
     assert _parse_when("через 2 місяці") is not None  # a relative period
     assert _parse_when("2999-01-01") is not None  # an ISO date in the future
