@@ -375,8 +375,9 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  web/  locale.py  config.py
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
-                         concerns·medications·proactive·callbacks · history·grouping · intake)
-migrations/  Alembic 0001..0011   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+                         concerns·medications·proactive·callbacks · history·grouping · intake ·
+                         consult·consult_context·consult_memory·cities·notecache·notewarm)
+migrations/  Alembic 0001..0015   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands

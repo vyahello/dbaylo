@@ -14,7 +14,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import concerns, history, notecache
+from dbaylo.companion import concerns, consult_memory, history, notecache
 from dbaylo.labs.agerefs import age_on
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
@@ -213,11 +213,18 @@ async def _patient_profile(session: AsyncSession, user_id: int, today: date) -> 
 
 
 async def build_context(
-    session: AsyncSession, user_id: int, subject: Subject, *, today: date
+    session: AsyncSession,
+    user_id: int,
+    subject: Subject,
+    *,
+    today: date,
+    recall_exclude: frozenset[str] = frozenset(),
 ) -> tuple[str, str] | None:
     """Build the (grounded English context, Ukrainian subject label) for a subject, or ``None`` when
-    it no longer resolves (the report was deleted). The patient profile is prepended so the consult
-    always knows the person's broader state + dates. Re-derived from the DB on every turn."""
+    it no longer resolves (the report was deleted). The patient profile + a cross-session MEMORY of
+    prior consultations are prepended, so the consult always knows the person's broader state and
+    what was discussed before. ``recall_exclude`` drops memory turns already in the live FSM
+    transcript (no duplication mid-conversation). Re-derived from the DB on every turn."""
     if subject.kind == KIND_INDICATOR:
         built = await _indicator_context(session, user_id, subject)
     elif subject.kind == KIND_REPORT:
@@ -230,4 +237,6 @@ async def build_context(
         return None
     context, label = built
     profile = await _patient_profile(session, user_id, today)
-    return f"{profile}\n\n{context}", label
+    memory = await consult_memory.recall_block(session, user_id=user_id, exclude=recall_exclude)
+    parts = [part for part in (profile, memory, context) if part]
+    return "\n\n".join(parts), label

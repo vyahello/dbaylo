@@ -27,6 +27,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import (
     Condition,
     ConditionStatus,
+    ConsultMemory,
     LabReport,
     LabResult,
     Reminder,
@@ -1274,7 +1275,8 @@ async def delete_report(
 ) -> None:
     """Hard-delete the file + report + results, and clean up Tier 1.1 couplings:
     resolve a concern proposed from this report (so it stops pinging) and retire its
-    repeat-lab reminder. The nightly backup is the safety net."""
+    repeat-lab reminder. Consultation memory about the report is decoupled but kept (the
+    conversation is still remembered). The nightly backup is the safety net."""
     report_id = report.id
     user_id = report.user_id
     for condition in await linked_active_concerns(session, report_id):
@@ -1289,6 +1291,11 @@ async def delete_report(
     )
     await session.execute(
         update(Reminder).where(Reminder.report_id == report_id).values(report_id=None)
+    )
+    # Decouple — but keep — any consultation memory about this report: the conversation we had is
+    # still remembered, it just no longer points at a deleted report.
+    await session.execute(
+        update(ConsultMemory).where(ConsultMemory.report_id == report_id).values(report_id=None)
     )
     _remove_file(report)
     await session.delete(report)  # cascade removes LabResults

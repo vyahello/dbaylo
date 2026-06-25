@@ -98,6 +98,9 @@ class User(TimestampMixin, Base):
         back_populates="user", cascade="all, delete-orphan"
     )
     goals: Mapped[list[Goal]] = relationship(back_populates="user", cascade="all, delete-orphan")
+    consult_memories: Mapped[list[ConsultMemory]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 
 class LabReport(TimestampMixin, Base):
@@ -272,3 +275,27 @@ class IndicatorNote(TimestampMixin, Base):
 
     cache_key: Mapped[str] = mapped_column(primary_key=True)  # version \x1f specimen \x1f analyte
     text: Mapped[str] = mapped_column(Text)
+
+
+class ConsultMemory(TimestampMixin, Base):
+    """A durable, cross-session memory of a contextual consultation ("Запитати Дбайло").
+
+    Each row is ONE turn — the user's question or Дбайло's answer — from a grounded consultation.
+    Unlike the in-flight FSM transcript (which is cleared the moment a consultation ends), these
+    persist, so a LATER consultation can recall what was discussed before: real continuity, not a
+    cold start. Deterministic record-keeping — plain text, written and read by ``consult_memory``,
+    never fed to an escalation engine. ``report_id`` ties a memory to the report it was about
+    (``SET NULL`` on delete, like Condition/Reminder), so deleting a report DECOUPLES — but does not
+    silently erase — the conversation that was had about it."""
+
+    __tablename__ = "consult_memory"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
+    report_id: Mapped[int | None] = mapped_column(
+        ForeignKey("lab_reports.id", ondelete="SET NULL"), default=None
+    )
+    role: Mapped[str] = mapped_column()  # "user" | "assistant"
+    text: Mapped[str] = mapped_column(Text)
+
+    user: Mapped[User] = relationship(back_populates="consult_memories")

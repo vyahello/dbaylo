@@ -30,7 +30,15 @@ from aiogram.types import (
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, cities, consult, history, proactive, reminders
+from dbaylo.companion import (
+    callbacks,
+    cities,
+    consult,
+    consult_memory,
+    history,
+    proactive,
+    reminders,
+)
 from dbaylo.companion.consult_context import (
     KIND_INDICATOR,
     KIND_REPORT,
@@ -76,6 +84,18 @@ def _telegram_id(event: Message | CallbackQuery) -> int | None:
 
 def _btn(text: str, data: str) -> InlineKeyboardButton:
     return InlineKeyboardButton(text=text, callback_data=data)
+
+
+async def _remember(tg: int, report_id: int | None, turns: list[tuple[str, str]]) -> None:
+    """Persist consultation turns to durable cross-session memory (best-effort) so a LATER
+    consultation can recall them. ``turns`` is a list of (role, text) pairs."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        for role, text in turns:
+            await consult_memory.record_turn(
+                session, user_id=user.id, role=role, text=text, report_id=report_id
+            )
+        await session.commit()
 
 
 def _reply_keyboard() -> InlineKeyboardMarkup:
@@ -244,9 +264,14 @@ async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, t
     data = await state.get_data()
     subject = Subject.from_dict(dict(data.get("consult_subject") or {}))
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    # The live transcript already carries this session's turns to the model — exclude them from the
+    # recalled cross-session memory so the same line is never shown twice mid-conversation.
+    recall_exclude = frozenset(t["text"].strip() for t in transcript if t.get("text"))
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        built = await build_context(session, user.id, subject, today=date.today())
+        built = await build_context(
+            session, user.id, subject, today=date.today(), recall_exclude=recall_exclude
+        )
     if built is None:  # the report was deleted mid-consult — end gracefully
         await state.clear()
         await message.answer(locale.CONSULT_GONE)
@@ -257,6 +282,8 @@ async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, t
     async with keep_typing(message):
         reply = await consult.consult(context, transcript)
     transcript.append({"role": "assistant", "text": reply.text})
+    # Persist this exchange to durable memory so a future consultation remembers it.
+    await _remember(tg, subject.report_id or None, [("user", text), ("assistant", reply.text)])
     # Keep only the recent exchange in state so it never grows unbounded across a long consult.
     trimmed = transcript[-2 * consult.MAX_CONTEXT_TURNS :]
     await state.set_state(ConsultStates.active)
@@ -429,6 +456,14 @@ async def _run_clinic_search(
     transcript.append({"role": "assistant", "text": text})
     await state.set_state(ConsultStates.active)
     await state.update_data(consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :])
+    # Remember WHERE we looked (the substantive result) for future continuity.
+    subject = Subject.from_dict(dict(data.get("consult_subject") or {}))
+    tg = _telegram_id(message)
+    if tg is not None:
+        last_user = next((t["text"] for t in reversed(transcript) if t.get("role") == "user"), "")
+        turns = [("user", last_user)] if last_user else []
+        turns.append(("assistant", text))
+        await _remember(tg, subject.report_id or None, turns)
     await answer_chunked(
         message,
         render_interpretation_html(text),
