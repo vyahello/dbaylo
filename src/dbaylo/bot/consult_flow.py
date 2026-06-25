@@ -617,7 +617,7 @@ def _render_turns(title: str, turns: list[ConsultMemory], total: int) -> str:
 
 
 def _group_keyboard(rid: int) -> InlineKeyboardMarkup:
-    """A conversation's actions: forget just this one, or back to the groups list."""
+    """Hub-entry conversation actions: forget just this one, or back to the GROUPS list."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -628,11 +628,30 @@ def _group_keyboard(rid: int) -> InlineKeyboardMarkup:
     )
 
 
-async def _report_memory_payload(
-    session: AsyncSession, user_id: int, rid: int
-) -> tuple[str, InlineKeyboardMarkup] | None:
-    """One conversation's read-back (rid 0 == the general group); ``None`` when it has no turns."""
-    report_id = None if rid == 0 else rid
+def _card_memory_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    """Card-entry conversation actions: forget just this one, or back to THIS analysis's card
+    (not the general memory) — so opening memory from a report stays in that report's context."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.MEMORY_BTN_FORGET_ONE, callbacks.memory_forget_card(report_id)),
+                _btn(locale.MEMORY_BTN_BACK, callbacks.history_open(report_id, 0)),
+            ]
+        ]
+    )
+
+
+def _back_to_card_keyboard(report_id: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(locale.MEMORY_BTN_BACK, callbacks.history_open(report_id, 0))]]
+    )
+
+
+async def _report_memory_text(
+    session: AsyncSession, user_id: int, report_id: int | None
+) -> str | None:
+    """One conversation's rendered read-back (``report_id`` None == general), or ``None`` when it
+    has no turns. Keyboard is the caller's job (it differs by entry: hub vs report card)."""
     turns = await consult_memory.recent_turns_for_report(
         session, user_id=user_id, report_id=report_id
     )
@@ -646,7 +665,7 @@ async def _report_memory_payload(
         title = locale.MEMORY_REPORT_TITLE.format(
             what=html.escape(_report_what(report) or "аналіз")
         )
-    return _render_turns(title, turns, total), _group_keyboard(rid)
+    return _render_turns(title, turns, total)
 
 
 async def open_memory_view(message: Message, telegram_id: int) -> None:
@@ -685,7 +704,7 @@ async def on_memory_hub(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data.startswith(callbacks.MEMORY_GROUP + ":"))
 async def on_memory_group(callback: CallbackQuery) -> None:
-    """Open ONE conversation group (edit-in-place) to read it."""
+    """Open ONE conversation group from the general hub (edit-in-place); back returns to the hub."""
     rid = callbacks.parse_memory_group(callback.data or "")
     tg = _telegram_id(callback)
     if rid is None or tg is None or not isinstance(callback.message, Message):
@@ -693,34 +712,98 @@ async def on_memory_group(callback: CallbackQuery) -> None:
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        payload = await _report_memory_payload(session, user.id, rid)
-    if payload is None:  # the conversation was cleared meanwhile — show the fresh list
+        text = await _report_memory_text(session, user.id, None if rid == 0 else rid)
+    if text is None:  # the conversation was cleared meanwhile — show the fresh list
         await _edit_to_groups(callback)
         await callback.answer()
         return
-    text, keyboard = payload
     with contextlib.suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        await callback.message.edit_text(
+            text, parse_mode=ParseMode.HTML, reply_markup=_group_keyboard(rid)
+        )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith(callbacks.MEMORY_OPEN_REPORT + ":"))
 async def on_memory_open_report(callback: CallbackQuery) -> None:
-    """Open a report's conversation memory from its /history card (a NEW message, card stays)."""
-    rid = callbacks.parse_memory_open_report(callback.data or "")
+    """💭 Памʼять on a /history card: edit the card in place into THIS analysis's conversation, with
+    «◀ Назад» returning to the card (not the general memory) — like 🔬 Розбір / 📊 Показники do."""
+    report_id = callbacks.parse_memory_open_report(callback.data or "")
     tg = _telegram_id(callback)
-    if rid is None or tg is None or not isinstance(callback.message, Message):
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
     await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        payload = await _report_memory_payload(session, user.id, rid)
-    if payload is None:
-        await callback.message.answer(locale.MEMORY_REPORT_EMPTY)
+        text = await _report_memory_text(session, user.id, report_id)
+    with contextlib.suppress(TelegramBadRequest):
+        if text is None:  # no conversation about this analysis yet
+            await callback.message.edit_text(
+                locale.MEMORY_REPORT_EMPTY, reply_markup=_back_to_card_keyboard(report_id)
+            )
+        else:
+            await callback.message.edit_text(
+                text, parse_mode=ParseMode.HTML, reply_markup=_card_memory_keyboard(report_id)
+            )
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_FORGET_CARD + ":"))
+async def on_memory_forget_card(callback: CallbackQuery) -> None:
+    """«Забути цю розмову» from a card — step 1 (confirm); cancel re-opens the analysis's memory."""
+    report_id = callbacks.parse_memory_forget_card(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
         return
-    text, keyboard = payload
-    await answer_chunked(callback.message, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        total = await consult_memory.count_for_report(session, user_id=user.id, report_id=report_id)
+    if not total:
+        with contextlib.suppress(TelegramBadRequest):
+            await callback.message.edit_text(
+                locale.MEMORY_REPORT_EMPTY, reply_markup=_back_to_card_keyboard(report_id)
+            )
+        await callback.answer()
+        return
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.MEMORY_BTN_FORGET_ONE_YES, callbacks.memory_forget_card_ok(report_id)),
+                _btn(locale.MEMORY_BTN_FORGET_NO, callbacks.memory_open_report(report_id)),
+            ]
+        ]
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.MEMORY_FORGET_ONE_CONFIRM.format(total=total),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_FORGET_CARD_OK + ":"))
+async def on_memory_forget_card_ok(callback: CallbackQuery) -> None:
+    """«Забути цю розмову» from a card — step 2; then offer to go back to the analysis's card."""
+    report_id = callbacks.parse_memory_forget_card_ok(callback.data or "")
+    tg = _telegram_id(callback)
+    if report_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        deleted = await consult_memory.clear_report(session, user_id=user.id, report_id=report_id)
+        await session.commit()
+    await callback.answer(
+        locale.MEMORY_FORGET_ONE_DONE.format(total=deleted)
+        if deleted
+        else locale.MEMORY_FORGET_EMPTY
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.MEMORY_REPORT_EMPTY, reply_markup=_back_to_card_keyboard(report_id)
+        )
 
 
 @router.callback_query(F.data == callbacks.MEMORY_FORGET)

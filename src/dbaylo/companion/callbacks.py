@@ -462,3 +462,25 @@ def memory_open_report(report_id: int) -> str:
 
 def parse_memory_open_report(data: str) -> int | None:
     return _parse(MEMORY_OPEN_REPORT, data)
+
+
+# Forget a report's conversation FROM ITS CARD — stays in the report's context (back to the card),
+# unlike MEMORY_FORGET_ONE which returns to the general groups hub.
+MEMORY_FORGET_CARD = "mem_fcard"
+MEMORY_FORGET_CARD_OK = "mem_fcardok"
+
+
+def memory_forget_card(report_id: int) -> str:
+    return _make(MEMORY_FORGET_CARD, report_id)
+
+
+def parse_memory_forget_card(data: str) -> int | None:
+    return _parse(MEMORY_FORGET_CARD, data)
+
+
+def memory_forget_card_ok(report_id: int) -> str:
+    return _make(MEMORY_FORGET_CARD_OK, report_id)
+
+
+def parse_memory_forget_card_ok(data: str) -> int | None:
+    return _parse(MEMORY_FORGET_CARD_OK, data)

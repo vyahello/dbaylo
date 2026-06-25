@@ -178,6 +178,23 @@ async def test_memory_view_escapes_html_and_truncates(async_session: AsyncSessio
     assert len("довго" * 100) > _MEMORY_LINE_CAP  # sanity: it really exceeded the cap
 
 
+def test_card_memory_back_returns_to_the_card_not_the_hub() -> None:
+    # The fix: opening memory from a report card and tapping «Назад» must return to THAT analysis's
+    # card (history_open), not jump to the general memory hub. The general-hub view keeps its own
+    # back-to-groups (MEMORY_HUB).
+    from dbaylo.bot.consult_flow import _card_memory_keyboard, _group_keyboard
+    from dbaylo.companion import callbacks
+
+    card = [b.callback_data for row in _card_memory_keyboard(7).inline_keyboard for b in row]
+    assert callbacks.history_open(7, 0) in card  # back -> the report's own card
+    assert callbacks.memory_forget_card(7) in card  # forget stays in the card context
+    assert callbacks.MEMORY_HUB not in card  # never the general hub
+
+    hub = [b.callback_data for row in _group_keyboard(7).inline_keyboard for b in row]
+    assert callbacks.MEMORY_HUB in hub  # the hub view DOES go back to the groups list
+    assert callbacks.memory_forget_one(7) in hub
+
+
 def test_memory_clean_strips_markup_and_disclaimer() -> None:
     from dbaylo.bot.consult_flow import _clean
     from dbaylo.triage.safety import DISCLAIMER
