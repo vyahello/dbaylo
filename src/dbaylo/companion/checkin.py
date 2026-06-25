@@ -64,10 +64,13 @@ def build_prompt() -> str:
 CHECKIN_PERSONA = (
     "You are Дбайло starting a gentle DAILY CHECK-IN — you message the user FIRST, like a caring "
     "personal health assistant who knows them. You are given their health context (tracked "
-    "concerns + currently out-of-range indicators + resolved ones). Open warmly and SPECIFICALLY: "
-    "lead with what is actually relevant to them now (their main current concern), reference it "
-    "briefly ('як нирки після того КТ?'), then a light general question (sleep / mood / how the "
-    "body feels). GROUND only in the data given — never invent a value, cause or diagnosis. Keep "
+    "concerns + currently out-of-range indicators + resolved ones) AND their RECENT CHECK-IN "
+    "HISTORY (how they've been — sleep / mood / symptoms / their own words). Use the history to "
+    "remember and follow up ('учора писав, що погано спав — як сьогодні?'), and notice a dynamic "
+    "('настрій кілька днів просідає'). Open warmly and SPECIFICALLY: lead with what is actually "
+    "relevant to them now (their main current concern OR a recent state worth following up), "
+    "reference it briefly, then a light general question (sleep / mood / how the body feels). "
+    "GROUND only in the data given — never invent a value, cause or diagnosis. Keep "
     "it SHORT (2–4 warm sentences), plain Ukrainian, address the user as 'ти', no markdown; a "
     "fitting emoji is fine. NEVER give a medication or dose, calorie/fasting numbers, or tell them "
     "to skip a doctor, and never say 'все добре'. End with an open question so they reply.\n"
@@ -97,13 +100,73 @@ async def build_grounded_prompt(
         return build_prompt()
 
 
+# --- State memory across check-ins ----------------------------------------------------------------
+# Дбайло remembers the user's recent self-reported state (sleep / mood / symptoms + their own words)
+# so it can notice the DYNAMIC ("третій день поспіль погано спиш") and reference it next time — not
+# start each check-in / chat from scratch. Deterministic: it just summarises stored CheckIn rows.
+
+_RECENT_CHECKINS = 5
+
+
+async def recent_checkins(
+    session: AsyncSession, *, user_id: int, limit: int = _RECENT_CHECKINS
+) -> list[CheckIn]:
+    """The user's most recent check-ins (newest first)."""
+    rows = await session.scalars(
+        select(CheckIn).where(CheckIn.user_id == user_id).order_by(CheckIn.id.desc()).limit(limit)
+    )
+    return list(rows.all())
+
+
+def _checkin_line(row: CheckIn) -> str:
+    bits: list[str] = []
+    if row.sleep_hours is not None:
+        bits.append(f"сон {row.sleep_hours:g} год")
+    if row.mood is not None:
+        bits.append(f"настрій {row.mood}/5")
+    if row.water_ml is not None:
+        bits.append(f"вода {row.water_ml} мл")
+    if row.training:
+        bits.append("була активність")
+    if row.symptoms:
+        bits.append(f"симптоми: {row.symptoms}")
+    note = (row.note or "").strip()
+    if note:
+        bits.append(f"його слова: «{note[:140]}»")
+    day = row.check_date.isoformat() if row.check_date else "?"
+    return f"- {day}: " + ("; ".join(bits) if bits else "(без деталей)")
+
+
+async def state_memory_context(session: AsyncSession, *, user_id: int) -> str:
+    """A grounded block of the user's recent check-in STATE (sleep / mood / symptoms / their words),
+    so Дбайло notices the dynamic and references it. ``""`` when there are no check-ins yet."""
+    rows = await recent_checkins(session, user_id=user_id)
+    if not rows:
+        return ""
+    header = (
+        "RECENT CHECK-IN HISTORY (the user's self-reported state across recent check-ins — use it "
+        "to NOTICE the dynamic and reference how they've been, e.g. 'третій день поспіль скаржишся "
+        "на сон'; most recent first):"
+    )
+    return "\n".join([header, *(_checkin_line(row) for row in rows)])
+
+
+async def grounded_context(session: AsyncSession, *, user_id: int, today: date) -> str:
+    """The full grounded context: the lab health picture (``health``) + the recent check-in STATE
+    memory. Shared by the proactive check-in and the general companion chat / symptom intake, so
+    both answer/ask from real data AND remember how they've been. ``""`` when there's nothing."""
+    labs = await health.build_health_context(session, user_id, today=today)
+    state = await state_memory_context(session, user_id=user_id)
+    return "\n\n".join(part for part in (labs, state) if part)
+
+
 async def checkin_messages(
     session: AsyncSession, *, user_id: int, now: datetime, runner: Runner = run_claude
 ) -> list[ProactiveMessage]:
     """What the firing check-in sends: a GROUNDED prompt (asks about the user's actual concerns +
-    data), then — if any concerns are due for review — ONE batched "still relevant?" message with a
-    "✅ <name>" button per concern (not a separate message each)."""
-    context = await health.build_health_context(session, user_id, today=now.date())
+    data + recent state), then — if any concerns are due for review — ONE batched "still relevant?"
+    message with a "✅ <name>" button per concern (not a separate message each)."""
+    context = await grounded_context(session, user_id=user_id, today=now.date())
     messages: list[ProactiveMessage] = [(await build_grounded_prompt(context, runner=runner), None)]
     due = await concerns.due_for_review(session, user_id=user_id, now=now)
     if due:
@@ -194,6 +257,7 @@ async def process_checkin(
         mood=parsed.mood,
         training=parsed.training,
         symptoms=",".join(sorted(s.value for s in parsed.symptoms)) or None,
+        note=text.strip()[:500] or None,  # the user's own words -> state memory across check-ins
     )
     session.add(row)
     await session.flush()

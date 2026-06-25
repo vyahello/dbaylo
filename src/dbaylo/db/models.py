@@ -246,6 +246,9 @@ class CheckIn(TimestampMixin, Base):
     mood: Mapped[int | None] = mapped_column(default=None)
     symptoms: Mapped[str | None] = mapped_column(Text, default=None)
     training: Mapped[str | None] = mapped_column(Text, default=None)
+    # The user's own words from the answer — so Дбайло remembers HOW they felt, not just the parsed
+    # numbers, and can reference it / track the dynamic of state across check-ins.
+    note: Mapped[str | None] = mapped_column(Text, default=None)
 
     user: Mapped[User] = relationship(back_populates="check_ins")
 

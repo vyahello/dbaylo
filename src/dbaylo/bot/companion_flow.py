@@ -27,7 +27,7 @@ from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import checkin, goals, health, intake
+from dbaylo.companion import checkin, goals, intake
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -142,15 +142,15 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
 
 
 async def _health_context(message: Message) -> str:
-    """The user's grounded health picture (profile + CURRENT out-of-range indicators + resolved
-    ones, from all labs), so general chat / the symptom interview answer based on THEIR real data —
-    ``""`` when there's nothing to ground in, so the reply stays general."""
+    """The user's grounded picture — labs (profile + current/resolved out-of-range indicators) AND
+    recent check-in STATE memory (how they've been) — so general chat / the symptom interview answer
+    based on THEIR real data and remember their state. ``""`` when there's nothing to ground in."""
     tg = _telegram_id(message)
     if tg is None:
         return ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        return await health.build_health_context(session, user.id, today=date.today())
+        return await checkin.grounded_context(session, user_id=user.id, today=date.today())
 
 
 async def _run_intake_turn(

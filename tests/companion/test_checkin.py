@@ -54,6 +54,34 @@ async def test_grounded_prompt_uses_context_and_falls_back_when_empty() -> None:
     assert await checkin.build_grounded_prompt("", runner=exploding) == build_prompt()
 
 
+async def test_process_checkin_remembers_the_users_words(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    await process_checkin(async_session, user=user, text="спав 5 годин, настрій 2/5, виснажений")
+    rows = await checkin.recent_checkins(async_session, user_id=user.id)
+    assert (
+        rows and rows[0].note == "спав 5 годин, настрій 2/5, виснажений"
+    )  # the raw words are kept
+
+
+async def test_state_memory_context_summarises_recent_checkins(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    assert await checkin.state_memory_context(async_session, user_id=user.id) == ""  # nothing yet
+    await process_checkin(async_session, user=user, text="спав 5 год, настрій 2/5, погано сплю")
+    ctx = await checkin.state_memory_context(async_session, user_id=user.id)
+    assert "RECENT CHECK-IN HISTORY" in ctx
+    assert "сон 5 год" in ctx and "настрій 2/5" in ctx and "погано сплю" in ctx
+
+
+async def test_grounded_context_combines_labs_and_state(async_session: AsyncSession) -> None:
+    # The combined grounding feeds BOTH the proactive check-in and general chat.
+    user = await _user(async_session)
+    await concerns.add_active(async_session, user=user, name="Камені в нирках")
+    await process_checkin(async_session, user=user, text="настрій 2/5, втомлений")
+    ctx = await checkin.grounded_context(async_session, user_id=user.id, today=date(2026, 6, 25))
+    assert "Камені в нирках" in ctx  # the labs/profile side
+    assert "RECENT CHECK-IN HISTORY" in ctx and "втомлений" in ctx  # the state-memory side
+
+
 async def test_grounded_prompt_falls_back_on_unsafe_output() -> None:
     from dbaylo.llm import ClaudeResult
 
