@@ -43,35 +43,27 @@ def _callback(data: str | None = None) -> AsyncMock:
 
 
 def test_main_menu_keyboard_layout() -> None:
+    # ~5 agent-driven sections: 🩺 Моє здоровʼя leads alone, then care+prices, then memory+help.
     kb = main_menu_keyboard()
     labels = [b.text for row in kb.keyboard for b in row]
     assert labels == [
-        locale.MENU_LABS,
-        locale.MENU_GOALS,
-        locale.MENU_PROBLEMS,
-        locale.MENU_MEDS,
-        locale.MENU_REMINDERS,
+        locale.MENU_HEALTH,
+        locale.MENU_CARE,
         locale.MENU_PRICES,
         locale.MENU_MEMORY,
-        locale.MENU_CHECKIN,
         locale.MENU_HELP,
     ]
     assert kb.is_persistent and kb.resize_keyboard
-    assert len(kb.keyboard) == 5 and len(kb.keyboard[-1]) == 1  # memory+checkin, then help alone
+    assert len(kb.keyboard) == 3 and len(kb.keyboard[0]) == 1  # Моє здоровʼя on its own row
 
 
-def test_menu_labels_set_is_the_keyboard_labels() -> None:
-    assert {
-        locale.MENU_LABS,
-        locale.MENU_GOALS,
-        locale.MENU_PROBLEMS,
-        locale.MENU_MEDS,
-        locale.MENU_REMINDERS,
-        locale.MENU_PRICES,
-        locale.MENU_MEMORY,
-        locale.MENU_CHECKIN,
-        locale.MENU_HELP,
-    } == locale.MENU_LABELS
+def test_menu_labels_covers_keyboard_and_legacy_labels() -> None:
+    # MENU_LABELS resets a dialog on a tap: it must include every CURRENT keyboard label and the
+    # legacy ones (so a cached old keyboard still aborts a dialog too).
+    keyboard = {b.text for row in main_menu_keyboard().keyboard for b in row}
+    assert keyboard <= locale.MENU_LABELS  # every keyboard label is a reset trigger
+    assert locale.MENU_HEALTH in locale.MENU_LABELS and locale.MENU_CARE in locale.MENU_LABELS
+    assert locale.MENU_LABS in locale.MENU_LABELS  # a legacy label still resets a dialog
 
 
 def test_cancel_keyboard_carries_the_shared_cancel_callback() -> None:
@@ -127,6 +119,75 @@ def test_section_keyboard_one_button_per_row() -> None:
     kb = section_keyboard(("a", "x"), ("b", "y"))
     assert [len(row) for row in kb.inline_keyboard] == [1, 1]
     assert _cb_datas(kb) == ["x", "y"]
+
+
+# --- The ~5-section hubs (🩺 Моє здоровʼя · 💊 Ліки й нагадування) ----------------
+
+
+async def test_menu_health_hub_offers_the_four_destinations() -> None:
+    message = AsyncMock()
+    await menu_flow.menu_health(message)
+    _, kwargs = message.answer.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [
+        callbacks.MENU_OPEN_ANALYSES,
+        callbacks.MENU_PROB_LIST,
+        callbacks.MENU_OPEN_GOALS,
+        callbacks.MENU_OPEN_CHECKIN,
+    ]
+
+
+async def test_menu_care_hub_bundles_meds_and_reminders() -> None:
+    message = AsyncMock()
+    await menu_flow.menu_care(message)
+    _, kwargs = message.answer.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [
+        callbacks.MENU_MED_LIST,
+        callbacks.MENU_MED_NEW,
+        callbacks.MENU_OPEN_REMINDERS,
+    ]
+
+
+async def test_cb_open_analyses_posts_the_labs_hub() -> None:
+    callback = _callback(callbacks.MENU_OPEN_ANALYSES)
+    await menu_flow.cb_open_analyses(callback)
+    _, kwargs = callback.message.answer.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
+    callback.answer.assert_awaited_once()
+
+
+async def test_cb_open_goals_posts_the_goals_section() -> None:
+    callback = _callback(callbacks.MENU_OPEN_GOALS)
+    await menu_flow.cb_open_goals(callback)
+    _, kwargs = callback.message.answer.call_args
+    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_GOALS_LIST, callbacks.MENU_GOAL_NEW]
+
+
+async def test_cb_open_checkin_passes_the_owner_tg(monkeypatch) -> None:
+    # The prompt is sent on a callback message (from_user = bot), so the owner's tg is threaded
+    # explicitly — otherwise the grounded check-in loads the wrong user.
+    seen = {}
+
+    async def fake(message, state, *, telegram_id):
+        seen["args"] = (message, state, telegram_id)
+
+    monkeypatch.setattr(menu_flow.companion_flow, "start_checkin_dialog", fake)
+    callback = _callback(callbacks.MENU_OPEN_CHECKIN)
+    state = object()
+    await menu_flow.cb_open_checkin(callback, state)
+    assert seen["args"] == (callback.message, state, 4242)
+
+
+async def test_cb_open_reminders_delegates_with_owner_tg(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, telegram_id, scheduler):
+        seen["args"] = (message, telegram_id, scheduler)
+
+    monkeypatch.setattr(menu_flow.proactive_flow, "open_reminders", fake)
+    callback = _callback(callbacks.MENU_OPEN_REMINDERS)
+    scheduler = object()
+    await menu_flow.cb_open_reminders(callback, scheduler)
+    assert seen["args"] == (callback.message, 4242, scheduler)
 
 
 # --- Section screens (reply-keyboard label taps) --------------------------------

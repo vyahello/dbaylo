@@ -50,8 +50,44 @@ def _labs_hub() -> tuple[str, InlineKeyboardMarkup]:
     )
 
 
+def _goals_section() -> tuple[str, InlineKeyboardMarkup]:
+    """The goals section: list my goals / add a new one."""
+    return locale.MENU_GOALS_INTRO, section_keyboard(
+        (locale.BTN_MENU_GOALS_LIST, callbacks.MENU_GOALS_LIST),
+        (locale.BTN_MENU_GOAL_NEW, callbacks.MENU_GOAL_NEW),
+    )
+
+
+@router.message(StateFilter(None), F.text == locale.MENU_HEALTH)
+async def menu_health(message: Message) -> None:
+    """🩺 Моє здоровʼя — the agent's health hub: analyses · problems · goals · check-in."""
+    await message.answer(
+        locale.MENU_HEALTH_INTRO,
+        reply_markup=section_keyboard(
+            (locale.BTN_MENU_ANALYSES, callbacks.MENU_OPEN_ANALYSES),
+            (locale.BTN_MENU_PROBLEMS, callbacks.MENU_PROB_LIST),
+            (locale.BTN_MENU_GOALS, callbacks.MENU_OPEN_GOALS),
+            (locale.BTN_MENU_CHECKIN, callbacks.MENU_OPEN_CHECKIN),
+        ),
+    )
+
+
+@router.message(StateFilter(None), F.text == locale.MENU_CARE)
+async def menu_care(message: Message) -> None:
+    """💊 Ліки й нагадування — medications (list / add) + the reminders list, in one hub."""
+    await message.answer(
+        locale.MENU_CARE_INTRO,
+        reply_markup=section_keyboard(
+            (locale.BTN_MENU_MED_LIST, callbacks.MENU_MED_LIST),
+            (locale.BTN_MENU_MED_NEW, callbacks.MENU_MED_NEW),
+            (locale.BTN_MENU_REMINDERS, callbacks.MENU_OPEN_REMINDERS),
+        ),
+    )
+
+
 @router.message(StateFilter(None), F.text == locale.MENU_LABS)
 async def menu_labs(message: Message) -> None:
+    # Legacy label (now reached via 🩺 Моє здоровʼя → Аналізи); kept for a cached old keyboard.
     text, keyboard = _labs_hub()
     await message.answer(text, reply_markup=keyboard)
 
@@ -68,13 +104,9 @@ async def cb_open_labs(callback: CallbackQuery) -> None:
 
 @router.message(StateFilter(None), F.text == locale.MENU_GOALS)
 async def menu_goals(message: Message) -> None:
-    await message.answer(
-        locale.MENU_GOALS_INTRO,
-        reply_markup=section_keyboard(
-            (locale.BTN_MENU_GOALS_LIST, callbacks.MENU_GOALS_LIST),
-            (locale.BTN_MENU_GOAL_NEW, callbacks.MENU_GOAL_NEW),
-        ),
-    )
+    # Legacy label (now reached via 🩺 Моє здоровʼя → Цілі); kept for a cached old keyboard.
+    text, keyboard = _goals_section()
+    await message.answer(text, reply_markup=keyboard)
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_PROBLEMS)
@@ -133,6 +165,41 @@ async def menu_help(message: Message) -> None:
 
 
 # --- Section inline actions -> reused flow helpers ------------------------------
+
+
+# Hub destinations -> post the leaf section/dialog as a NEW message (the hub stays above).
+@router.callback_query(F.data == callbacks.MENU_OPEN_ANALYSES)
+async def cb_open_analyses(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        text, keyboard = _labs_hub()
+        await callback.message.answer(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_GOALS)
+async def cb_open_goals(callback: CallbackQuery) -> None:
+    if isinstance(callback.message, Message):
+        text, keyboard = _goals_section()
+        await callback.message.answer(text, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_CHECKIN)
+async def cb_open_checkin(callback: CallbackQuery, state: FSMContext) -> None:
+    # The prompt is answered on a callback message (from_user is the bot), so pass the owner's tg
+    # explicitly — otherwise the grounded check-in can't load the right user.
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message):
+        await companion_flow.start_checkin_dialog(callback.message, state, telegram_id=tg)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_REMINDERS)
+async def cb_open_reminders(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        await proactive_flow.open_reminders(callback.message, tg, reminder_scheduler)
+    await callback.answer()
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_HISTORY)

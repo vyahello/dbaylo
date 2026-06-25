@@ -56,13 +56,12 @@ async def remove_button_row(callback: CallbackQuery) -> None:
         await message.edit_reply_markup(reply_markup=markup)
 
 
-# Persistent reply keyboard: two-per-row main actions; memory + check-in, then help.
+# Persistent reply keyboard: ~5 agent-driven sections. 🩺 Моє здоровʼя leads (it aggregates
+# analyses · problems · goals · check-in); 💊 Ліки й нагадування bundles meds + reminders.
 _MENU_ROWS = (
-    (locale.MENU_LABS, locale.MENU_GOALS),
-    (locale.MENU_PROBLEMS, locale.MENU_MEDS),
-    (locale.MENU_REMINDERS, locale.MENU_PRICES),
-    (locale.MENU_MEMORY, locale.MENU_CHECKIN),
-    (locale.MENU_HELP,),
+    (locale.MENU_HEALTH,),
+    (locale.MENU_CARE, locale.MENU_PRICES),
+    (locale.MENU_MEMORY, locale.MENU_HELP),
 )
 
 

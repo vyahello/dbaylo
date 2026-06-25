@@ -110,11 +110,15 @@ async def cmd_goals(message: Message) -> None:
 # --- Daily check-in -------------------------------------------------------------
 
 
-async def start_checkin_dialog(message: Message, state: FSMContext) -> None:
+async def start_checkin_dialog(
+    message: Message, state: FSMContext, *, telegram_id: int | None = None
+) -> None:
     """Begin a check-in: ask a GROUNDED prompt (about the user's real concerns + recent state, like
-    the proactive one) and wait for the answer. Reused by /checkin and the 📝 Чек-ін button."""
+    the proactive one) and wait for the answer. Reused by /checkin and the 📝 Чек-ін button. Pass
+    ``telegram_id`` explicitly when the prompt is sent on a CALLBACK message (whose ``from_user`` is
+    the bot, not the owner) so the grounding still loads the right user."""
     await state.set_state(CheckinStates.waiting_for_answer)
-    tg = _telegram_id(message)
+    tg = telegram_id if telegram_id is not None else _telegram_id(message)
     prompt = checkin.build_prompt()
     if tg is not None:
         async with get_session() as session:

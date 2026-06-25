@@ -1041,31 +1041,42 @@ NAV_SUPERLATIVE_PATTERNS: tuple[str, ...] = (
 
 # --- Tier 1.3: button menu (persistent reply keyboard + section screens) ---------
 
-# Persistent reply-keyboard labels. These are matched by EXACT equality and routed
-# before the history-NL / companion handlers; they are also reset triggers for the
-# command-cancel middleware (a menu tap aborts an in-progress dialog), so MENU_LABELS
-# must stay the single source of truth for "what counts as a menu tap".
+# Persistent reply-keyboard labels. Matched by EXACT equality and routed before the history-NL /
+# companion handlers; they are also reset triggers for the command-cancel middleware (a menu tap
+# aborts an in-progress dialog), so MENU_LABELS is the single source of truth for "what counts as a
+# menu tap". The menu is ~5 AGENT-DRIVEN sections: 🩺 Моє здоровʼя aggregates analyses · problems ·
+# goals · check-in, and 💊 Ліки й нагадування aggregates medications + reminders.
+MENU_HEALTH = "🩺 Моє здоровʼя"
+MENU_CARE = "💊 Ліки й нагадування"
+MENU_PRICES = "💰 Ціни / НСЗУ"
+MENU_MEMORY = "🧠 Памʼять"
+MENU_HELP = "❓ Довідка"
+
+# Legacy single-purpose labels — no longer on the keyboard (folded into the two hubs above) but kept
+# as constants: their handlers still answer (so a cached old keyboard keeps working) and they remain
+# inline-button captions inside the hubs.
 MENU_LABS = "📊 Аналізи"
 MENU_GOALS = "🎯 Цілі"
 MENU_PROBLEMS = "⚕️ Проблеми"
 MENU_MEDS = "💊 Ліки"
 MENU_REMINDERS = "🔔 Нагадування"
-MENU_PRICES = "💰 Ціни/НСЗУ"
 MENU_CHECKIN = "📝 Чек-ін"
-MENU_MEMORY = "🧠 Памʼять"
-MENU_HELP = "❓ Довідка"
 
+# Current keyboard labels PLUS the legacy ones — so a tap of either (new label, or an old label from
+# a keyboard a client still has cached) aborts an in-progress dialog.
 MENU_LABELS: frozenset[str] = frozenset(
     {
+        MENU_HEALTH,
+        MENU_CARE,
+        MENU_PRICES,
+        MENU_MEMORY,
+        MENU_HELP,
         MENU_LABS,
         MENU_GOALS,
         MENU_PROBLEMS,
         MENU_MEDS,
         MENU_REMINDERS,
-        MENU_PRICES,
         MENU_CHECKIN,
-        MENU_MEMORY,
-        MENU_HELP,
     }
 )
 
@@ -1091,6 +1102,12 @@ BOT_COMMANDS: tuple[tuple[str, str], ...] = (
     ("help", "Що я вмію"),
 )
 
+# Hub intros (each shown with its inline destination buttons).
+MENU_HEALTH_INTRO = (
+    "🩺 Твоя картина здоровʼя в одному місці — обери, що відкрити "
+    "(а новий аналіз додаси, надіславши фото або PDF):"
+)
+MENU_CARE_INTRO = "💊 Твої ліки й нагадування про них."
 # Section-screen intros (each shown with its inline action buttons).
 MENU_LABS_INTRO = "Аналізи — обери, що показати (а новий додаси, надіславши фото або PDF):"
 MENU_GOALS_INTRO = "Твої цілі для здоров'я."
@@ -1098,6 +1115,12 @@ MENU_PROBLEMS_INTRO = "Те, що зараз турбує (за активним
 MENU_MEDS_INTRO = "Твої ліки та нагадування про них."
 MENU_PRICES_INTRO = "Ціни на ліки та покриття за Програмою медичних гарантій (ПМГ)."
 
+# Hub destination-button labels (the 🩺 Моє здоровʼя and 💊 Ліки й нагадування screens).
+BTN_MENU_ANALYSES = "📊 Аналізи"
+BTN_MENU_PROBLEMS = "⚕️ Проблеми"
+BTN_MENU_GOALS = "🎯 Цілі"
+BTN_MENU_CHECKIN = "📝 Чек-ін"
+BTN_MENU_REMINDERS = "🔔 Нагадування"
 # Section inline-button labels.
 BTN_MENU_HISTORY = "📋 Переглянути історію"
 BTN_MENU_GOALS_LIST = "📋 Мої цілі"
@@ -1105,7 +1128,7 @@ BTN_MENU_GOAL_NEW = "➕ Нова ціль"
 BTN_MENU_PROB_LIST = "📋 Активні"
 BTN_MENU_PROB_NEW = "➕ Додати"
 BTN_MENU_MED_LIST = "📋 Мої ліки"
-BTN_MENU_MED_NEW = "➕ Додати"
+BTN_MENU_MED_NEW = "➕ Додати ліки"
 BTN_MENU_PRICE = "💊 Ціна ліків"
 BTN_MENU_COVERAGE = "🏥 Покриття НСЗУ"
 

@@ -441,6 +441,12 @@ def parse_consult_section(data: str) -> tuple[int, int] | None:
 
 # --- Tier 1.3: button-menu section actions (static, no ids) ----------------------
 
+# Hub destinations (the 🩺 Моє здоровʼя / 💊 Ліки й нагадування screens delegate to leaf helpers).
+MENU_OPEN_ANALYSES = "menu_analyses"  # post the "Аналізи" hub as a new message (from Моє здоровʼя)
+MENU_OPEN_GOALS = "menu_goals_sec"  # post the goals section (list + new)
+MENU_OPEN_CHECKIN = "menu_checkin"  # start the grounded check-in dialog
+MENU_OPEN_REMINDERS = "menu_reminders"  # open the reminders list
+
 MENU_OPEN_LABS = "menu_labs_hub"  # back to the "Аналізи" hub (from the history list)
 MENU_OPEN_HISTORY = "menu_hist"
 MENU_GOALS_LIST = "menu_goals"

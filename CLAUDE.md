@@ -322,12 +322,21 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   check-in answer with `locale.NOTHING_SAVED`). `python -m dbaylo.maintenance.cleanup_phantoms`
   removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
 - **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
-  new domain logic. A persistent `ReplyKeyboardMarkup` (📊 Аналізи · 🎯 Цілі · ⚕️ Проблеми · 💊 Ліки ·
-  🔔 Нагадування · 💰 Ціни/НСЗУ · 📝 Чек-ін · ❓ Довідка) is shown from `/start`; the native "/" command
+  new domain logic. The persistent `ReplyKeyboardMarkup` is now **~5 agent-driven sections**
+  (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми · 🎯 Цілі ·
+  📝 Чек-ін) · **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
+  🧠 Памʼять · ❓ Довідка — shown from `/start`. The two hubs post a section message whose inline
+  buttons delegate to the SAME leaf helpers as before (`MENU_OPEN_ANALYSES`/`MENU_PROB_LIST`/
+  `MENU_OPEN_GOALS`/`MENU_OPEN_CHECKIN`/`MENU_OPEN_REMINDERS`); the old single-purpose labels
+  (`MENU_LABS`/`GOALS`/`PROBLEMS`/`MEDS`/`REMINDERS`/`CHECKIN`) are kept as constants + handlers so a
+  **cached old keyboard still works**, and stay in `locale.MENU_LABELS` (current ∪ legacy) so either
+  resets a dialog. `start_checkin_dialog(..., telegram_id=)` is threaded on the callback path (a
+  callback message's `from_user` is the bot, so the grounded check-in needs the owner's id passed
+  explicitly). The native "/" command
   menu is populated on startup (`app.apply_bot_commands` from `locale.BOT_COMMANDS`, `set_my_commands`)
   so **no command must be typed from memory** — a parity test (`tests/test_bot_commands.py`) fails if any
   `Command(...)` handler lacks a "/" menu entry. Each label opens a section screen
-  (message + inline actions) that **delegates to reused helpers** — the commands are now aliases over
+  (message + inline actions) that **delegates to reused helpers** — the commands are aliases over
   the same `open_*` / `start_*_dialog` helpers (`companion_flow` · `proactive_flow` · `history_flow` ·
   `navigator_flow`). Menu labels are matched by **exact equality** (`F.text == locale.MENU_*`,
   `StateFilter(None)`) in the `menu` router registered **before** history-NL/companion, so a tap never
