@@ -52,6 +52,21 @@ def test_companion_html_tidies_markdown() -> None:
     assert "---" not in out  # the divider line is dropped
 
 
+def test_companion_html_sets_off_the_disclaimer_as_an_italic_ps() -> None:
+    # The companion reply gets the same premium look as the lab reading: body bold/italic + the
+    # disclaimer as an italic P.S. under a divider (not plain text at the bottom).
+    out = render_companion_html(f"Твій *гемоглобін* трохи високий.\n\n{DISCLAIMER}")
+    assert "<b>гемоглобін</b>" in out  # body markup rendered
+    assert locale.INTERPRET_DIVIDER in out  # the divider
+    assert f"{locale.INTERPRET_PS_PREFIX} <i>{DISCLAIMER}</i>" in out  # the P.S. is italic
+    assert out.rstrip().endswith("</i>")  # the disclaimer is the last, italic, element
+
+
+def test_companion_html_without_a_disclaimer_has_no_ps() -> None:
+    out = render_companion_html("просто коротка відповідь без дисклеймера")
+    assert locale.INTERPRET_DIVIDER not in out  # nothing to set off -> no stray divider
+
+
 def test_companion_html_escapes_dangerous_chars() -> None:
     # A stray '<' / '&' must be escaped so it can never break Telegram's HTML parser.
     out = render_companion_html("показник < 5 і *важливо* & безпечно")

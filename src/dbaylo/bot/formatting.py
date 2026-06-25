@@ -98,9 +98,13 @@ def _companion_inline(escaped: str) -> str:
 def render_companion_html(text: str) -> str:
     """Render a companion / intake reply as Telegram HTML, tidying any markdown: bold/italic become
     tags, a '# heading' becomes bold, '-' bullets become '•', and '---' rules / backticks are
-    dropped. Escapes first, so a stray '<' can never break Telegram's parser."""
+    dropped. The trailing disclaimer is set off as the same italic P.S. under a divider as the lab
+    reading (premium look). Escapes first, so a stray '<' can never break Telegram's parser."""
+    body = text
+    if body.endswith(DISCLAIMER):
+        body = body[: -len(DISCLAIMER)].rstrip()
     lines: list[str] = []
-    for raw in text.splitlines():
+    for raw in body.splitlines():
         if _HR_RE.match(raw):
             continue  # drop a markdown divider line
         heading = _HEADING_RE.match(raw)
@@ -108,7 +112,11 @@ def render_companion_html(text: str) -> str:
             lines.append(f"<b>{_escape(heading.group(1)).replace('*', '').replace('_', '')}</b>")
             continue
         lines.append(_companion_inline(_escape(_BULLET_RE.sub(r"\1• ", raw))))
-    return "\n".join(lines).rstrip()
+    out = "\n".join(lines).rstrip()
+    if not text.endswith(DISCLAIMER):  # no disclaimer to set off
+        return out
+    ps = f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(DISCLAIMER)}</i>"
+    return f"{out}\n\n{ps}"
 
 
 def render_interpretation_html(text: str) -> str:
