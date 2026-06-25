@@ -111,10 +111,19 @@ async def cmd_goals(message: Message) -> None:
 
 
 async def start_checkin_dialog(message: Message, state: FSMContext) -> None:
-    """Begin a check-in: ask the prompt and wait for the answer. Reused by /checkin and
-    the menu's 📝 Чек-ін button so both share one entry point."""
+    """Begin a check-in: ask a GROUNDED prompt (about the user's real concerns + recent state, like
+    the proactive one) and wait for the answer. Reused by /checkin and the 📝 Чек-ін button."""
     await state.set_state(CheckinStates.waiting_for_answer)
-    await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+    tg = _telegram_id(message)
+    prompt = checkin.build_prompt()
+    if tg is not None:
+        async with get_session() as session:
+            user = await ensure_user(session, telegram_id=tg)
+            context = await checkin.grounded_context(session, user_id=user.id, today=date.today())
+        if context:
+            async with keep_typing(message):
+                prompt = await checkin.build_grounded_prompt(context)
+    await message.answer(prompt, reply_markup=cancel_keyboard())
 
 
 @router.message(Command("checkin"))

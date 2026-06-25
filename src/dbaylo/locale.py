@@ -350,7 +350,7 @@ GOAL_REDIRECT_AGGRESSIVE = (
     "помірні зміни тримаються набагато довше. Хочеш, поставимо м'якшу, плавнішу ціль?"
 )
 GOAL_LIST_HEADER = "Ось твої цілі:"
-GOAL_LIST_EMPTY = "Ти ще не поставив(-ла) жодної цілі. Напиши /goal, щоб додати першу. 🌱"
+GOAL_LIST_EMPTY = "Цілей поки немає. Тисни «➕ Нова ціль» і напиши, чого хочеш досягти. 🌱"
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",
     "achieved": "досягнута",
@@ -931,9 +931,12 @@ NAV_RECOMMENDATION_REQUEST_PATTERNS: tuple[str, ...] = (
     r"\b(?:порадь|підкажи|порекоменду\w*)\s+(?:ліки|препарат\w*|щось)\b",
 )
 
-# Command prompts.
-NAV_ASK_DRUG = "Напиши точну назву ліків після /price — наприклад: /price парацетамол"
-NAV_ASK_SERVICE = "Напиши назву послуги після /coverage — наприклад: /coverage пологи"
+# Command prompts — after a button tap the dialog is already waiting, so just ask for the name (the
+# user types only the drug/service, never a "/command").
+NAV_ASK_DRUG = "Назви ліки, ціну яких перевірити — наприклад, «парацетамол». 💊"
+NAV_ASK_SERVICE = (
+    "Назви послугу — наприклад, «пологи» чи «УЗД нирок». Перевірю, чи покриває ПМГ. 🏥"
+)
 
 # Med prices.
 NAV_PRICE_HEADER = "Ось що я знайшов по «{drug}»:"
@@ -1089,6 +1092,8 @@ DIALOG_CANCELLED = "Скасовано — нічого не зберіг."
 
 # "Мої ліки" list view (reuses the per-medication turn-off button).
 MED_LIST_HEADER = "Твої ліки (натисни, щоб вимкнути нагадування):"
-MED_LIST_EMPTY = "Ліків поки немає. Додай через «➕ Додати» або /medication."
+MED_LIST_EMPTY = (
+    "Ліків поки немає. Тисни «➕ Додати» — назви ліки й час прийому, і я нагадуватиму. 💊"
+)
 MED_LIST_ITEM = "💊 {name} ({times})"
 BTN_MED_OFF_NAMED = "🔕 {name} ({times})"  # tap to turn this medication's reminders off

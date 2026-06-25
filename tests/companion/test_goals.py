@@ -87,7 +87,7 @@ async def test_goal_naming_a_red_flag_symptom_routes_to_triage(
 
 async def test_list_goals(async_session: AsyncSession) -> None:
     user = await _user(async_session)
-    assert "ще не" in (await list_goals(async_session, user=user))
+    assert "поки немає" in (await list_goals(async_session, user=user))
     await set_goal(async_session, user=user, text="краще спати")
     listed = await list_goals(async_session, user=user)
     assert "краще спати" in listed
