@@ -231,13 +231,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   fallback to the static `build_prompt`): it opens by asking about the user's ACTUAL current
   concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt.
 - **Health analyzer** (`companion/health.py`, the "big idea" foundation): **deterministic, NO LLM,
-  NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine and splits them into
-  `current` (latest measurement out of range) vs `resolved` (was off, latest back in range —
-  "remembered, not dwelt on"). `build_health_context` (profile + current + resolved) GROUNDS the
-  companion chat, the symptom intake AND the proactive check-in (so "болить поперек" connects to the
-  real kidney history; the check-in asks about the real flag). `should_have_checkin` =
-  active concern OR `has_current_flags`, so a daily check-in is scheduled even from auto-detected
-  data flags. Phrasing is downstream + always guarded; the analyzer itself only states the numbers.
+  NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine into `current` (latest
+  out of range), `watch` (still in range but trending toward — within 15% of — a bound: an EARLY
+  WARNING), and `resolved` (was off, latest back in range — "remembered, not dwelt on").
+  `build_health_context` (profile + current + watch + resolved) GROUNDS the companion chat, the
+  symptom intake AND the proactive check-in (so "болить поперек" connects to the real kidney history;
+  the check-in asks about the real flag, gently flags a worsening trend, and — using the dates in the
+  context — nudges re-testing a months-old flag). `should_have_checkin` = active concern OR
+  `has_current_flags` (conservative: a `watch` alone does not trigger a check-in, only enriches it).
+  Phrasing is downstream + always guarded; the analyzer itself only states the numbers.
+  **State memory** (`checkin.state_memory_context`, `CheckIn.note`, migration 0016): recent check-ins
+  (sleep/mood/symptoms + the user's own words) are remembered so Дбайло notices the dynamic and
+  follows up. `checkin.grounded_context` = the lab picture + this state memory, shared by the
+  check-in and the companion/intake (via `companion_flow._health_context`).
 - **Reminders + scheduler** (`companion/{reminders,scheduler}.py`): `Reminder` rows are the
   **source of truth**; `schedule` is `cron:<expr>` or `date:<iso>`. The live `ReminderScheduler`
   rebuilds one job per active row on startup *and* lets handlers `schedule`/`unschedule` a row
