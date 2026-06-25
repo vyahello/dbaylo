@@ -98,6 +98,37 @@ async def test_medication_schedules_all_jobs_and_turn_off_removes_all(
     assert _count(scheduler, "medication") == 0  # no orphaned jobs
 
 
+async def test_reconcile_checkin_schedules_from_a_data_flag_without_a_concern(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # The big-idea trigger: a currently out-of-range indicator warrants a proactive check-in even
+    # with NO manually-added concern.
+    from datetime import date as _date
+    from pathlib import Path
+
+    from dbaylo.labs.intake import create_pending_report, persist_confirmed
+    from dbaylo.labs.schema import ExtractedAnalyte
+
+    user = await _user(async_session)
+    assert _count(scheduler, "checkin") == 0  # nothing yet
+
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/g.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Глюкоза", value=7.0, unit="ммоль/л", ref_low=3.9, ref_high=6.1
+            )
+        ],
+        report_date=_date(2026, 6, 2),
+        lab="Synevo",
+    )
+    await proactive.reconcile_checkin(async_session, user=user, scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 1  # the data flag scheduled it
+
+
 async def test_repeat_lab_is_scheduled(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

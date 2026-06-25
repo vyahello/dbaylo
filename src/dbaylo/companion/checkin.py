@@ -23,9 +23,11 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import callbacks, concerns
+from dbaylo.companion import callbacks, concerns, health
 from dbaylo.companion.symptoms import detect_symptoms
 from dbaylo.db.models import CheckIn, User
+from dbaylo.labs.extraction import Runner
+from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import screen
 from dbaylo.triage.safety import assert_safe_output
 from dbaylo.triage.types import Symptom
@@ -52,17 +54,57 @@ _TRAINING_HINTS = (
 
 
 def build_prompt() -> str:
-    """The gentle evening check-in prompt (safety-checked)."""
+    """The gentle generic evening check-in prompt (safety-checked) — used when there's nothing to
+    ground in, or the LLM is unavailable."""
     return assert_safe_output(locale.CHECKIN_PROMPT)
 
 
+# A PROACTIVE check-in: Дбайло messages first, grounded in the user's real picture (current concerns
+# + out-of-range indicators) so it asks about what actually matters, like a caring assistant.
+CHECKIN_PERSONA = (
+    "You are Дбайло starting a gentle DAILY CHECK-IN — you message the user FIRST, like a caring "
+    "personal health assistant who knows them. You are given their health context (tracked "
+    "concerns + currently out-of-range indicators + resolved ones). Open warmly and SPECIFICALLY: "
+    "lead with what is actually relevant to them now (their main current concern), reference it "
+    "briefly ('як нирки після того КТ?'), then a light general question (sleep / mood / how the "
+    "body feels). GROUND only in the data given — never invent a value, cause or diagnosis. Keep "
+    "it SHORT (2–4 warm sentences), plain Ukrainian, address the user as 'ти', no markdown; a "
+    "fitting emoji is fine. NEVER give a medication or dose, calorie/fasting numbers, or tell them "
+    "to skip a doctor, and never say 'все добре'. End with an open question so they reply.\n"
+    + NATURAL_VOICE
+)
+
+
+async def build_grounded_prompt(
+    context: str, *, runner: Runner = run_claude, model: str | None = None
+) -> str:
+    """A warm check-in opener grounded in the user's health context, or the gentle generic prompt
+    when there is no context / the LLM is unavailable / the output trips the guard."""
+    if not context.strip():
+        return build_prompt()
+    prompt = (
+        f"Контекст здоровʼя користувача:\n{context}\n\nПочни щоденний чек-ін одним повідомленням."
+    )
+    try:
+        result = await runner(prompt, append_system_prompt=CHECKIN_PERSONA, model=model)
+    except ClaudeUnavailable:
+        return build_prompt()
+    if result is None or not result.ok or not result.text.strip():
+        return build_prompt()
+    try:
+        return assert_safe_output(result.text.strip())
+    except ValueError:
+        return build_prompt()
+
+
 async def checkin_messages(
-    session: AsyncSession, *, user_id: int, now: datetime
+    session: AsyncSession, *, user_id: int, now: datetime, runner: Runner = run_claude
 ) -> list[ProactiveMessage]:
-    """What the firing check-in sends: the prompt, then — if any concerns are due for review —
-    ONE batched "still relevant?" message with a "✅ <name>" button per concern (not a separate
-    message each, which piled up when many concerns came due the same day)."""
-    messages: list[ProactiveMessage] = [(build_prompt(), None)]
+    """What the firing check-in sends: a GROUNDED prompt (asks about the user's actual concerns +
+    data), then — if any concerns are due for review — ONE batched "still relevant?" message with a
+    "✅ <name>" button per concern (not a separate message each)."""
+    context = await health.build_health_context(session, user_id, today=now.date())
+    messages: list[ProactiveMessage] = [(await build_grounded_prompt(context, runner=runner), None)]
     due = await concerns.due_for_review(session, user_id=user_id, now=now)
     if due:
         buttons = [

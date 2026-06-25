@@ -34,6 +34,7 @@ from dbaylo.db.models import (
     ReportKind,
     ReportStatus,
     ResultFlag,
+    User,
 )
 from dbaylo.labs.charts import render_trend_chart
 from dbaylo.labs.labnames import normalize_lab
@@ -1300,6 +1301,11 @@ async def delete_report(
     _remove_file(report)
     await session.delete(report)  # cascade removes LabResults
     await session.flush()
+    # Now the report (and its flagged values) are gone — re-evaluate the proactive check-in against
+    # the POST-deletion picture, so it is retired if nothing (concern or data flag) warrants it.
+    user = await session.get(User, user_id)
+    if user is not None:
+        await proactive.reconcile_checkin(session, user=user, scheduler=scheduler)
 
 
 # --- Orphaned uploads (opt-in cleanup) ------------------------------------------

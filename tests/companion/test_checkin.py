@@ -31,6 +31,41 @@ def test_build_prompt_is_safe_and_nonempty() -> None:
     assert build_prompt().strip()
 
 
+async def test_grounded_prompt_uses_context_and_falls_back_when_empty() -> None:
+    from dbaylo.llm import ClaudeResult
+
+    captured: dict[str, object] = {}
+
+    async def runner(prompt: str, *args, **kwargs) -> ClaudeResult:
+        captured["prompt"] = prompt
+        return ClaudeResult(
+            ok=True, text="Привіт! Як нирки після КТ? І як спалося?", raw_stdout="", exit_code=0
+        )
+
+    ctx = "PATIENT PROFILE: - concerns: Камені в нирках.\nCURRENTLY out-of-range: - Глюкоза 7.0."
+    out = await checkin.build_grounded_prompt(ctx, runner=runner)
+    assert "Як нирки" in out  # the grounded opener
+    assert "Камені в нирках" in captured["prompt"]  # the model was handed the health context
+
+    # No context -> the static gentle prompt, and the LLM is NOT called.
+    async def exploding(*args, **kwargs):
+        raise AssertionError("no LLM when there's nothing to ground in")
+
+    assert await checkin.build_grounded_prompt("", runner=exploding) == build_prompt()
+
+
+async def test_grounded_prompt_falls_back_on_unsafe_output() -> None:
+    from dbaylo.llm import ClaudeResult
+
+    async def runner(*args, **kwargs) -> ClaudeResult:
+        return ClaudeResult(ok=True, text="Все добре, не хвилюйся!", raw_stdout="", exit_code=0)
+
+    # A forbidden reassurance trips the guard -> the safe static prompt.
+    assert await checkin.build_grounded_prompt("CURRENTLY out-of-range: x", runner=runner) == (
+        build_prompt()
+    )
+
+
 async def test_checkin_messages_appends_due_concern_review(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     condition = await concerns.add_active(async_session, user=user, name="високий тиск")

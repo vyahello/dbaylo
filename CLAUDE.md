@@ -225,9 +225,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   → `triage.evaluate`. The LLM never makes the escalation call. `SYMPTOM_KEYWORDS` is kept
   **disjoint** from the wellness purging signals (involuntary vs. self-induced vomiting) so
   triage's earlier pass can't mask a purging signal.
-- **Check-in** (`companion/checkin.py`): gentle evening prompt; lenient parse of
-  sleep/water/mood/training; symptoms route to triage. One follow-up only, never nags
-  (`should_send_nudge`). `--dry-run` prints the prompt.
+- **Check-in** (`companion/checkin.py`): lenient parse of sleep/water/mood/training; symptoms route
+  to triage. One follow-up only, never nags (`should_send_nudge`). The firing prompt is now
+  **GROUNDED + proactive** (`build_grounded_prompt`, LLM + `assert_safe_output`, deterministic
+  fallback to the static `build_prompt`): it opens by asking about the user's ACTUAL current
+  concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt.
+- **Health analyzer** (`companion/health.py`, the "big idea" foundation): **deterministic, NO LLM,
+  NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine and splits them into
+  `current` (latest measurement out of range) vs `resolved` (was off, latest back in range —
+  "remembered, not dwelt on"). `build_health_context` (profile + current + resolved) GROUNDS the
+  companion chat, the symptom intake AND the proactive check-in (so "болить поперек" connects to the
+  real kidney history; the check-in asks about the real flag). `should_have_checkin` =
+  active concern OR `has_current_flags`, so a daily check-in is scheduled even from auto-detected
+  data flags. Phrasing is downstream + always guarded; the analyzer itself only states the numbers.
 - **Reminders + scheduler** (`companion/{reminders,scheduler}.py`): `Reminder` rows are the
   **source of truth**; `schedule` is `cron:<expr>` or `date:<iso>`. The live `ReminderScheduler`
   rebuilds one job per active row on startup *and* lets handlers `schedule`/`unschedule` a row
@@ -241,9 +251,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   without firing. Medication reminder text never carries a dose.
 - **Tier 1.1 — proactive behavior** (`companion/{concerns,medications,proactive,callbacks}.py`,
   `bot/proactive_flow.py`): the check-in is **conditional** — a daily check-in is scheduled **iff**
-  ≥1 active `Condition` exists (`ConditionStatus`, migration 0004), never an unconditional ping.
-  `proactive.add_problem` schedules it on the first concern; resolving the last removes it
-  (`reconcile` self-heals on startup). The firing check-in also asks "still relevant?" for concerns
+  `health.should_have_checkin` (≥1 active `Condition`, `ConditionStatus`, migration 0004 — OR a
+  currently out-of-range indicator), never an unconditional ping. `proactive.reconcile_checkin`
+  (used by `add_problem`/`resolve_problem`, the lab-confirm hook, `delete_report`'s final pass, and
+  the scheduler's startup `reconcile`) makes the live job match that condition. The firing check-in also asks "still relevant?" for concerns
   due for review (~7 days, `Condition.last_review_at`) in ONE **batched** message — a `✅ <name>`
   button per due concern (not a message each), and `keyboards.remove_button_row` drops only the
   tapped concern's row so the rest stay actionable. Commands: `/problem`,
@@ -376,7 +387,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history·grouping · intake ·
-                         consult·consult_context·consult_memory·cities·notecache·notewarm)
+                         consult·consult_context·consult_memory·cities·notecache·notewarm · health)
 migrations/  Alembic 0001..0015   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 

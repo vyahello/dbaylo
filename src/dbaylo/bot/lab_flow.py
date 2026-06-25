@@ -41,7 +41,7 @@ from dbaylo.companion import callbacks, history, notewarm, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import LabReport, ReportStatus, ResultFlag
+from dbaylo.db.models import LabReport, ReportStatus, ResultFlag, User
 from dbaylo.labs.extraction import ExtractionFailed, extract_document
 from dbaylo.labs.intake import (
     create_pending_report,
@@ -600,7 +600,9 @@ async def _restore_confirmation(
 
 
 @router.callback_query(F.data == _CB_CONFIRM)
-async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
+async def on_confirm(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
     data = await state.get_data()
     report_id = data.get("report_id")
     # The pending values live only in FSM state until confirm. If that state is gone
@@ -640,6 +642,11 @@ async def on_confirm(callback: CallbackQuery, state: FSMContext) -> None:
         # restart mid-interpretation leaves an empty summary the startup recovery can finish.
         db_report.summary = history.SUMMARY_PENDING
         user_id = db_report.user_id
+        # A newly confirmed report may put an indicator out of range — proactively (re)schedule the
+        # daily check-in so Дбайло starts engaging on it, even without a manually-added concern.
+        user = await session.get(User, user_id)
+        if user is not None:
+            await proactive.reconcile_checkin(session, user=user, scheduler=reminder_scheduler)
 
     # Acknowledge immediately: the expert interpretation runs an LLM and can take a while, so
     # confirm the save and show a "working" note before the slow call — never a silent gap.

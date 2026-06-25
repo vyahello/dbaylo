@@ -34,7 +34,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import checkin, concerns, reminders
+from dbaylo.companion import checkin, health, reminders
 from dbaylo.companion.reminders import CronSpec, DateSpec, parse_schedule
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -257,11 +257,13 @@ class ReminderScheduler:
         )
 
     async def reconcile(self) -> None:
-        """Startup self-heal: a check-in reminder exists iff active concerns exist."""
+        """Startup self-heal: a check-in reminder exists iff the user should have one — an active
+        concern OR a currently out-of-range indicator (``health.should_have_checkin``)."""
+        today = datetime.now(self._tz).date()
         async with self._sf() as session:
             users = (await session.scalars(select(User))).all()
             for user in users:
-                active = await concerns.count_active(session, user_id=user.id)
+                wanted = await health.should_have_checkin(session, user.id, today=today)
                 existing = await session.scalar(
                     select(Reminder).where(
                         Reminder.user_id == user.id,
@@ -269,9 +271,9 @@ class ReminderScheduler:
                         Reminder.active.is_(True),
                     )
                 )
-                if active > 0 and existing is None:
+                if wanted and existing is None:
                     await reminders.ensure_checkin_reminder(session, user=user)
-                elif active == 0 and existing is not None:
+                elif not wanted and existing is not None:
                     await reminders.deactivate(session, existing)
             await session.commit()
 

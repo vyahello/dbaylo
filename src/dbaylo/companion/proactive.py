@@ -9,12 +9,12 @@ dose time; turning a medication off removes them all. Everything runs against th
 
 from __future__ import annotations
 
-from datetime import datetime, time
+from datetime import date, datetime, time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dbaylo.companion import concerns, medications, reminders
+from dbaylo.companion import concerns, health, medications, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import Condition, Medication, Reminder, User
 
@@ -30,6 +30,23 @@ async def _active_checkin(session: AsyncSession, user_id: int) -> Reminder | Non
     return result
 
 
+async def reconcile_checkin(
+    session: AsyncSession, *, user: User, scheduler: ReminderScheduler
+) -> None:
+    """Make the live check-in match ``health.should_have_checkin``: schedule it when there's
+    something to check in about, retire it when there isn't. Idempotent — safe to call any time."""
+    existing = await _active_checkin(session, user.id)
+    wanted = await health.should_have_checkin(session, user.id, today=date.today())
+    if wanted and existing is None:
+        reminder = await reminders.ensure_checkin_reminder(session, user=user)
+        await session.flush()
+        scheduler.schedule(reminder)
+    elif not wanted and existing is not None:
+        reminder_id = existing.id
+        await reminders.deactivate(session, existing)
+        scheduler.unschedule(reminder_id)
+
+
 async def add_problem(
     session: AsyncSession,
     *,
@@ -38,28 +55,23 @@ async def add_problem(
     scheduler: ReminderScheduler,
     report_id: int | None = None,
 ) -> Condition:
-    """Add an active concern; schedule the daily check-in if it's the first one."""
+    """Add an active concern; (re)schedule the daily check-in if warranted."""
     condition = await concerns.add_active(session, user=user, name=name, report_id=report_id)
-    if await _active_checkin(session, user.id) is None:
-        reminder = await reminders.ensure_checkin_reminder(session, user=user)
-        await session.flush()
-        scheduler.schedule(reminder)
+    await reconcile_checkin(session, user=user, scheduler=scheduler)
     return condition
 
 
 async def resolve_problem(
     session: AsyncSession, *, user_id: int, condition_id: int, scheduler: ReminderScheduler
 ) -> Condition | None:
-    """Resolve a concern; remove the check-in when no active concern remains."""
+    """Resolve a concern; retire the check-in only if nothing else (concern or data flag) warrants
+    one."""
     condition = await concerns.resolve(session, condition_id)
     if condition is None or condition.user_id != user_id:
         return condition
-    if await concerns.count_active(session, user_id=user_id) == 0:
-        reminder = await _active_checkin(session, user_id)
-        if reminder is not None:
-            reminder_id = reminder.id
-            await reminders.deactivate(session, reminder)
-            scheduler.unschedule(reminder_id)
+    user = await session.get(User, user_id)
+    if user is not None:
+        await reconcile_checkin(session, user=user, scheduler=scheduler)
     return condition
 
 
