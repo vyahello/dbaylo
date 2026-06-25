@@ -407,6 +407,29 @@ BTN_PROBLEM_RENAME_SHORT = "✏️"  # next to the named resolve button in the c
 # Draft name for a concern proposed from an out-of-range lab value (user can rename).
 PROBLEM_LAB_DRAFT = "{analyte} поза нормою"
 
+# --- "Проблеми = the agent proposes" (the AI-driven concerns screen) -------------
+# The agent reads ALL labs and shows what IT sees as off — the user confirms with one tap, instead
+# of typing problems by hand.
+PROBLEM_PROPOSE_HEADER = (
+    "🔎 Ось що я бачу у твоїх аналізах. Тисни 👁, щоб я відстежував і м'яко нагадував, "
+    "або ✖, якщо це не турбує:"
+)
+PROBLEM_TRACKED_HEADER = "Вже відстежую:"
+PROBLEM_ALL_CLEAR = (
+    "Зараз усе в межах норми, активних проблем немає. Я сам пригляну за новими аналізами "
+    "й підкажу, якщо щось зміниться. 💚"
+)
+# One finding line in the proposals body (plain text — analyte names are safe, no HTML).
+PROBLEM_LINE_HIGH = "⚠️ {name}: {value} (норма {ref}) — вище норми"
+PROBLEM_LINE_LOW = "⚠️ {name}: {value} (норма {ref}) — нижче норми"
+PROBLEM_LINE_WATCH = "📈 {name}: {value} (норма {ref}) — наближається до межі"
+PROBLEM_LINE_FLAG = "⚠️ {name}: {value} (норма {ref}) — позначено лабораторією"
+BTN_PROBLEM_TRACK = "👁 {name}"  # carries the analyte name; ✖ beside it dismisses
+BTN_PROBLEM_DISMISS = "✖"
+BTN_PROBLEM_ADD_MANUAL = "➕ Своя проблема"
+PROBLEM_TRACK_TOAST = "Відстежую — нагадаю й перепитаю. 👁"
+PROBLEM_DISMISS_TOAST = "Гаразд, не турбуватиму цим. ✖"
+
 # --- Tier 1.1: lab-flag concern offer + repeat-lab offer ------------------------
 
 LAB_CONCERN_OFFER = (

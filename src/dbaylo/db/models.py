@@ -36,6 +36,9 @@ class ConditionStatus(StrEnum):
 
     ACTIVE = "active"
     RESOLVED = "resolved"
+    # An AI-PROPOSED finding the user chose NOT to track ("Не турбує"): remembered only so it is not
+    # re-proposed and so the data-driven check-in stops nagging about it. Never warrants a check-in.
+    DISMISSED = "dismissed"
 
 
 class ResultFlag(StrEnum):

@@ -51,6 +51,9 @@ class HealthFinding:
     direction: str  # the range-relative TrendDirection name (e.g. "LEFT_RANGE")
     last_date: date | None
     n_points: int
+    # A small UI-facing severity tag (never a diagnosis): "high" / "low" / "watch" / "flag". Lets
+    # the Ukrainian renderer pick a marker + phrase without re-deriving the numbers; default "flag".
+    kind: str = "flag"
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,9 @@ def _value_text(point: LabPoint) -> str:
     return f"{point.value:g} {point.unit}".strip() if point.unit else f"{point.value:g}"
 
 
+_FLAG_KIND = {ResultFlag.HIGH: "high", ResultFlag.LOW: "low"}
+
+
 def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFinding:
     flag_text = _FLAG_TEXT.get(summary.latest_flag, "flagged by the lab")
     return HealthFinding(
@@ -126,6 +132,7 @@ def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFi
         direction=summary.direction.name,
         last_date=latest.taken_on,
         n_points=n_points,
+        kind=_FLAG_KIND.get(summary.latest_flag, "flag"),
     )
 
 
@@ -152,7 +159,7 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
         numeric = [p for p in points if p.value is not None]  # already date-ascending
         watch_text = _watch_direction(numeric)
         if watch_text is not None:  # in range but trending toward a bound — early warning
-            watch.append(replace(finding, flag_text=watch_text))
+            watch.append(replace(finding, flag_text=watch_text, kind="watch"))
         elif any(_is_oor(p) for p in points):  # was off before, latest is back in range
             resolved.append(finding)
     by_date = lambda f: f.last_date or date.min  # noqa: E731
@@ -168,10 +175,43 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
     )
 
 
-async def has_current_flags(session: AsyncSession, user_id: int, *, today: date) -> bool:
-    """True iff any indicator is currently out of range — drives the proactive check-in."""
+def _norm(name: str) -> str:
+    return name.casefold().strip()
+
+
+def _already_known(finding_name: str, existing: list[str]) -> bool:
+    """Whether ``finding_name`` matches a concern the user already tracks/dismissed. Matches on an
+    exact name or the analyte CORE (the part before any '(ABBR)') appearing in the concern name — so
+    a finding ``Гемоглобін (HGB)`` is covered by a stored ``Гемоглобін (HGB)`` (exact) and by the
+    legacy ``Гемоглобін поза нормою`` (core substring), but an unrelated manual concern isn't."""
+    n = _norm(finding_name)
+    core = n.split("(", 1)[0].strip()
+    for raw in existing:
+        e = _norm(raw)
+        if n == e or (core and core in e):
+            return True
+    return False
+
+
+async def propose_problems(
+    session: AsyncSession, user_id: int, *, today: date
+) -> list[HealthFinding]:
+    """What the AGENT would propose to track: currently out-of-range indicators first, then
+    in-range-but-trending ones (watch), EXCLUDING anything the user already tracks or has dismissed.
+    Deterministic, data-only — the user confirms; the agent never decides escalation."""
     picture = await analyze_health(session, user_id, today=today)
-    return bool(picture.current)
+    existing = await concerns.names_active_or_dismissed(session, user_id=user_id)
+    return [f for f in (*picture.current, *picture.watch) if not _already_known(f.name, existing)]
+
+
+async def has_current_flags(session: AsyncSession, user_id: int, *, today: date) -> bool:
+    """True iff any indicator is currently out of range AND not waved off — drives the proactive
+    check-in. A finding the user dismissed ("Не турбує") no longer keeps the check-in alive."""
+    picture = await analyze_health(session, user_id, today=today)
+    if not picture.current:
+        return False
+    dismissed = await concerns.names_dismissed(session, user_id=user_id)
+    return any(not _already_known(f.name, dismissed) for f in picture.current)
 
 
 async def should_have_checkin(session: AsyncSession, user_id: int, *, today: date) -> bool:

@@ -63,6 +63,17 @@ async def add_problem(
     return condition
 
 
+async def dismiss_problem(
+    session: AsyncSession, *, user: User, name: str, scheduler: ReminderScheduler
+) -> Condition:
+    """Wave off an AI-proposed finding ("Не турбує"): remember it as DISMISSED so it isn't
+    re-proposed, then reconcile — if it was the last thing keeping the data-driven check-in alive,
+    the check-in is retired."""
+    condition = await concerns.dismiss(session, user=user, name=name)
+    await reconcile_checkin(session, user=user, scheduler=scheduler)
+    return condition
+
+
 async def resolve_problem(
     session: AsyncSession, *, user_id: int, condition_id: int, scheduler: ReminderScheduler
 ) -> Condition | None:

@@ -79,13 +79,11 @@ async def menu_goals(message: Message) -> None:
 
 @router.message(StateFilter(None), F.text == locale.MENU_PROBLEMS)
 async def menu_problems(message: Message) -> None:
-    await message.answer(
-        locale.MENU_PROBLEMS_INTRO,
-        reply_markup=section_keyboard(
-            (locale.BTN_MENU_PROB_LIST, callbacks.MENU_PROB_LIST),
-            (locale.BTN_MENU_PROB_NEW, callbacks.MENU_PROB_NEW),
-        ),
-    )
+    # Straight to the agent's read — it shows what IT sees off (one-tap track/dismiss) instead of a
+    # sub-menu that asks the user to type problems by hand.
+    tg = _owner_tg(message)
+    if tg is not None:
+        await proactive_flow.open_problems(message, tg)
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_MEDS)

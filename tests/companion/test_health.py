@@ -109,6 +109,38 @@ async def test_should_have_checkin_true_for_a_tracked_concern_without_labs(
     assert await health.should_have_checkin(async_session, user.id, today=_TODAY)
 
 
+async def test_propose_problems_excludes_tracked_and_dismissed(
+    async_session: AsyncSession,
+) -> None:
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session,
+        user,
+        day=date(2026, 6, 2),
+        analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1), _analyte("Сечовина", 12.0, 2.5, 8.3)],
+    )
+    proposed = {f.name for f in await health.propose_problems(async_session, user.id, today=_TODAY)}
+    assert proposed == {"Глюкоза", "Сечовина"}  # the agent proposes both out-of-range findings
+
+    # Track one, wave the other off -> neither is proposed again.
+    await concerns.add_active(async_session, user=user, name="Глюкоза")
+    await concerns.dismiss(async_session, user=user, name="Сечовина")
+    again = {f.name for f in await health.propose_problems(async_session, user.id, today=_TODAY)}
+    assert again == set()
+
+
+async def test_dismissed_flag_stops_the_data_driven_checkin(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session, user, day=date(2026, 6, 2), analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)]
+    )
+    assert await health.should_have_checkin(async_session, user.id, today=_TODAY)
+    # The user waves the only out-of-range finding off -> no concern, no data-driven check-in.
+    await concerns.dismiss(async_session, user=user, name="Глюкоза")
+    assert not await health.has_current_flags(async_session, user.id, today=_TODAY)
+    assert not await health.should_have_checkin(async_session, user.id, today=_TODAY)
+
+
 async def test_build_health_context_lists_current_and_resolved(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     await _confirm(

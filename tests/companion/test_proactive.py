@@ -129,6 +129,38 @@ async def test_reconcile_checkin_schedules_from_a_data_flag_without_a_concern(
     assert _count(scheduler, "checkin") == 1  # the data flag scheduled it
 
 
+async def test_dismiss_problem_retires_the_data_driven_checkin(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # "Не турбує" on the only out-of-range finding -> the data-driven check-in is retired (the agent
+    # stops nagging about something the user waved off).
+    from datetime import date as _date
+    from pathlib import Path
+
+    from dbaylo.labs.intake import create_pending_report, persist_confirmed
+    from dbaylo.labs.schema import ExtractedAnalyte
+
+    user = await _user(async_session)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/g2.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Глюкоза", value=7.0, unit="ммоль/л", ref_low=3.9, ref_high=6.1
+            )
+        ],
+        report_date=_date(2026, 6, 2),
+        lab="Synevo",
+    )
+    await proactive.reconcile_checkin(async_session, user=user, scheduler=scheduler)
+    assert _count(scheduler, "checkin") == 1  # the flag scheduled it
+
+    await proactive.dismiss_problem(async_session, user=user, name="Глюкоза", scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 0  # waved off -> nothing warrants a check-in anymore
+
+
 async def test_repeat_lab_is_scheduled(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

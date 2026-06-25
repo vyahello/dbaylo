@@ -263,7 +263,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   the scheduler's startup `reconcile`) makes the live job match that condition. The firing check-in also asks "still relevant?" for concerns
   due for review (~7 days, `Condition.last_review_at`) in ONE **batched** message — a `✅ <name>`
   button per due concern (not a message each), and `keyboards.remove_button_row` drops only the
-  tapped concern's row so the rest stay actionable. Commands: `/problem`,
+  tapped concern's row so the rest stay actionable. **⚕️ Проблеми is AGENT-DRIVEN** (the menu tap →
+  `open_problems` directly, no sub-menu): `health.propose_problems` reads ALL labs and the bot shows
+  what IT sees off — current out-of-range + `watch` findings (excluding anything already tracked or
+  dismissed) — each as a `[👁 <name>][✖]` row the user confirms in ONE tap (`callbacks.problem_track`/
+  `problem_dismiss`, by INDEX into the freshly-derived list, edit-in-place). 👁 = `add_problem`
+  (tracks → schedules the check-in); ✖ = `dismiss_problem` → a `ConditionStatus.DISMISSED` row
+  (migration 0017) so it is never re-proposed AND no longer keeps the data-driven check-in alive
+  (`has_current_flags` skips dismissed). Tracked concerns follow with `[✅ <name>][✏️]`; a manual
+  `➕ Своя проблема` stays as a fallback. Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
   `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
   (list + turn off, next_run from the scheduler). On lab confirm the bot **offers** a repeat-lab

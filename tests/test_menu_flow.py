@@ -195,30 +195,110 @@ async def test_menu_memory_delegates_to_open_memory_view(monkeypatch) -> None:
     assert seen["args"] == (message, 4242)
 
 
-async def test_open_problems_is_one_message_with_a_row_per_concern(monkeypatch) -> None:
-    # No flood: the problems list is ONE message, one [✅ name][✏️] row per concern (so resolving
-    # removes just that row), instead of a separate message per concern.
+async def test_open_problems_proposes_findings_and_lists_tracked(monkeypatch) -> None:
+    # The agent's read in ONE message: AI-proposed findings (👁 track / ✖ dismiss), then the
+    # already-tracked concerns (✅ resolve / ✏️), then a manual-add fallback.
     from contextlib import asynccontextmanager
+
+    from dbaylo.companion.health import HealthFinding
 
     @asynccontextmanager
     async def fake_session():
         yield object()
 
-    concerns = [SimpleNamespace(id=1, name="Болить спина"), SimpleNamespace(id=2, name="Тиск")]
+    proposals = [
+        HealthFinding(
+            name="Гемоглобін (HGB)",
+            value="169 г/л",
+            ref="130–160",
+            flag_text="above",
+            direction="LEFT_RANGE",
+            last_date=None,
+            n_points=2,
+            kind="high",
+        )
+    ]
+    concerns = [SimpleNamespace(id=1, name="Болить спина")]
     monkeypatch.setattr(proactive_flow, "get_session", fake_session)
     monkeypatch.setattr(
         proactive_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
     )
+    monkeypatch.setattr(
+        proactive_flow.health, "propose_problems", AsyncMock(return_value=proposals)
+    )
     monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=concerns))
     message = AsyncMock()
     await proactive_flow.open_problems(message, telegram_id=4242)
-    message.answer.assert_awaited_once()  # ONE message, not one per concern
-    _, kwargs = message.answer.call_args
-    rows = kwargs["reply_markup"].inline_keyboard
-    assert len(rows) == 2  # one row per concern
+    message.answer.assert_awaited_once()  # ONE message, not one per finding/concern
+    text = message.answer.call_args.args[0]
+    rows = message.answer.call_args.kwargs["reply_markup"].inline_keyboard
     datas = [b.callback_data for row in rows for b in row]
-    assert callbacks.problem_resolve(1) in datas and callbacks.problem_resolve(2) in datas
-    assert "Болить спина" in rows[0][0].text  # the name is IN the resolve button
+    # The proposed finding gets a track+dismiss pair; the tracked concern keeps resolve+rename.
+    assert callbacks.problem_track(0) in datas and callbacks.problem_dismiss(0) in datas
+    assert callbacks.problem_resolve(1) in datas
+    assert callbacks.MENU_PROB_NEW in datas  # manual "➕ Своя проблема" fallback is always there
+    assert "Гемоглобін (HGB)" in text  # the finding is described, value + norm, in the body
+
+
+def _proposal_finding(name: str = "Глюкоза"):
+    from dbaylo.companion.health import HealthFinding
+
+    return HealthFinding(
+        name=name,
+        value="7 ммоль/л",
+        ref="3.9–6.1",
+        flag_text="above",
+        direction="LEFT_RANGE",
+        last_date=None,
+        n_points=1,
+        kind="high",
+    )
+
+
+def _patch_problems(monkeypatch):
+    from contextlib import asynccontextmanager
+
+    @asynccontextmanager
+    async def fake_session():
+        yield AsyncMock()  # has an awaitable .commit()
+
+    monkeypatch.setattr(proactive_flow, "get_session", fake_session)
+    monkeypatch.setattr(
+        proactive_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        proactive_flow.health,
+        "propose_problems",
+        AsyncMock(return_value=[_proposal_finding()]),
+    )
+    monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=[]))
+
+
+async def test_problem_track_creates_concern_by_index_and_refreshes(monkeypatch) -> None:
+    # 👁 on a proposed finding tracks it (by its index in the freshly-derived list) and re-renders
+    # the screen in place — no message spam.
+    _patch_problems(monkeypatch)
+    add = AsyncMock()
+    monkeypatch.setattr(proactive_flow.proactive, "add_problem", add)
+    callback = _callback(callbacks.problem_track(0))
+    callback.message.edit_text = AsyncMock()
+    await proactive_flow.on_problem_track(callback, reminder_scheduler=object())
+    add.assert_awaited_once()
+    assert add.await_args.kwargs["name"] == "Глюкоза"  # tracked the finding at index 0
+    callback.message.edit_text.assert_awaited()  # edit-in-place refresh
+
+
+async def test_problem_dismiss_waves_off_by_index_and_refreshes(monkeypatch) -> None:
+    # ✖ remembers the finding as dismissed (so it stops being proposed) and refreshes in place.
+    _patch_problems(monkeypatch)
+    off = AsyncMock()
+    monkeypatch.setattr(proactive_flow.proactive, "dismiss_problem", off)
+    callback = _callback(callbacks.problem_dismiss(0))
+    callback.message.edit_text = AsyncMock()
+    await proactive_flow.on_problem_dismiss(callback, reminder_scheduler=object())
+    off.assert_awaited_once()
+    assert off.await_args.kwargs["name"] == "Глюкоза"
+    callback.message.edit_text.assert_awaited()
 
 
 # --- Section inline-button callbacks (delegate to reused helpers) ---------------

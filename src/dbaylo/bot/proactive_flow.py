@@ -9,7 +9,7 @@ schedule immediately (no restart).
 from __future__ import annotations
 
 import contextlib
-from datetime import datetime
+from datetime import date, datetime
 
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
-from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
+from dbaylo.companion import callbacks, concerns, health, medications, proactive, reminders
+from dbaylo.companion.health import HealthFinding
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.db.models import Medication, Reminder
@@ -95,31 +96,146 @@ async def _add_problem(message: Message, name: str, scheduler: ReminderScheduler
     await message.answer(locale.PROBLEM_ADDED)
 
 
-async def open_problems(message: Message, telegram_id: int) -> None:
-    """List active concerns in ONE message — a row per concern (✅ resolve · ✏️ rename) — instead of
-    a separate message each. Resolving removes just that row (the name lives in the button)."""
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=telegram_id)
-        active = await concerns.list_active(session, user_id=user.id)
-    if not active:
-        await message.answer(locale.PROBLEM_LIST_EMPTY)
-        return
-    rows = [
+def _short(name: str, limit: int = 28) -> str:
+    name = name.strip()
+    return name if len(name) <= limit else name[: limit - 1] + "…"
+
+
+_PROBLEM_LINE = {
+    "high": locale.PROBLEM_LINE_HIGH,
+    "low": locale.PROBLEM_LINE_LOW,
+    "watch": locale.PROBLEM_LINE_WATCH,
+    "flag": locale.PROBLEM_LINE_FLAG,
+}
+
+
+def _finding_line(finding: HealthFinding) -> str:
+    template = _PROBLEM_LINE.get(finding.kind, locale.PROBLEM_LINE_FLAG)
+    return template.format(name=finding.name, value=finding.value, ref=finding.ref)
+
+
+async def _problems_screen(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """Build the AI-driven problems screen: the agent's detected findings (👁 track / ✖ dismiss),
+    then the already-tracked concerns (✅ resolve / ✏️ rename), then a manual-add fallback. Pure
+    rendering over the deterministic analyzer — the user confirms, the agent never decides."""
+    proposals = await health.propose_problems(session, user_id, today=date.today())
+    active = await concerns.list_active(session, user_id=user_id)
+    lines: list[str] = []
+    kb: list[list[InlineKeyboardButton]] = []
+    if proposals:
+        lines.append(locale.PROBLEM_PROPOSE_HEADER)
+        lines.append("")
+        for index, finding in enumerate(proposals):
+            lines.append(_finding_line(finding))
+            kb.append(
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_PROBLEM_TRACK.format(name=_short(finding.name)),
+                        callback_data=callbacks.problem_track(index),
+                    ),
+                    InlineKeyboardButton(
+                        text=locale.BTN_PROBLEM_DISMISS,
+                        callback_data=callbacks.problem_dismiss(index),
+                    ),
+                ]
+            )
+    if active:
+        if lines:
+            lines.append("")
+        lines.append(locale.PROBLEM_TRACKED_HEADER)
+        for condition in active:
+            kb.append(
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
+                        callback_data=callbacks.problem_resolve(condition.id),
+                    ),
+                    InlineKeyboardButton(
+                        text=locale.BTN_PROBLEM_RENAME_SHORT,
+                        callback_data=callbacks.problem_rename(condition.id),
+                    ),
+                ]
+            )
+    if not proposals and not active:
+        lines.append(locale.PROBLEM_ALL_CLEAR)
+    kb.append(
         [
             InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
-                callback_data=callbacks.problem_resolve(condition.id),
-            ),
-            InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_RENAME_SHORT,
-                callback_data=callbacks.problem_rename(condition.id),
-            ),
+                text=locale.BTN_PROBLEM_ADD_MANUAL, callback_data=callbacks.MENU_PROB_NEW
+            )
         ]
-        for condition in active
-    ]
-    await message.answer(
-        locale.PROBLEM_LIST_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
     )
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+async def open_problems(message: Message, telegram_id: int) -> None:
+    """The agent's read of your problems: what it sees as off (one-tap track/dismiss) + what you
+    already track. Replaces the old type-it-yourself list with a propose-then-confirm screen."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        text, keyboard = await _problems_screen(session, user_id=user.id)
+    await message.answer(text, reply_markup=keyboard)
+
+
+async def _edit_problems(callback: CallbackQuery) -> None:
+    """Re-render the problems screen in place (after a track/dismiss) — never spams new messages."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        text, keyboard = await _problems_screen(session, user_id=user.id)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_TRACK + ":"))
+async def on_problem_track(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Track an AI-proposed finding (👁): create the concern + schedule the daily check-in."""
+    index = callbacks.parse_problem_track(callback.data or "")
+    tg = _telegram_id(callback)
+    if index is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        proposals = await health.propose_problems(session, user.id, today=date.today())
+        if 0 <= index < len(proposals):
+            await proactive.add_problem(
+                session, user=user, name=proposals[index].name, scheduler=reminder_scheduler
+            )
+            await session.commit()
+            toast = locale.PROBLEM_TRACK_TOAST
+    await callback.answer(toast)
+    await _edit_problems(callback)
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_DISMISS + ":"))
+async def on_problem_dismiss(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    """Wave off an AI-proposed finding (✖): remember it as dismissed so it stops being proposed and
+    stops keeping the data-driven check-in alive."""
+    index = callbacks.parse_problem_dismiss(callback.data or "")
+    tg = _telegram_id(callback)
+    if index is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        proposals = await health.propose_problems(session, user.id, today=date.today())
+        if 0 <= index < len(proposals):
+            await proactive.dismiss_problem(
+                session, user=user, name=proposals[index].name, scheduler=reminder_scheduler
+            )
+            await session.commit()
+            toast = locale.PROBLEM_DISMISS_TOAST
+    await callback.answer(toast)
+    await _edit_problems(callback)
 
 
 @router.message(Command("problems"))

@@ -8,6 +8,10 @@ _SEP = ":"
 
 PROBLEM_RESOLVE = "prob_resolve"
 PROBLEM_RENAME = "prob_rename"
+# AI-proposed problems: track / wave off a finding by its INDEX in the freshly-derived proposal list
+# (the finding is computed, not a DB row; the index is re-resolved on tap, like the charts picker).
+PROBLEM_TRACK = "prob_track"
+PROBLEM_DISMISS = "prob_dismiss"
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 # Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
@@ -60,6 +64,22 @@ def problem_rename(condition_id: int) -> str:
 
 def parse_problem_rename(data: str) -> int | None:
     return _parse(PROBLEM_RENAME, data)
+
+
+def problem_track(index: int) -> str:
+    return _make(PROBLEM_TRACK, index)
+
+
+def parse_problem_track(data: str) -> int | None:
+    return _parse(PROBLEM_TRACK, data)
+
+
+def problem_dismiss(index: int) -> str:
+    return _make(PROBLEM_DISMISS, index)
+
+
+def parse_problem_dismiss(data: str) -> int | None:
+    return _parse(PROBLEM_DISMISS, data)
 
 
 def reminder_off(reminder_id: int) -> str:

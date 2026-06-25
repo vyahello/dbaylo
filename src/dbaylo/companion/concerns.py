@@ -34,6 +34,37 @@ async def add_active(
     return condition
 
 
+async def dismiss(session: AsyncSession, *, user: User, name: str) -> Condition:
+    """Record an AI-proposed finding the user declined to track ("Не турбує"). Stored as a DISMISSED
+    Condition so it is neither re-proposed nor used to keep the data-driven check-in alive."""
+    condition = Condition(user_id=user.id, name=name.strip(), status=ConditionStatus.DISMISSED)
+    session.add(condition)
+    await session.flush()
+    return condition
+
+
+async def names_dismissed(session: AsyncSession, *, user_id: int) -> list[str]:
+    """Names of the user's DISMISSED findings (so a current flag they waved off stops nagging)."""
+    rows = await session.scalars(
+        select(Condition.name).where(
+            Condition.user_id == user_id, Condition.status == ConditionStatus.DISMISSED
+        )
+    )
+    return [n for n in rows.all() if n]
+
+
+async def names_active_or_dismissed(session: AsyncSession, *, user_id: int) -> list[str]:
+    """Names already tracked OR dismissed — the set an AI proposal must exclude (don't re-offer
+    something the user already tracks or explicitly waved off)."""
+    rows = await session.scalars(
+        select(Condition.name).where(
+            Condition.user_id == user_id,
+            Condition.status.in_([ConditionStatus.ACTIVE, ConditionStatus.DISMISSED]),
+        )
+    )
+    return [n for n in rows.all() if n]
+
+
 async def resolve(session: AsyncSession, condition_id: int) -> Condition | None:
     condition = await session.get(Condition, condition_id)
     if condition is not None:
