@@ -19,7 +19,10 @@ The only LLM use is the answer itself, always downstream of ``screen`` — so th
 
 from __future__ import annotations
 
+import json
+import re
 from dataclasses import dataclass
+from datetime import date
 
 from dbaylo import locale
 from dbaylo.config import get_settings
@@ -245,3 +248,83 @@ async def find_clinics(
     except ValueError:
         return f"{assert_safe_output(locale.CONSULT_CLINICS_FALLBACK)}\n\n{DISCLAIMER}"
     return f"{body}\n\n{DISCLAIMER}"
+
+
+# --- Reminder extraction (natural-language -> {subject, date}) --------------------
+# So the user can just say "нагадай" (or "запиши мене на УЗД 11 липня") and Дбайло fills in WHAT and
+# WHEN from the message AND the conversation, instead of always re-asking "про що?". Deterministic
+# flow still owns creation/scheduling — this only parses; the subject is safety-checked.
+
+REMINDER_EXTRACT_PERSONA = (
+    "You turn a health conversation into a calendar reminder. From the dialogue and the user's "
+    "latest request, work out two things: (1) WHAT to remind them to do — an exam, a recheck, a "
+    "call to a clinic, a doctor visit — as a SHORT Ukrainian phrase (include the place if it was "
+    "named, e.g. 'УЗД нирок та консультація уролога (UROSVIT)'); and (2) the DATE, if one is named "
+    "or clearly implied. Output STRICT JSON and nothing else: "
+    '{"subject": "<short Ukrainian subject, or empty string if you truly cannot tell what to '
+    'remind about>", "date": "<YYYY-MM-DD, or empty string if no date is given>"}. '
+    "Resolve relative and Ukrainian dates against today's date (given below); for a day+month "
+    "with no year, choose the NEXT future occurrence. NEVER put a medication dose in the subject. "
+    "If the request is vague and the conversation gives no clue, return an empty subject."
+)
+
+
+@dataclass(frozen=True)
+class ReminderDraft:
+    """A parsed reminder: what to remind about + an optional ISO date ("" when none)."""
+
+    subject: str
+    date: str
+
+
+def _extract_json(text: str) -> dict[str, object] | None:
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if match is None:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except (ValueError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def extract_reminder(
+    latest_text: str,
+    transcript: list[Turn],
+    *,
+    today: date,
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> ReminderDraft | None:
+    """Infer a reminder's subject + date from the user's request and the recent conversation, or
+    ``None`` when the subject can't be told (the caller then asks 'про що?'). Pure parsing — the
+    creation/scheduling stay deterministic; the subject passes ``assert_safe_output`` (no dose)."""
+    convo = "\n".join(
+        f"{'Користувач' if t.get('role') == 'user' else 'Дбайло'}: {t.get('text', '')}"
+        for t in transcript[-MAX_CONTEXT_TURNS:]
+    )
+    ask = latest_text.strip() or "(користувач натиснув кнопку «Нагадати»)"
+    prompt = (
+        f"Сьогодні: {today.isoformat()}.\n"
+        f"Розмова:\n{convo}\n\n"
+        f"Останнє прохання користувача про нагадування: {ask}\n"
+        "Витягни предмет і дату нагадування у вказаному форматі JSON."
+    )
+    try:
+        result = await runner(prompt, append_system_prompt=REMINDER_EXTRACT_PERSONA, model=model)
+    except ClaudeUnavailable:
+        return None
+    if result is None or not result.ok or not result.text.strip():
+        return None
+    data = _extract_json(result.text)
+    if data is None:
+        return None
+    subject = str(data.get("subject") or "").strip()
+    date_str = str(data.get("date") or "").strip()
+    if not subject:
+        return None
+    try:
+        assert_safe_output(subject)  # a reminder subject must carry no dose / forbidden phrasing
+    except ValueError:
+        return None
+    return ReminderDraft(subject=subject, date=date_str)

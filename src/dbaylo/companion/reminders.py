@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import select
@@ -50,6 +50,48 @@ def parse_relative_when(text: str, *, base: datetime) -> datetime | None:
     else:
         return None
     return base + timedelta(days=days)
+
+
+# "11 липня" / "11 липня 2026" -> a date. Month by stem so any case form matches (липня/липень/…).
+_MONTH_STEMS = {
+    "січ": 1,
+    "лют": 2,
+    "берез": 3,
+    "квіт": 4,
+    "трав": 5,
+    "черв": 6,
+    "лип": 7,
+    "серп": 8,
+    "вер": 9,
+    "жовт": 10,
+    "листоп": 11,
+    "груд": 12,
+}
+_UKR_DATE_RE = re.compile(r"\b(\d{1,2})\s+([а-яіїєґ]{3,})(?:\s+(\d{4}))?", re.IGNORECASE)
+
+
+def parse_ukrainian_date(text: str, *, today: date) -> date | None:
+    """A Ukrainian 'day month [year]' ('11 липня', '3 вересня 2026') -> a date, else ``None``. With
+    no year given, the NEXT future occurrence is chosen (so '11 липня' in June means this year)."""
+    match = _UKR_DATE_RE.search(text.casefold())
+    if match is None:
+        return None
+    day = int(match.group(1))
+    stem = match.group(2)
+    month = next((num for pref, num in _MONTH_STEMS.items() if stem.startswith(pref)), None)
+    if month is None:
+        return None
+    year = int(match.group(3)) if match.group(3) else today.year
+    try:
+        result = date(year, month, day)
+    except ValueError:
+        return None
+    if match.group(3) is None and result < today:  # no year + already past -> next year
+        try:
+            result = date(year + 1, month, day)
+        except ValueError:
+            return None
+    return result
 
 
 # Reminder type tokens (English, stored in Reminder.type).

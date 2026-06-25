@@ -43,6 +43,25 @@ def test_parse_when_accepts_period_and_iso_and_rejects_past_or_garbage() -> None
     assert _parse_when("колись") is None  # unparseable -> None, never a crash
 
 
+def test_parse_when_accepts_a_ukrainian_date_and_defaults_to_9am() -> None:
+    when = _parse_when("11 грудня 2099")  # day + Ukrainian month + year, far future
+    assert when is not None and when.month == 12 and when.day == 11 and when.hour == 9
+
+
+def test_parse_ukrainian_date_picks_next_occurrence_without_a_year() -> None:
+    from datetime import date
+
+    from dbaylo.companion.reminders import parse_ukrainian_date
+
+    today = date(2026, 6, 25)
+    assert parse_ukrainian_date("11 липня", today=today) == date(2026, 7, 11)  # later this year
+    assert parse_ukrainian_date("3 лютого", today=today) == date(
+        2027, 2, 3
+    )  # already past -> next yr
+    assert parse_ukrainian_date("просто текст", today=today) is None
+    assert parse_ukrainian_date("99 жабня", today=today) is None  # bad day / unknown month
+
+
 def test_render_consult_reminder_names_it_and_is_safe() -> None:
     rem = Reminder(
         user_id=1,

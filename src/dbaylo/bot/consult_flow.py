@@ -15,7 +15,7 @@ from __future__ import annotations
 import contextlib
 import html
 import re
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -253,17 +253,20 @@ async def on_consult_end(callback: CallbackQuery, state: FSMContext) -> None:
         await callback.message.answer(locale.CONSULT_ENDED)
 
 
-async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, tg: int) -> None:
+async def _run_consult_turn(
+    message: Message, state: FSMContext, text: str, *, tg: int, scheduler: ReminderScheduler
+) -> None:
     """One consultation turn: append the user's text, re-derive the grounded context, answer in the
     SAME conversation, and keep it open."""
     text = text.strip()
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
         return
-    # A typed ask to be reminded opens the reminder mini-flow (never the LLM — which would otherwise
-    # wrongly claim it cannot set reminders).
+    # A typed ask to be reminded opens the smart reminder mini-flow (never the LLM — which would
+    # otherwise wrongly claim it cannot set reminders). The subject/date are inferred from this
+    # message + the conversation, so we don't re-ask what was already said.
     if _wants_reminder(text):
-        await _start_reminder(message, state)
+        await _start_reminder(message, state, scheduler=scheduler, trigger_text=text)
         return
     # An explicit ask for concrete clinics (addresses / contacts / ratings) goes to the web-search
     # finder instead of the general (grounded, tool-free) consult.
@@ -308,12 +311,16 @@ async def _run_consult_turn(message: Message, state: FSMContext, text: str, *, t
 
 
 @router.message(ConsultStates.active, F.text & ~F.text.startswith("/"))
-async def on_consult_turn(message: Message, state: FSMContext) -> None:
+async def on_consult_turn(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
     """A typed turn during an open consultation. A '/command' or menu-label tap ends it (the reset
     middleware), so a command is never consumed as a question."""
     tg = _telegram_id(message)
     if tg is not None:
-        await _run_consult_turn(message, state, message.text or "", tg=tg)
+        await _run_consult_turn(
+            message, state, message.text or "", tg=tg, scheduler=reminder_scheduler
+        )
 
 
 # --- #4d: set a reminder agreed during the consultation -------------------------
@@ -329,7 +336,8 @@ def _wants_reminder(text: str) -> bool:
     return bool(_REMIND_INTENT_RE.search(text.casefold()))
 
 
-async def _start_reminder(message: Message, state: FSMContext) -> None:
+async def _ask_reminder_subject(message: Message, state: FSMContext) -> None:
+    """Fallback: ask WHAT to remind about (only when we couldn't infer it from the conversation)."""
     await state.set_state(ConsultRemindStates.waiting_label)
     await message.answer(
         locale.CONSULT_REMIND_ASK_LABEL,
@@ -339,14 +347,45 @@ async def _start_reminder(message: Message, state: FSMContext) -> None:
     )
 
 
+async def _start_reminder(
+    message: Message,
+    state: FSMContext,
+    *,
+    scheduler: ReminderScheduler,
+    trigger_text: str = "",
+) -> None:
+    """Smart reminder entry. Infer WHAT (and, if stated, WHEN) from the user's request + the
+    conversation, instead of always asking 'про що?'. Create it outright when both are known; ask
+    only for the missing piece; fall back to asking the subject only when it can't be inferred."""
+    data = await state.get_data()
+    transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    async with keep_typing(message):
+        draft = await consult.extract_reminder(trigger_text, transcript, today=_now().date())
+    if draft is None or not draft.subject:
+        await _ask_reminder_subject(message, state)
+        return
+    await state.update_data(consult_remind_label=draft.subject)
+    run_at = _parse_when(draft.date) if draft.date else None
+    if run_at is not None:  # we know WHAT and WHEN — just create it
+        await _create_consult_reminder(message, state, run_at=run_at, scheduler=scheduler)
+        return
+    # We know WHAT but not WHEN — ask only the date (subject pre-filled).
+    await state.set_state(ConsultRemindStates.waiting_date)
+    await message.answer(
+        locale.CONSULT_REMIND_ASK_WHEN.format(label=draft.subject), reply_markup=_when_keyboard()
+    )
+
+
 @router.callback_query(F.data == callbacks.CONSULT_REMIND)
-async def on_consult_remind(callback: CallbackQuery, state: FSMContext) -> None:
-    """Дбайло proposes a reminder; this opens the mini-flow — ask WHAT, then WHEN."""
+async def on_consult_remind(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    """🔔 Нагадати — infer the reminder from the conversation; ask only for what's missing."""
     if not isinstance(callback.message, Message):
         await callback.answer()
         return
     await callback.answer()
-    await _start_reminder(callback.message, state)
+    await _start_reminder(callback.message, state, scheduler=reminder_scheduler)
 
 
 @router.message(ConsultRemindStates.waiting_label, F.text & ~F.text.startswith("/"))
@@ -423,16 +462,20 @@ async def on_remind_date(
 
 
 def _parse_when(text: str) -> datetime | None:
-    """A future moment from a typed period ('через 2 місяці') or an ISO date ('2026-09-01'), or
-    None. A past date is rejected (a reminder is always in the future)."""
+    """A future moment from a typed period ('через 2 місяці'), an ISO date ('2026-09-01'), or a
+    Ukrainian date ('11 липня'), or None. A past date is rejected (a reminder is in the future).
+    Date-only inputs default to 9:00 (a friendlier time than midnight)."""
+    text = text.strip()
     relative = reminders.parse_relative_when(text, base=_now())
     if relative is not None:
         return relative
     try:
-        parsed = date.fromisoformat(text)
+        parsed: date | None = date.fromisoformat(text)
     except ValueError:
+        parsed = reminders.parse_ukrainian_date(text, today=_now().date())
+    if parsed is None:
         return None
-    when = datetime.combine(parsed, datetime.min.time(), tzinfo=ZoneInfo(get_settings().timezone))
+    when = datetime.combine(parsed, time(9, 0), tzinfo=ZoneInfo(get_settings().timezone))
     return when if when.date() > _now().date() else None
 
 

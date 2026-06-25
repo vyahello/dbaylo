@@ -8,6 +8,8 @@ also be HANDED the grounded context (so it answers from real data, not invention
 
 from __future__ import annotations
 
+from datetime import date
+
 from dbaylo import locale
 from dbaylo.companion import consult
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable
@@ -131,3 +133,64 @@ def test_consult_fallback_and_persona_are_safe() -> None:
     assert contains_forbidden_reassurance(locale.CONSULT_FALLBACK) is None
     assert contains_dose_directive(locale.CONSULT_FALLBACK) is None
     assert contains_forbidden_reassurance(locale.CONSULT_CLINICS_FALLBACK) is None
+
+
+async def test_extract_reminder_parses_subject_and_date_from_context() -> None:
+    # The user's request gives the subject; the model resolves the date — so the flow can create the
+    # reminder without re-asking. The conversation is handed to the model for context.
+    runner = _runner(
+        '{"subject": "УЗД нирок та консультація уролога (UROSVIT)", "date": "2026-07-11"}'
+    )
+    transcript = [{"role": "user", "text": "обговорюємо УЗД нирок і уролога"}]
+    draft = await consult.extract_reminder(
+        "зроби нагадування", transcript, today=date(2026, 6, 25), runner=runner
+    )
+    assert draft is not None
+    assert draft.subject == "УЗД нирок та консультація уролога (UROSVIT)"
+    assert draft.date == "2026-07-11"
+    assert "2026-06-25" in runner.captured["prompt"]  # type: ignore[attr-defined]
+    assert "обговорюємо УЗД" in runner.captured["prompt"]  # type: ignore[attr-defined]
+
+
+async def test_extract_reminder_empty_subject_means_ask() -> None:
+    # No inferable subject -> None, so the flow falls back to asking "про що?".
+    draft = await consult.extract_reminder(
+        "нагадай", [], today=date(2026, 6, 25), runner=_runner('{"subject": "", "date": ""}')
+    )
+    assert draft is None
+
+
+async def test_extract_reminder_no_date_is_kept_empty() -> None:
+    draft = await consult.extract_reminder(
+        "нагадай здати аналіз сечі",
+        [],
+        today=date(2026, 6, 25),
+        runner=_runner('{"subject": "Здати аналіз сечі", "date": ""}'),
+    )
+    assert draft is not None and draft.subject == "Здати аналіз сечі" and draft.date == ""
+
+
+async def test_extract_reminder_rejects_an_unsafe_subject() -> None:
+    # A subject that smuggles a dose directive must be rejected (no dose in a reminder, rail #1).
+    draft = await consult.extract_reminder(
+        "нагадай",
+        [],
+        today=date(2026, 6, 25),
+        runner=_runner('{"subject": "приймай 2 таблетки на день", "date": "2026-07-01"}'),
+    )
+    assert draft is None
+
+
+async def test_extract_reminder_tolerates_garbage_output() -> None:
+    assert (
+        await consult.extract_reminder(
+            "нагадай", [], today=date(2026, 6, 25), runner=_runner("не json взагалі")
+        )
+        is None
+    )
+    assert (
+        await consult.extract_reminder(
+            "нагадай", [], today=date(2026, 6, 25), runner=_runner("", ok=False)
+        )
+        is None
+    )
