@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import date
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -23,6 +24,7 @@ from aiogram.types import Message
 
 from dbaylo import locale
 from dbaylo.bot import consult_flow
+from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import checkin, goals, intake
@@ -163,7 +165,7 @@ async def _run_intake_turn(
     else:
         await state.set_state(IntakeStates.in_progress)
         await state.update_data(intake=transcript)
-    await message.answer(reply.text)
+    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)
 
 
 @router.message(IntakeStates.in_progress, F.text & ~F.text.startswith("/"))
@@ -202,4 +204,4 @@ async def on_free_text(
     # Otherwise — ordinary companion chat, grounded in the profile when relevant.
     async with keep_typing(message):
         reply = await generate_reply(text, context=context)
-    await message.answer(reply.text)
+    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)

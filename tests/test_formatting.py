@@ -10,6 +10,7 @@ from dbaylo import locale
 from dbaylo.bot.formatting import (
     TELEGRAM_MAX,
     answer_chunked,
+    render_companion_html,
     render_interpretation_html,
     split_for_telegram,
     split_interpretation,
@@ -30,6 +31,32 @@ _BODY = (
 
 def _rendered() -> str:
     return render_interpretation_html(f"{_BODY}\n\n{DISCLAIMER}")
+
+
+def test_companion_html_tidies_markdown() -> None:
+    # The companion / intake model sometimes slips in **double bold**, '#' headings, '---' rules and
+    # backticks — which Telegram shows literally. render_companion_html turns them into clean HTML.
+    raw = (
+        "## Поради щодо сну\n"
+        "**Головне — режим.** Лягай в один час.\n"
+        "- світло ввечері *приглуши*\n"
+        "---\n"
+        "А ще `кофеїн` ввечері — _не варто_."
+    )
+    out = render_companion_html(raw)
+    assert "<b>Поради щодо сну</b>" in out  # '#' heading -> bold
+    assert "<b>Головне — режим.</b>" in out  # **double** -> bold
+    assert "<b>приглуши</b>" in out and "<i>не варто</i>" in out  # *single* / _italic_
+    assert "• світло ввечері" in out  # '-' bullet -> '•'
+    assert "**" not in out and "##" not in out and "`" not in out  # no literal markdown left
+    assert "---" not in out  # the divider line is dropped
+
+
+def test_companion_html_escapes_dangerous_chars() -> None:
+    # A stray '<' / '&' must be escaped so it can never break Telegram's HTML parser.
+    out = render_companion_html("показник < 5 і *важливо* & безпечно")
+    assert "&lt; 5" in out and "&amp; безпечно" in out
+    assert "<b>важливо</b>" in out
 
 
 def test_known_headers_become_bold_with_emoji() -> None:

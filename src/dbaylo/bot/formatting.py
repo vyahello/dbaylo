@@ -77,6 +77,40 @@ def _match_header(line: str) -> tuple[str, str] | None:
     return _SECTIONS.get(key) if key else None
 
 
+# --- Companion / intake text: tidy whatever markdown the LLM emitted into clean HTML -------------
+# These two personas are meant to be plain/light, but the model sometimes slips in **double bold**,
+# '# headings', '---' rules or backticks, which Telegram (no markdown mode) shows LITERALLY. We
+# normalise them at the send site so the user never sees a stray '**' or '#'.
+_BOLD2_RE = re.compile(r"\*\*([^*\n]+)\*\*")  # **double** bold
+_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")  # a "# Heading" line
+_HR_RE = re.compile(r"^\s*([*_-])\1{2,}\s*$")  # a "---" / "***" / "___" divider line
+_BULLET_RE = re.compile(r"^(\s*)[-*+]\s+")  # "- item" / "* item" / "+ item"
+
+
+def _companion_inline(escaped: str) -> str:
+    """Inline markup for casual companion text (run on already-escaped text): **bold**/*bold* ->
+    <b>, _italic_ -> <i>, [text](url) -> link, and drop stray inline-code backticks."""
+    out = _BOLD_RE.sub(r"<b>\1</b>", _BOLD2_RE.sub(r"<b>\1</b>", escaped))
+    out = _ITALIC_RE.sub(r"<i>\1</i>", out).replace("`", "")
+    return _MD_LINK_RE.sub(r'<a href="\2">\1</a>', out)
+
+
+def render_companion_html(text: str) -> str:
+    """Render a companion / intake reply as Telegram HTML, tidying any markdown: bold/italic become
+    tags, a '# heading' becomes bold, '-' bullets become '•', and '---' rules / backticks are
+    dropped. Escapes first, so a stray '<' can never break Telegram's parser."""
+    lines: list[str] = []
+    for raw in text.splitlines():
+        if _HR_RE.match(raw):
+            continue  # drop a markdown divider line
+        heading = _HEADING_RE.match(raw)
+        if heading is not None:
+            lines.append(f"<b>{_escape(heading.group(1)).replace('*', '').replace('_', '')}</b>")
+            continue
+        lines.append(_companion_inline(_escape(_BULLET_RE.sub(r"\1• ", raw))))
+    return "\n".join(lines).rstrip()
+
+
 def render_interpretation_html(text: str) -> str:
     """Render the plain ``interpret()`` output (body + trailing ``DISCLAIMER``) as Telegram HTML.
 
