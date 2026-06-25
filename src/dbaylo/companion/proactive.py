@@ -37,11 +37,13 @@ async def reconcile_checkin(
     something to check in about, retire it when there isn't. Idempotent — safe to call any time."""
     existing = await _active_checkin(session, user.id)
     wanted = await health.should_have_checkin(session, user.id, today=date.today())
-    if wanted and existing is None:
+    if wanted:
+        # Create OR retime (the configured hour may have changed), then (re)schedule — the live
+        # scheduler replaces the job, so a retimed schedule takes effect immediately.
         reminder = await reminders.ensure_checkin_reminder(session, user=user)
         await session.flush()
         scheduler.schedule(reminder)
-    elif not wanted and existing is not None:
+    elif existing is not None:
         reminder_id = existing.id
         await reminders.deactivate(session, existing)
         scheduler.unschedule(reminder_id)

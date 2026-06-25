@@ -54,6 +54,23 @@ async def test_grounded_prompt_uses_context_and_falls_back_when_empty() -> None:
     assert await checkin.build_grounded_prompt("", runner=exploding) == build_prompt()
 
 
+async def test_ensure_checkin_reminder_uses_config_hour_and_retimes_existing(
+    async_session: AsyncSession,
+) -> None:
+    from dbaylo.companion import reminders
+    from dbaylo.config import get_settings
+
+    user = await _user(async_session)
+    wanted = reminders.daily_cron(get_settings().checkin_hour, get_settings().checkin_minute)
+    rem = await reminders.ensure_checkin_reminder(async_session, user=user)
+    assert rem.schedule == wanted  # created at the configured time (10:00 by default)
+
+    rem.schedule = "cron:0 21 * * *"  # an old reminder at a different time
+    await async_session.flush()
+    again = await reminders.ensure_checkin_reminder(async_session, user=user)
+    assert again.id == rem.id and again.schedule == wanted  # re-timed in place, not duplicated
+
+
 async def test_process_checkin_remembers_the_users_words(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     await process_checkin(async_session, user=user, text="спав 5 годин, настрій 2/5, виснажений")

@@ -214,9 +214,16 @@ async def find_active_consult(
 
 
 async def ensure_checkin_reminder(
-    session: AsyncSession, *, user: User, hour: int = 21, minute: int = 0
+    session: AsyncSession, *, user: User, hour: int | None = None, minute: int | None = None
 ) -> Reminder:
-    """Get-or-create the user's single daily check-in reminder."""
+    """Get-or-create-or-RETIME the user's single daily check-in reminder. The fire time defaults to
+    the configured ``checkin_hour``/``checkin_minute``; an existing reminder whose schedule differs
+    is re-timed (so changing the setting + a restart moves the ping, not just new reminders)."""
+    settings = get_settings()
+    schedule = daily_cron(
+        settings.checkin_hour if hour is None else hour,
+        settings.checkin_minute if minute is None else minute,
+    )
     existing = await session.scalar(
         select(Reminder).where(
             Reminder.user_id == user.id,
@@ -225,10 +232,11 @@ async def ensure_checkin_reminder(
         )
     )
     if existing is not None:
+        if existing.schedule != schedule:  # the configured time changed — retime it
+            existing.schedule = schedule
+            await session.flush()
         return existing
-    return await create_reminder(
-        session, user=user, type=TYPE_CHECKIN, schedule=daily_cron(hour, minute)
-    )
+    return await create_reminder(session, user=user, type=TYPE_CHECKIN, schedule=schedule)
 
 
 async def active_reminders(session: AsyncSession) -> list[Reminder]:

@@ -43,6 +43,10 @@ class Settings:
     database_url: str = f"sqlite:///{ROOT_DIR / 'dbaylo.db'}"
     # Timezone for reminders / check-ins (discovery assumes Europe/Kyiv).
     timezone: str = "Europe/Kyiv"
+    # When the daily proactive check-in fires (local time). Reconcile re-times the existing
+    # reminder to this on startup, so changing it here + a restart moves the ping.
+    checkin_hour: int = 10
+    checkin_minute: int = 0
     # Where original lab files are kept (Stage 2).
     storage_dir: Path = ROOT_DIR / "data" / "files"
     # Persistent FSM store (Stage 6): a dedicated SQLite file so in-progress dialogs /
@@ -86,6 +90,8 @@ class Settings:
             webhook_base_url=_get("WEBHOOK_BASE_URL", ""),
             database_url=_get("DATABASE_URL", cls.database_url),
             timezone=_get("TZ", "Europe/Kyiv"),
+            checkin_hour=int(_get("CHECKIN_HOUR", str(cls.checkin_hour))),
+            checkin_minute=int(_get("CHECKIN_MINUTE", str(cls.checkin_minute))),
             storage_dir=Path(_get("STORAGE_DIR", str(cls.storage_dir))),
             fsm_db_path=Path(_get("FSM_DB_PATH", str(cls.fsm_db_path))),
             claude_bin=_get("CLAUDE_BIN", "claude"),

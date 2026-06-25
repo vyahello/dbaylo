@@ -258,7 +258,9 @@ class ReminderScheduler:
 
     async def reconcile(self) -> None:
         """Startup self-heal: a check-in reminder exists iff the user should have one — an active
-        concern OR a currently out-of-range indicator (``health.should_have_checkin``)."""
+        concern OR a currently out-of-range indicator (``health.should_have_checkin``). Also
+        re-times an existing check-in to the configured hour (``ensure_checkin_reminder`` updates
+        it), so a changed check-in time takes effect on restart; ``start()`` then schedules it."""
         today = datetime.now(self._tz).date()
         async with self._sf() as session:
             users = (await session.scalars(select(User))).all()
@@ -271,9 +273,9 @@ class ReminderScheduler:
                         Reminder.active.is_(True),
                     )
                 )
-                if wanted and existing is None:
-                    await reminders.ensure_checkin_reminder(session, user=user)
-                elif not wanted and existing is not None:
+                if wanted:
+                    await reminders.ensure_checkin_reminder(session, user=user)  # create OR retime
+                elif existing is not None:
                     await reminders.deactivate(session, existing)
             await session.commit()
 
