@@ -236,6 +236,44 @@ async def test_reminders_list_taps_open_a_view_not_a_delete(
     assert not any(d and d.startswith(callbacks.MEDICATION_OFF + ":") for d in datas)
 
 
+async def test_checkin_is_an_info_line_not_a_manageable_reminder(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # The daily check-in is agent-managed: it shows as an info line above the list, never as a
+    # deletable button (a concern keeps it alive, so deleting it here would be pointless).
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    user = await _user(async_session)
+    await proactive.add_problem(async_session, user=user, name="тиск", scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 1  # a concern scheduled the check-in
+
+    text, keyboard = await proactive_flow._reminders_payload(
+        async_session, user_id=user.id, scheduler=scheduler
+    )
+    # Only the check-in exists -> info line + "no manual reminders", and NO keyboard at all.
+    assert keyboard is None
+    assert "Щоденний догляд" in text and locale.REMINDERS_NONE_MANUAL in text
+
+    # Add a real (manageable) reminder -> it gets a button, the check-in stays an info line only.
+    rem = await proactive.add_repeat_lab(
+        async_session,
+        user=user,
+        run_at=datetime(2027, 1, 1, 9, 0),
+        label="ТТГ",
+        scheduler=scheduler,
+    )
+    await async_session.commit()
+    text2, keyboard2 = await proactive_flow._reminders_payload(
+        async_session, user_id=user.id, scheduler=scheduler
+    )
+    assert keyboard2 is not None
+    datas = [b.callback_data for row in keyboard2.inline_keyboard for b in row]
+    assert datas == [callbacks.reminder_view(rem.id)]  # only the repeat-lab, not the check-in
+    assert "Щоденний догляд" in text2  # the check-in info line is still shown above
+
+
 async def test_card_keyboard_offers_delete_and_back(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

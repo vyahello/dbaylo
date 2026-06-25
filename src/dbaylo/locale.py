@@ -554,6 +554,12 @@ MED_ADDED = (
 REMINDERS_HEADER = "Твої активні нагадування (натисни, щоб переглянути):"
 REMINDERS_EMPTY = "Активних нагадувань немає."
 REMINDER_ITEM_CHECKIN = "🌙 Щоденний чек-ін — {when}"
+# The daily check-in is AGENT-managed (it follows your active problems), so it is shown as an info
+# line above the list — not as a deletable reminder (deleting it would just bring it back).
+REMINDER_CHECKIN_MANAGED = (
+    "🌙 Щоденний догляд: питаю, як ти, сам (наступний — {when}). Керую цим я."
+)
+REMINDERS_NONE_MANUAL = "Своїх нагадувань поки немає — додати можна через 💊 Ліки."
 REMINDER_ITEM_MEDICATION = "💊 {name} ({times}) — {when}"
 REMINDER_ITEM_REPEAT_LAB = "🧪 Повтор аналізів ({name}) — {when}"
 REMINDER_ITEM_CONSULT = "🔔 {name} — {when}"

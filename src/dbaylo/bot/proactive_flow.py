@@ -390,15 +390,31 @@ async def _reminders_payload(
     session: AsyncSession, *, user_id: int, scheduler: ReminderScheduler
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """Build the reminders list (header + one button per reminder). Tapping a button opens that
-    reminder's card; medications collapse to one row (their card turns off all times)."""
+    reminder's card; medications collapse to one row (their card turns off all times). The daily
+    check-in is AGENT-managed, so it is surfaced as an INFO line above the list (never a deletable
+    row — deleting it would just be re-created from the active concerns)."""
     rows = await reminders.active_reminders_for_user(session, user_id=user_id)
     meds = {m.id: m for m in await medications.list_medications(session, user_id=user_id)}
-    if not rows:
-        return locale.REMINDERS_EMPTY, None
     next_run = {job.id: job.next_run for job in scheduler.list_jobs()}
+
+    checkin = next((r for r in rows if r.type == reminders.TYPE_CHECKIN), None)
+    manageable = [r for r in rows if r.type != reminders.TYPE_CHECKIN]
+    info = (
+        locale.REMINDER_CHECKIN_MANAGED.format(
+            when=_fmt_when(next_run.get(f"reminder:{checkin.id}"))
+        )
+        if checkin is not None
+        else ""
+    )
+
+    if not manageable:  # only the agent-managed check-in (or nothing at all)
+        if info:
+            return f"{info}\n\n{locale.REMINDERS_NONE_MANUAL}", None
+        return locale.REMINDERS_EMPTY, None
+
     kb_rows: list[list[InlineKeyboardButton]] = []
     shown_medications: set[int] = set()
-    for reminder in rows:
+    for reminder in manageable:
         when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
         if reminder.type == reminders.TYPE_MEDICATION and reminder.medication_id is not None:
             if reminder.medication_id in shown_medications:
@@ -410,7 +426,8 @@ async def _reminders_payload(
             label = _reminder_label(reminder, None, when)
             data = callbacks.reminder_view(reminder.id)
         kb_rows.append([InlineKeyboardButton(text=label, callback_data=data)])
-    return locale.REMINDERS_HEADER, InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    header = f"{info}\n\n{locale.REMINDERS_HEADER}" if info else locale.REMINDERS_HEADER
+    return header, InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
 def _card_keyboard(delete_data: str) -> InlineKeyboardMarkup:
