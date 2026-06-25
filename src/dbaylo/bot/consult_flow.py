@@ -12,6 +12,7 @@ companion's ``StateFilter(None)`` catch-all or the symptom-intake state.
 
 from __future__ import annotations
 
+import contextlib
 import html
 import re
 from datetime import date, datetime, timedelta
@@ -19,6 +20,7 @@ from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -28,10 +30,10 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
-from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import (
     callbacks,
@@ -52,8 +54,11 @@ from dbaylo.companion.consult_context import (
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import ConsultMemory
+from dbaylo.db.models import ConsultMemory, LabReport
+from dbaylo.labs.humanize import strip_markup
 from dbaylo.labs.intake import ensure_user
+from dbaylo.labs.labnames import normalize_lab
+from dbaylo.triage.safety import DISCLAIMER
 
 router = Router(name="consult")
 
@@ -537,111 +542,290 @@ async def on_consult_resume(callback: CallbackQuery, state: FSMContext) -> None:
         await _resume_consult(callback.message, state)
 
 
-# --- /memory: view the cross-session memory + "забути все" (two-step) ------------
+# --- /memory + 🧠 Памʼять: grouped, per-analysis memory (master-detail) ----------
+# The view is a list of CONVERSATION GROUPS (one per analysis we talked about, plus the general
+# non-anchored chats). Tap a group to read it; each group can be forgotten on its own, or all at
+# once. Navigation edits the message in place (no spam). rid 0 in callbacks == the general group.
 
 _MEMORY_LINE_CAP = 200  # truncate a long remembered turn in the view (the full text stays stored)
+_GROUP_LABEL_CAP = 38  # truncate a long report descriptor in a group button
 
 
-def _forget_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[_btn(locale.MEMORY_BTN_FORGET_ALL, callbacks.MEMORY_FORGET)]]
+def _clean(text: str) -> str:
+    """A remembered turn for display: drop the appended disclaimer + the *bold*/_italic_ markers
+    (which would otherwise show up as literal '*' / '_' in the read-back)."""
+    body = text.split(DISCLAIMER)[0] if DISCLAIMER and DISCLAIMER in text else text
+    return strip_markup(body).strip()
+
+
+def _report_what(report: LabReport | None) -> str:
+    """A short '<date> · <lab/type>' descriptor of the analysis a conversation is about."""
+    if report is None:
+        return ""
+    date_txt = report.report_date.isoformat() if report.report_date else "?"
+    lab = report.report_type or normalize_lab(report.lab) or ""
+    return f"{date_txt} · {lab}" if lab else date_txt
+
+
+async def _groups_payload(
+    session: AsyncSession, user_id: int
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The conversation-groups list (header + one button per group + «забути все»), or the empty
+    state when nothing is remembered yet."""
+    total = await consult_memory.count(session, user_id=user_id)
+    if not total:
+        return locale.MEMORY_VIEW_EMPTY, None
+    rows: list[list[InlineKeyboardButton]] = []
+    for rid, n in await consult_memory.list_groups(session, user_id=user_id):
+        if rid is None:
+            rows.append([_btn(locale.MEMORY_GROUP_GENERAL.format(n=n), callbacks.memory_group(0))])
+            continue
+        report = await history.get_report(session, report_id=rid, user_id=user_id)
+        what = _report_what(report)
+        if what:
+            if len(what) > _GROUP_LABEL_CAP:
+                what = what[:_GROUP_LABEL_CAP].rstrip() + "…"
+            label = locale.MEMORY_GROUP_REPORT.format(what=what, n=n)
+        else:
+            label = locale.MEMORY_GROUP_REPORT_DELETED.format(n=n)
+        rows.append([_btn(label, callbacks.memory_group(rid))])
+    rows.append([_btn(locale.MEMORY_BTN_FORGET_ALL, callbacks.MEMORY_FORGET)])
+    text = "\n\n".join(
+        (
+            locale.MEMORY_VIEW_HEADER,
+            locale.MEMORY_GROUPS_INTRO,
+            locale.MEMORY_GROUPS_COUNT.format(total=total),
+        )
     )
+    return text, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _render_memory_view(turns: list[ConsultMemory], total: int) -> str:
-    """User-facing Ukrainian view of remembered consultation turns, as escaped HTML."""
-    lines = [locale.MEMORY_VIEW_HEADER, "", locale.MEMORY_VIEW_INTRO, ""]
-    lines.append(locale.MEMORY_VIEW_COUNT.format(total=total))
+def _render_turns(title: str, turns: list[ConsultMemory], total: int) -> str:
+    """The read-back of ONE conversation's turns (cleaned, escaped HTML)."""
+    lines = [title, "", locale.MEMORY_VIEW_COUNT.format(total=total)]
     if total > len(turns):
         lines.append(locale.MEMORY_VIEW_SHOWN.format(shown=len(turns)))
     lines.append("")
     for turn in turns:
         icon = locale.MEMORY_ROLE_USER if turn.role == "user" else locale.MEMORY_ROLE_BOT
         day = turn.created_at.date().isoformat() if turn.created_at else "?"
-        body = turn.text.strip()
+        body = _clean(turn.text)
         if len(body) > _MEMORY_LINE_CAP:
             body = body[:_MEMORY_LINE_CAP].rstrip() + "…"
         lines.append(f"{icon} <i>{day}</i> {html.escape(body)}")
     return "\n".join(lines)
 
 
+def _group_keyboard(rid: int) -> InlineKeyboardMarkup:
+    """A conversation's actions: forget just this one, or back to the groups list."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.MEMORY_BTN_FORGET_ONE, callbacks.memory_forget_one(rid)),
+                _btn(locale.MEMORY_BTN_BACK, callbacks.MEMORY_HUB),
+            ]
+        ]
+    )
+
+
+async def _report_memory_payload(
+    session: AsyncSession, user_id: int, rid: int
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """One conversation's read-back (rid 0 == the general group); ``None`` when it has no turns."""
+    report_id = None if rid == 0 else rid
+    turns = await consult_memory.recent_turns_for_report(
+        session, user_id=user_id, report_id=report_id
+    )
+    total = await consult_memory.count_for_report(session, user_id=user_id, report_id=report_id)
+    if not turns:
+        return None
+    if report_id is None:
+        title = locale.MEMORY_REPORT_TITLE.format(what=locale.MEMORY_GROUP_GENERAL_TITLE)
+    else:
+        report = await history.get_report(session, report_id=report_id, user_id=user_id)
+        title = locale.MEMORY_REPORT_TITLE.format(
+            what=html.escape(_report_what(report) or "аналіз")
+        )
+    return _render_turns(title, turns, total), _group_keyboard(rid)
+
+
 async def open_memory_view(message: Message, telegram_id: int) -> None:
-    """Show what Дбайло remembers across consultations, with a «забути все» button. Shared by the
-    /memory command and the 🧠 Памʼять menu tap."""
+    """Show the conversation-groups list. Shared by /memory and the 🧠 Памʼять menu tap."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
-        total = await consult_memory.count(session, user_id=user.id)
-        turns = (
-            await consult_memory.recent_turns(session, user_id=user.id, limit=16) if total else []
-        )
-    if not turns:
-        await message.answer(locale.MEMORY_VIEW_EMPTY, parse_mode=ParseMode.HTML)
+        text, keyboard = await _groups_payload(session, user.id)
+    await answer_chunked(message, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+async def _edit_to_groups(callback: CallbackQuery) -> None:
+    """Edit the current message back into the (refreshed) groups list."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
         return
-    await answer_chunked(
-        message,
-        _render_memory_view(turns, total),
-        parse_mode=ParseMode.HTML,
-        reply_markup=_forget_keyboard(),
-    )
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        text, keyboard = await _groups_payload(session, user.id)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 @router.message(Command("memory"))
 async def on_memory(message: Message) -> None:
-    """Перегляд памʼяті — show what Дбайло remembers, with a forget-all button."""
+    """Перегляд памʼяті — the grouped memory view (per analysis), each forgettable on its own."""
     tg = _telegram_id(message)
     if tg is not None:
         await open_memory_view(message, tg)
 
 
+@router.callback_query(F.data == callbacks.MEMORY_HUB)
+async def on_memory_hub(callback: CallbackQuery) -> None:
+    await _edit_to_groups(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_GROUP + ":"))
+async def on_memory_group(callback: CallbackQuery) -> None:
+    """Open ONE conversation group (edit-in-place) to read it."""
+    rid = callbacks.parse_memory_group(callback.data or "")
+    tg = _telegram_id(callback)
+    if rid is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        payload = await _report_memory_payload(session, user.id, rid)
+    if payload is None:  # the conversation was cleared meanwhile — show the fresh list
+        await _edit_to_groups(callback)
+        await callback.answer()
+        return
+    text, keyboard = payload
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_OPEN_REPORT + ":"))
+async def on_memory_open_report(callback: CallbackQuery) -> None:
+    """Open a report's conversation memory from its /history card (a NEW message, card stays)."""
+    rid = callbacks.parse_memory_open_report(callback.data or "")
+    tg = _telegram_id(callback)
+    if rid is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        payload = await _report_memory_payload(session, user.id, rid)
+    if payload is None:
+        await callback.message.answer(locale.MEMORY_REPORT_EMPTY)
+        return
+    text, keyboard = payload
+    await answer_chunked(callback.message, text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
 @router.callback_query(F.data == callbacks.MEMORY_FORGET)
 async def on_memory_forget(callback: CallbackQuery) -> None:
-    """Step 1 of «забути все»: confirm before wiping anything."""
+    """«Забути все» step 1 — confirm before wiping every conversation."""
     tg = _telegram_id(callback)
     if tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
-    await callback.answer()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         total = await consult_memory.count(session, user_id=user.id)
     if not total:
-        await callback.message.answer(locale.MEMORY_FORGET_EMPTY)
+        await _edit_to_groups(callback)
+        await callback.answer()
         return
-    await callback.message.answer(
-        locale.MEMORY_FORGET_CONFIRM.format(total=total),
-        parse_mode=ParseMode.HTML,
-        reply_markup=InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    _btn(locale.MEMORY_BTN_FORGET_YES, callbacks.MEMORY_FORGET_OK),
-                    _btn(locale.MEMORY_BTN_FORGET_NO, callbacks.MEMORY_FORGET_NO),
-                ]
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.MEMORY_BTN_FORGET_YES, callbacks.MEMORY_FORGET_OK),
+                _btn(locale.MEMORY_BTN_FORGET_NO, callbacks.MEMORY_FORGET_NO),
             ]
-        ),
+        ]
     )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.MEMORY_FORGET_CONFIRM.format(total=total),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+    await callback.answer()
 
 
 @router.callback_query(F.data == callbacks.MEMORY_FORGET_OK)
 async def on_memory_forget_ok(callback: CallbackQuery) -> None:
-    """Step 2: confirmed — forget everything remembered for this user."""
+    """«Забути все» step 2 — wipe everything, then show the (now empty) list."""
     tg = _telegram_id(callback)
     if tg is None:
         await callback.answer()
         return
-    await clear_inline_keyboard(callback)  # consume the confirm buttons (no re-tap / cancel after)
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         deleted = await consult_memory.clear_all(session, user_id=user.id)
         await session.commit()
-    if isinstance(callback.message, Message):
-        done = locale.MEMORY_FORGET_DONE.format(total=deleted)
-        await callback.message.answer(done if deleted else locale.MEMORY_FORGET_EMPTY)
-    await callback.answer()
+    await callback.answer(
+        locale.MEMORY_FORGET_DONE.format(total=deleted) if deleted else locale.MEMORY_FORGET_EMPTY
+    )
+    await _edit_to_groups(callback)
 
 
 @router.callback_query(F.data == callbacks.MEMORY_FORGET_NO)
 async def on_memory_forget_no(callback: CallbackQuery) -> None:
-    await clear_inline_keyboard(callback)  # consume the confirm buttons
-    if isinstance(callback.message, Message):
-        await callback.message.answer(locale.MEMORY_FORGET_CANCELLED)
+    await _edit_to_groups(callback)  # cancelled — back to the list, nothing deleted
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_FORGET_ONE + ":"))
+async def on_memory_forget_one(callback: CallbackQuery) -> None:
+    """«Забути цю розмову» step 1 — confirm forgetting just one conversation."""
+    rid = callbacks.parse_memory_forget_one(callback.data or "")
+    tg = _telegram_id(callback)
+    if rid is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    report_id = None if rid == 0 else rid
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        total = await consult_memory.count_for_report(session, user_id=user.id, report_id=report_id)
+    if not total:
+        await _edit_to_groups(callback)
+        await callback.answer()
+        return
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.MEMORY_BTN_FORGET_ONE_YES, callbacks.memory_forget_one_ok(rid)),
+                _btn(locale.MEMORY_BTN_FORGET_NO, callbacks.memory_group(rid)),
+            ]
+        ]
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.MEMORY_FORGET_ONE_CONFIRM.format(total=total),
+            parse_mode=ParseMode.HTML,
+            reply_markup=keyboard,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEMORY_FORGET_ONE_OK + ":"))
+async def on_memory_forget_one_ok(callback: CallbackQuery) -> None:
+    """«Забути цю розмову» step 2 — forget just that conversation, then show the list."""
+    rid = callbacks.parse_memory_forget_one_ok(callback.data or "")
+    tg = _telegram_id(callback)
+    if rid is None or tg is None:
+        await callback.answer()
+        return
+    report_id = None if rid == 0 else rid
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        deleted = await consult_memory.clear_report(session, user_id=user.id, report_id=report_id)
+        await session.commit()
+    await callback.answer(
+        locale.MEMORY_FORGET_ONE_DONE.format(total=deleted)
+        if deleted
+        else locale.MEMORY_FORGET_EMPTY
+    )
+    await _edit_to_groups(callback)

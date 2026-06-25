@@ -164,18 +164,78 @@ async def test_clear_all_is_scoped_per_user(async_session: AsyncSession) -> None
 
 
 async def test_memory_view_escapes_html_and_truncates(async_session: AsyncSession) -> None:
-    from dbaylo.bot.consult_flow import _MEMORY_LINE_CAP, _render_memory_view
+    from dbaylo.bot.consult_flow import _MEMORY_LINE_CAP, _render_turns
 
     user = await ensure_user(async_session, 1)
     await consult_memory.record_turn(
         async_session, user_id=user.id, role="user", text="<b>x</b> & y " + "довго" * 100
     )
     turns = await consult_memory.recent_turns(async_session, user_id=user.id)
-    rendered = _render_memory_view(turns, total=1)
+    rendered = _render_turns("Заголовок", turns, total=1)
     assert "&lt;b&gt;" in rendered and "&amp;" in rendered  # angle brackets / ampersand escaped
     assert "<b>x</b>" not in rendered  # the raw user tag is never injected as markup
     assert "…" in rendered  # the long line is truncated
     assert len("довго" * 100) > _MEMORY_LINE_CAP  # sanity: it really exceeded the cap
+
+
+def test_memory_clean_strips_markup_and_disclaimer() -> None:
+    from dbaylo.bot.consult_flow import _clean
+    from dbaylo.triage.safety import DISCLAIMER
+
+    raw = "Це *важливо* і _обережно_." + "\n\n" + DISCLAIMER
+    cleaned = _clean(raw)
+    assert "*" not in cleaned and "_" not in cleaned  # the bold/italic markers are gone
+    assert "важливо" in cleaned and "обережно" in cleaned  # the words stay
+    assert DISCLAIMER.split("\n")[0] not in cleaned  # the appended disclaimer is dropped
+
+
+async def test_groups_and_per_report_memory(async_session: AsyncSession) -> None:
+    # Memory is grouped by analysis: a report's conversation is its own group, plus a general group
+    # for non-anchored chats (report_id None).
+    user = await ensure_user(async_session, 1)
+    report = await _confirmed_report(async_session, user)
+    await consult_memory.record_turn(
+        async_session, user_id=user.id, role="user", text="про КТ", report_id=report.id
+    )
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="assistant",
+        text="відповідь про КТ",
+        report_id=report.id,
+    )
+    await consult_memory.record_turn(
+        async_session, user_id=user.id, role="user", text="загальне питання"
+    )  # no report -> general group
+
+    groups = dict(await consult_memory.list_groups(async_session, user_id=user.id))
+    assert groups == {report.id: 2, None: 1}
+
+    # Per-report turns are scoped to that conversation only.
+    turns = await consult_memory.recent_turns_for_report(
+        async_session, user_id=user.id, report_id=report.id
+    )
+    assert [t.text for t in turns] == ["про КТ", "відповідь про КТ"]
+    assert (
+        await consult_memory.count_for_report(async_session, user_id=user.id, report_id=None) == 1
+    )
+
+
+async def test_clear_report_forgets_one_conversation_only(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    report = await _confirmed_report(async_session, user)
+    await consult_memory.record_turn(
+        async_session, user_id=user.id, role="user", text="про КТ", report_id=report.id
+    )
+    await consult_memory.record_turn(async_session, user_id=user.id, role="user", text="загальне")
+    deleted = await consult_memory.clear_report(async_session, user_id=user.id, report_id=report.id)
+    assert deleted == 1
+    # The report's conversation is gone; the general one stays.
+    assert (
+        await consult_memory.count_for_report(async_session, user_id=user.id, report_id=report.id)
+        == 0
+    )
+    assert await consult_memory.count(async_session, user_id=user.id) == 1
 
 
 async def test_deleting_a_report_decouples_but_keeps_the_memory(

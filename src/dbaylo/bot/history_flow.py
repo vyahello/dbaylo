@@ -274,8 +274,14 @@ def _card_keyboard(
                 _btn(locale.BTN_HIST_FILE, callbacks.history_file(report_id)),
             ]
         )
-    # Ask Дбайло about this whole report (a narrative doc has its findings/conclusion too).
-    rows.append([_btn(locale.BTN_CONSULT, callbacks.consult_report(report_id))])
+    # Talk to Дбайло about this report, and read back the memory of past conversations about it —
+    # grouped on one row, since both are "the consultation about THIS analysis".
+    rows.append(
+        [
+            _btn(locale.BTN_CONSULT, callbacks.consult_report(report_id)),
+            _btn(locale.BTN_MEMORY_REPORT, callbacks.memory_open_report(report_id)),
+        ]
+    )
     rows.append(
         [
             _btn(locale.BTN_HIST_DELETE, callbacks.history_delete(report_id)),

@@ -137,3 +137,71 @@ async def clear_all(session: AsyncSession, *, user_id: int) -> int:
     deleted. Irreversible — the caller confirms first."""
     result = await session.execute(delete(ConsultMemory).where(ConsultMemory.user_id == user_id))
     return cast("CursorResult[Any]", result).rowcount or 0
+
+
+# --- Grouping by analysis (a conversation is anchored to a report, or general) ----
+
+
+def _report_cond(report_id: int | None):  # type: ignore[no-untyped-def]
+    """Match rows of ONE conversation group: a specific report, or the general (no-report) group."""
+    return (
+        ConsultMemory.report_id == report_id
+        if report_id is not None
+        else (ConsultMemory.report_id.is_(None))
+    )
+
+
+async def list_groups(session: AsyncSession, *, user_id: int) -> list[tuple[int | None, int]]:
+    """The user's conversation groups as ``(report_id_or_None, turn_count)``, most-recently-active
+    first. ``None`` is the general group (consults not anchored to a specific report)."""
+    rows = (
+        await session.execute(
+            select(
+                ConsultMemory.report_id,
+                func.count().label("n"),
+                func.max(ConsultMemory.id).label("mx"),
+            )
+            .where(ConsultMemory.user_id == user_id)
+            .group_by(ConsultMemory.report_id)
+            .order_by(func.max(ConsultMemory.id).desc())
+        )
+    ).all()
+    return [(row.report_id, int(row.n)) for row in rows]
+
+
+async def recent_turns_for_report(
+    session: AsyncSession, *, user_id: int, report_id: int | None, limit: int = _VIEW_TURNS
+) -> list[ConsultMemory]:
+    """The most recent turns of ONE conversation (a report's, or general), oldest→newest."""
+    rows = (
+        (
+            await session.execute(
+                select(ConsultMemory)
+                .where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+                .order_by(ConsultMemory.id.desc())
+                .limit(limit)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return list(reversed(rows))
+
+
+async def count_for_report(session: AsyncSession, *, user_id: int, report_id: int | None) -> int:
+    """How many turns are remembered for ONE conversation group."""
+    total = await session.scalar(
+        select(func.count())
+        .select_from(ConsultMemory)
+        .where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+    )
+    return int(total or 0)
+
+
+async def clear_report(session: AsyncSession, *, user_id: int, report_id: int | None) -> int:
+    """Forget ONE conversation ("забути цю розмову") — a report's, or the general group. Returns how
+    many turns were deleted; leaves every other conversation untouched."""
+    result = await session.execute(
+        delete(ConsultMemory).where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+    )
+    return cast("CursorResult[Any]", result).rowcount or 0

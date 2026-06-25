@@ -735,31 +735,53 @@ CONSULT_FALLBACK = (
     "А якщо щось турбує — варто показати ці результати лікарю, він прочитає їх у твоєму контексті."
 )
 
-# --- Consult memory: /memory view + "забути все" --------------------------------
+# --- Consult memory: grouped view (per analysis) + forget-all / forget-one -------
 MEMORY_VIEW_HEADER = "🧠 <b>Памʼять консультацій</b>"
-MEMORY_VIEW_INTRO = (
-    "Я памʼятаю наші попередні розмови в консультаціях, щоб не починати щоразу з нуля."
+# Groups list: one entry per analysis we talked about, plus the general (non-anchored) chats.
+MEMORY_GROUPS_INTRO = (
+    "Я памʼятаю наші розмови в консультаціях. Обери, яку переглянути — кожна привʼязана до "
+    "свого аналізу:"
 )
+MEMORY_GROUPS_COUNT = "Усього збережено реплік: {total}."
+MEMORY_GROUP_REPORT = "📄 {what} — {n}"  # button: a per-analysis conversation
+MEMORY_GROUP_REPORT_DELETED = "📄 видалений аналіз — {n}"
+MEMORY_GROUP_GENERAL = "💬 Загальні розмови — {n}"  # button: consults not tied to one report
+MEMORY_GROUP_GENERAL_TITLE = "💬 Загальні розмови"
+MEMORY_REPORT_TITLE = "💭 <b>Розмови про {what}</b>"
 MEMORY_VIEW_EMPTY = (
     "🧠 <b>Памʼять консультацій</b>\n\nПоки що порожня — мені ще нема чого памʼятати про наші "
     "розмови. Усе, що ми обговоримо в консультації («💬 Запитати Дбайло»), збережеться тут."
 )
-MEMORY_VIEW_COUNT = "Збережено реплік: {total}."
+MEMORY_VIEW_COUNT = "Реплік у цій розмові: {total}."
 MEMORY_VIEW_SHOWN = "Показую останні {shown}:"
 MEMORY_ROLE_USER = "👤"
 MEMORY_ROLE_BOT = "🩺"
+MEMORY_BTN_BACK = "◀ Назад"
 MEMORY_BTN_FORGET_ALL = "🗑 Забути все"
+MEMORY_BTN_FORGET_ONE = "🗑 Забути цю розмову"
 MEMORY_FORGET_CONFIRM = (
     "Забути <b>всю</b> памʼять консультацій ({total})? Я більше не памʼятатиму, про що ми "
     "говорили раніше. Це не можна скасувати."
 )
+MEMORY_FORGET_ONE_CONFIRM = (
+    "Забути цю розмову ({total} реплік)? Памʼять про інші аналізи це не зачепить. "
+    "Скасувати не можна."
+)
 MEMORY_BTN_FORGET_YES = "Так, забути все"
+MEMORY_BTN_FORGET_ONE_YES = "Так, забути цю"
 MEMORY_BTN_FORGET_NO = "Скасувати"
 MEMORY_FORGET_DONE = (
     "Готово — памʼять консультацій очищено ({total}). Починаємо з чистого аркуша. 🌿"
 )
+MEMORY_FORGET_ONE_DONE = "Готово — цю розмову забув ({total}). Решта памʼяті лишається. 🌿"
 MEMORY_FORGET_EMPTY = "Памʼять і так порожня — нема чого забувати. 🙂"
 MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — памʼять лишається. 🙂"
+# The 💭 Памʼять button on a /history report card (this analysis's conversations).
+BTN_MEMORY_REPORT = "💭 Памʼять"
+MEMORY_REPORT_EMPTY = (
+    "Про цей аналіз ми ще не розмовляли. Відкрий «💬 Запитати Дбайло», щоб почати — і я "
+    "памʼятатиму розмову."
+)
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
