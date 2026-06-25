@@ -131,3 +131,21 @@ async def turn_off_medication(
 ) -> None:
     ids = await reminders.deactivate_medication(session, medication_id)
     scheduler.unschedule_many(ids)
+
+
+async def delete_reminder(
+    session: AsyncSession, *, reminder: Reminder, scheduler: ReminderScheduler
+) -> None:
+    """Hard-delete a reminder the user removed from the list, and unschedule its job."""
+    reminder_id = reminder.id
+    await reminders.delete(session, reminder)
+    scheduler.unschedule(reminder_id)
+
+
+async def delete_medication_reminders(
+    session: AsyncSession, *, medication_id: int, scheduler: ReminderScheduler
+) -> None:
+    """Hard-delete all of a medication's reminders (the user removed them from the list) and
+    unschedule their jobs; the Medication record stays."""
+    ids = await reminders.delete_medication_reminders(session, medication_id)
+    scheduler.unschedule_many(ids)

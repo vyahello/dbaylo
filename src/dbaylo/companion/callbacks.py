@@ -94,6 +94,19 @@ def parse_medication_view(data: str) -> int | None:
     return _parse(MEDICATION_VIEW, data)
 
 
+# Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's
+# soft turn-off, MEDICATION_OFF) — there's no re-enable, so the card "removes" them for real.
+MEDICATION_DELETE = "med_del"
+
+
+def medication_delete(medication_id: int) -> str:
+    return _make(MEDICATION_DELETE, medication_id)
+
+
+def parse_medication_delete(data: str) -> int | None:
+    return _parse(MEDICATION_DELETE, data)
+
+
 # --- Tier 1.2: history & retrieval ----------------------------------------------
 
 

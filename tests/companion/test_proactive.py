@@ -173,7 +173,7 @@ async def test_reminders_list_taps_open_a_view_not_a_delete(
     assert not any(d and d.startswith(callbacks.MEDICATION_OFF + ":") for d in datas)
 
 
-async def test_card_keyboard_offers_turn_off_and_back(
+async def test_card_keyboard_offers_delete_and_back(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:
     from dbaylo.bot import proactive_flow
@@ -181,7 +181,63 @@ async def test_card_keyboard_offers_turn_off_and_back(
 
     keyboard = proactive_flow._card_keyboard(callbacks.reminder_off(7))
     datas = [b.callback_data for row in keyboard.inline_keyboard for b in row]
-    assert datas == [callbacks.reminder_off(7), callbacks.REMINDERS_BACK]  # 🗑 off · ◀ back
+    assert datas == [callbacks.reminder_off(7), callbacks.REMINDERS_BACK]  # 🗑 delete · ◀ back
+
+
+async def test_delete_reminder_hard_deletes_the_row(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # A turned-off reminder can't be turned back on, so the card DELETES the row (not soft-disable).
+    from sqlalchemy import select
+
+    from dbaylo.db.models import Reminder
+
+    user = await _user(async_session)
+    rem = await proactive.add_repeat_lab(
+        async_session,
+        user=user,
+        run_at=datetime(2027, 1, 1, 9, 0),
+        label="ТТГ",
+        scheduler=scheduler,
+    )
+    await async_session.commit()
+    assert _count(scheduler, "repeat_lab") == 1
+
+    await proactive.delete_reminder(async_session, reminder=rem, scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "repeat_lab") == 0  # job gone
+    remaining = (await async_session.execute(select(Reminder).where(Reminder.id == rem.id))).all()
+    assert remaining == []  # the row is GONE, not just inactive
+
+
+async def test_delete_medication_reminders_removes_rows_but_keeps_the_record(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    from sqlalchemy import select
+
+    from dbaylo.db.models import Medication, Reminder
+
+    user = await _user(async_session)
+    med, _created = await proactive.add_medication(
+        async_session,
+        user=user,
+        name="Аспірин",
+        times=[time(8, 0), time(20, 0)],
+        scheduler=scheduler,
+    )
+    await async_session.commit()
+    assert _count(scheduler, "medication") == 2
+
+    await proactive.delete_medication_reminders(
+        async_session, medication_id=med.id, scheduler=scheduler
+    )
+    await async_session.commit()
+    assert _count(scheduler, "medication") == 0  # all jobs gone
+    rows = (
+        await async_session.execute(select(Reminder).where(Reminder.medication_id == med.id))
+    ).all()
+    assert rows == []  # the medication's reminder rows are gone
+    assert await async_session.get(Medication, med.id) is not None  # the prescription record stays
 
 
 async def test_empty_reminders_list_has_no_keyboard(

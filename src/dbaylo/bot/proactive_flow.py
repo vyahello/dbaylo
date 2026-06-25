@@ -297,12 +297,12 @@ async def _reminders_payload(
     return locale.REMINDERS_HEADER, InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
 
-def _card_keyboard(off_data: str) -> InlineKeyboardMarkup:
-    """A reminder card's actions: turn it off (deliberate) or go back to the list."""
+def _card_keyboard(delete_data: str) -> InlineKeyboardMarkup:
+    """A reminder card's actions: delete it (deliberate) or go back to the list."""
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text=locale.BTN_REMINDER_OFF, callback_data=off_data),
+                InlineKeyboardButton(text=locale.BTN_REMINDER_DELETE, callback_data=delete_data),
                 InlineKeyboardButton(
                     text=locale.BTN_REMINDER_BACK, callback_data=callbacks.REMINDERS_BACK
                 ),
@@ -400,14 +400,17 @@ async def on_medication_view(
     with contextlib.suppress(TelegramBadRequest):
         await callback.message.edit_text(
             _render_card(label, when),
-            reply_markup=_card_keyboard(callbacks.medication_off(medication_id)),
+            reply_markup=_card_keyboard(callbacks.medication_delete(medication_id)),
         )
     await callback.answer()
 
 
 @router.callback_query(F.data.startswith(callbacks.REMINDER_OFF + ":"))
-async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
-    """Deliberate turn-off from a reminder's card; then refresh the list in place."""
+async def on_reminder_delete(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    """Deliberate DELETE from a reminder's card (a turned-off one can't be turned back on, so we
+    remove it), then refresh the list in place."""
     reminder_id = callbacks.parse_reminder_off(callback.data or "")
     if reminder_id is None:
         await callback.answer()
@@ -415,24 +418,46 @@ async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderS
     async with get_session() as session:
         reminder = await session.get(Reminder, reminder_id)
         if reminder is not None:
-            await proactive.turn_off_reminder(
+            await proactive.delete_reminder(
                 session, reminder=reminder, scheduler=reminder_scheduler
             )
             await session.commit()
-    await callback.answer(locale.REMINDER_TURNED_OFF)
+    await callback.answer(locale.REMINDER_DELETED)
+    await _edit_to_list(callback, reminder_scheduler)
+
+
+@router.callback_query(F.data.startswith(callbacks.MEDICATION_DELETE + ":"))
+async def on_medication_delete(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    """Delete a medication's reminders from its reminder card, then refresh the list in place."""
+    medication_id = callbacks.parse_medication_delete(callback.data or "")
+    if medication_id is None:
+        await callback.answer()
+        return
+    async with get_session() as session:
+        await proactive.delete_medication_reminders(
+            session, medication_id=medication_id, scheduler=reminder_scheduler
+        )
+        await session.commit()
+    await callback.answer(locale.REMINDER_DELETED)
     await _edit_to_list(callback, reminder_scheduler)
 
 
 @router.callback_query(F.data.startswith(callbacks.MEDICATION_OFF + ":"))
 async def on_medication_off(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Turn a medication's reminders off from the /medication list (its own message) — drop just the
+    tapped row; the Medication record stays. (The reminder CARD uses MEDICATION_DELETE instead.)"""
     medication_id = callbacks.parse_medication_off(callback.data or "")
     if medication_id is None:
         await callback.answer()
         return
+    await remove_button_row(callback)  # consume just this medication's row in the /medication list
     async with get_session() as session:
         await proactive.turn_off_medication(
             session, medication_id=medication_id, scheduler=reminder_scheduler
         )
         await session.commit()
-    await callback.answer(locale.REMINDER_TURNED_OFF)
-    await _edit_to_list(callback, reminder_scheduler)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(locale.REMINDER_TURNED_OFF)
+    await callback.answer()

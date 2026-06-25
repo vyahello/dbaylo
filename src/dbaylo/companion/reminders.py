@@ -253,6 +253,26 @@ async def deactivate(session: AsyncSession, reminder: Reminder) -> None:
     await session.flush()
 
 
+async def delete(session: AsyncSession, reminder: Reminder) -> None:
+    """Hard-delete a reminder row. Used when the USER removes a reminder from the list — there is no
+    way to turn one back on, so 'remove' truly removes it (the soft ``deactivate`` stays for the
+    scheduler's own retirement of fired one-offs, which must keep the record)."""
+    await session.delete(reminder)
+    await session.flush()
+
+
+async def delete_medication_reminders(session: AsyncSession, medication_id: int) -> list[int]:
+    """Hard-delete every reminder of a medication; return their ids to unschedule. The Medication
+    record itself is kept (it lives in /medication, with the prescription detail — rail #1)."""
+    rows = await session.scalars(select(Reminder).where(Reminder.medication_id == medication_id))
+    ids: list[int] = []
+    for reminder in rows.all():
+        ids.append(reminder.id)
+        await session.delete(reminder)
+    await session.flush()
+    return ids
+
+
 async def deactivate_medication(session: AsyncSession, medication_id: int) -> list[int]:
     """Soft-delete every active reminder for a medication; return their ids to unschedule.
 

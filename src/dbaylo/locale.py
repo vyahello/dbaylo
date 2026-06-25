@@ -520,11 +520,13 @@ REMINDER_ITEM_MEDICATION = "💊 {name} ({times}) — {when}"
 REMINDER_ITEM_REPEAT_LAB = "🧪 Повтор аналізів ({name}) — {when}"
 REMINDER_ITEM_CONSULT = "🔔 {name} — {when}"
 REMINDER_NEXT_UNKNOWN = "час не визначено"
-REMINDER_TURNED_OFF = "Вимкнув нагадування."
-BTN_REMINDER_OFF = "🗑 Вимкнути"
+REMINDER_TURNED_OFF = "🔕 Вимкнув нагадування про ці ліки."  # the /medication list's soft turn-off
+REMINDER_DELETED = "🗑 Видалив нагадування."  # the reminder card's hard delete (no re-enable)
+BTN_REMINDER_DELETE = "🗑 Видалити"
 BTN_REMINDER_BACK = "◀ Назад"
-# Reminder detail card (tap a reminder to read it; turning it off is the explicit 🗑 button).
-REMINDER_CARD_HINT = "Нагадаю тобі вчасно. Якщо більше не потрібно — натисни «🗑 Вимкнути»."
+# Reminder detail card (tap a reminder to read it; deleting it is the explicit 🗑 button — a
+# turned-off reminder can't be turned back on, so the card removes it outright).
+REMINDER_CARD_HINT = "Нагадаю тобі вчасно. Якщо більше не потрібно — натисни «🗑 Видалити»."
 REMINDER_CARD_NEXT = "🗓 Наступне: {when}"
 
 # --- Tier 1.2: history & file retrieval -----------------------------------------
