@@ -710,12 +710,17 @@ CONSULT_REMIND_BAD_DATE = "Не зрозумів дату 🤔 Спробуй ф
 CONSULT_REMIND_SET = (
     "🔔 Готово — нагадаю про «{label}» {when}. Можеш писати далі або завершити розмову."
 )
-# When the user asked to be "booked": we can't call the clinic, so we save the reminder a day or two
-# BEFORE the visit (time to call + book) and nudge. {when}=reminder fires, {visit}=visit day.
+# When the user asked to be "booked": we can't call the clinic, so we save the reminder WELL ahead
+# of the visit (the slot isn't arranged yet — time to call + agree). {when}=fires, {visit}=visit.
 CONSULT_REMIND_SET_BOOKING = (
-    "🔔 Нагадаю про «{label}» {when} — за день-два до візиту {visit}, щоб ти встиг подзвонити "
-    "й записатися.\n\nЗабронювати сам я не можу (немає доступу до запису клінік) — тож подзвони "
-    "в клініку. Контакти знайду кнопкою 🏥 «Де зробити». Можеш писати далі або завершити."
+    "🔔 Нагадаю про «{label}» {when} — завчасно, щоб ти точно встиг подзвонити й домовитися "
+    "про візит на {visit} (його ж іще треба узгодити з клінікою).\n\nЗабронювати сам я не можу "
+    "(немає доступу до запису клінік) — подзвони в клініку, а контакти знайду кнопкою 🏥 «Де "
+    "зробити». Можеш писати далі або завершити."
+)
+# Asking for the same reminder twice doesn't create a second one.
+CONSULT_REMIND_DUP = (
+    "🔔 Таке нагадування вже стоїть — «{label}». Не дублюю. Можеш писати далі або завершити."
 )
 CONSULT_BTN_WHEN_1W = "Через тиждень"
 CONSULT_BTN_WHEN_2W = "Через 2 тижні"

@@ -113,6 +113,33 @@ async def test_repeat_lab_is_scheduled(
     assert _count(scheduler, "repeat_lab") == 1
 
 
+async def test_add_consult_reminder_dedupes_identical_requests(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # Asking for the same reminder twice must not leave two identical reminders (the owner hit this
+    # by repeating "запиши мене …").
+    user = await _user(async_session)
+    run_at = datetime(2027, 7, 6, 9, 0)
+    label = "Консультація уролога + УЗД нирок (UROSVIT) — 2027-07-11"
+
+    first, created1 = await proactive.add_consult_reminder(
+        async_session, user=user, run_at=run_at, label=label, scheduler=scheduler
+    )
+    assert created1 and _count(scheduler, "consult") == 1
+
+    again, created2 = await proactive.add_consult_reminder(
+        async_session, user=user, run_at=run_at, label=label, scheduler=scheduler
+    )
+    assert not created2 and again.id == first.id  # reused, not duplicated
+    assert _count(scheduler, "consult") == 1  # still just one job
+
+    # A genuinely different reminder is still created.
+    other, created3 = await proactive.add_consult_reminder(
+        async_session, user=user, run_at=run_at, label="інша справа", scheduler=scheduler
+    )
+    assert created3 and other.id != first.id and _count(scheduler, "consult") == 2
+
+
 async def test_reminders_list_taps_open_a_view_not_a_delete(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

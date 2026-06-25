@@ -348,8 +348,9 @@ def _wants_booking(text: str) -> bool:
     return bool(_BOOKING_INTENT_RE.search(text.casefold()))
 
 
-# A booking reminder fires a day or two BEFORE the visit, so there's time to call and book.
-_BOOKING_LEAD_DAYS = 2
+# A booking reminder fires WELL before the visit — the appointment isn't arranged yet, so there must
+# be time to call, agree a slot, and still make the date. Several days, not one or two.
+_BOOKING_LEAD_DAYS = 5
 
 
 def _booking_lead(visit: datetime) -> datetime:
@@ -458,10 +459,14 @@ async def _create_consult_reminder(
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        await proactive.add_consult_reminder(
+        _reminder, created = await proactive.add_consult_reminder(
             session, user=user, run_at=run_at, label=label, scheduler=scheduler
         )
         await session.commit()
+    if not created:  # an identical reminder already exists — don't duplicate it
+        await message.answer(locale.CONSULT_REMIND_DUP.format(label=label))
+        await _resume_consult(message, state)
+        return
     await message.answer(
         confirm_text
         or locale.CONSULT_REMIND_SET.format(label=label, when=run_at.date().isoformat())

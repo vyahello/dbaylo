@@ -196,6 +196,23 @@ async def create_consult_reminder(
     )
 
 
+async def find_active_consult(
+    session: AsyncSession, *, user_id: int, schedule: str, payload: str
+) -> Reminder | None:
+    """An active consult reminder identical (same fire time + text) to one about to be created — so
+    asking twice doesn't leave two identical reminders."""
+    found: Reminder | None = await session.scalar(
+        select(Reminder).where(
+            Reminder.user_id == user_id,
+            Reminder.type == TYPE_CONSULT,
+            Reminder.active.is_(True),
+            Reminder.schedule == schedule,
+            Reminder.payload == payload,
+        )
+    )
+    return found
+
+
 async def ensure_checkin_reminder(
     session: AsyncSession, *, user: User, hour: int = 21, minute: int = 0
 ) -> Reminder:

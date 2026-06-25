@@ -102,13 +102,20 @@ async def add_consult_reminder(
     run_at: datetime,
     label: str,
     scheduler: ReminderScheduler,
-) -> Reminder:
-    """Create + live-schedule a one-off reminder agreed during a consultation."""
+) -> tuple[Reminder, bool]:
+    """Create + live-schedule a one-off reminder agreed during a consultation. Returns
+    ``(reminder, created)``: if an identical active one already exists, it is reused (``created`` is
+    False) so asking twice never leaves two identical reminders."""
+    existing = await reminders.find_active_consult(
+        session, user_id=user.id, schedule=reminders.once(run_at), payload=label
+    )
+    if existing is not None:
+        return existing, False
     reminder = await reminders.create_consult_reminder(
         session, user=user, run_at=run_at, label=label
     )
     scheduler.schedule(reminder)
-    return reminder
+    return reminder, True
 
 
 async def turn_off_reminder(
