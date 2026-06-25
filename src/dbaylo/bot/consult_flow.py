@@ -12,12 +12,14 @@ companion's ``StateFilter(None)`` catch-all or the symptom-intake state.
 
 from __future__ import annotations
 
+import html
 import re
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -29,6 +31,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
+from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import (
     callbacks,
@@ -49,6 +52,7 @@ from dbaylo.companion.consult_context import (
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
+from dbaylo.db.models import ConsultMemory
 from dbaylo.labs.intake import ensure_user
 
 router = Router(name="consult")
@@ -531,3 +535,108 @@ async def on_consult_resume(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
         await _resume_consult(callback.message, state)
+
+
+# --- /memory: view the cross-session memory + "забути все" (two-step) ------------
+
+_MEMORY_LINE_CAP = 200  # truncate a long remembered turn in the view (the full text stays stored)
+
+
+def _forget_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[[_btn(locale.MEMORY_BTN_FORGET_ALL, callbacks.MEMORY_FORGET)]]
+    )
+
+
+def _render_memory_view(turns: list[ConsultMemory], total: int) -> str:
+    """User-facing Ukrainian view of remembered consultation turns, as escaped HTML."""
+    lines = [locale.MEMORY_VIEW_HEADER, "", locale.MEMORY_VIEW_INTRO, ""]
+    lines.append(locale.MEMORY_VIEW_COUNT.format(total=total))
+    if total > len(turns):
+        lines.append(locale.MEMORY_VIEW_SHOWN.format(shown=len(turns)))
+    lines.append("")
+    for turn in turns:
+        icon = locale.MEMORY_ROLE_USER if turn.role == "user" else locale.MEMORY_ROLE_BOT
+        day = turn.created_at.date().isoformat() if turn.created_at else "?"
+        body = turn.text.strip()
+        if len(body) > _MEMORY_LINE_CAP:
+            body = body[:_MEMORY_LINE_CAP].rstrip() + "…"
+        lines.append(f"{icon} <i>{day}</i> {html.escape(body)}")
+    return "\n".join(lines)
+
+
+@router.message(Command("memory"))
+async def on_memory(message: Message) -> None:
+    """Перегляд памʼяті — show what Дбайло remembers, with a forget-all button."""
+    tg = _telegram_id(message)
+    if tg is None:
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        total = await consult_memory.count(session, user_id=user.id)
+        turns = (
+            await consult_memory.recent_turns(session, user_id=user.id, limit=16) if total else []
+        )
+    if not turns:
+        await message.answer(locale.MEMORY_VIEW_EMPTY, parse_mode=ParseMode.HTML)
+        return
+    await answer_chunked(
+        message,
+        _render_memory_view(turns, total),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_forget_keyboard(),
+    )
+
+
+@router.callback_query(F.data == callbacks.MEMORY_FORGET)
+async def on_memory_forget(callback: CallbackQuery) -> None:
+    """Step 1 of «забути все»: confirm before wiping anything."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        total = await consult_memory.count(session, user_id=user.id)
+    if not total:
+        await callback.message.answer(locale.MEMORY_FORGET_EMPTY)
+        return
+    await callback.message.answer(
+        locale.MEMORY_FORGET_CONFIRM.format(total=total),
+        parse_mode=ParseMode.HTML,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    _btn(locale.MEMORY_BTN_FORGET_YES, callbacks.MEMORY_FORGET_OK),
+                    _btn(locale.MEMORY_BTN_FORGET_NO, callbacks.MEMORY_FORGET_NO),
+                ]
+            ]
+        ),
+    )
+
+
+@router.callback_query(F.data == callbacks.MEMORY_FORGET_OK)
+async def on_memory_forget_ok(callback: CallbackQuery) -> None:
+    """Step 2: confirmed — forget everything remembered for this user."""
+    tg = _telegram_id(callback)
+    if tg is None:
+        await callback.answer()
+        return
+    await clear_inline_keyboard(callback)  # consume the confirm buttons (no re-tap / cancel after)
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        deleted = await consult_memory.clear_all(session, user_id=user.id)
+        await session.commit()
+    if isinstance(callback.message, Message):
+        done = locale.MEMORY_FORGET_DONE.format(total=deleted)
+        await callback.message.answer(done if deleted else locale.MEMORY_FORGET_EMPTY)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MEMORY_FORGET_NO)
+async def on_memory_forget_no(callback: CallbackQuery) -> None:
+    await clear_inline_keyboard(callback)  # consume the confirm buttons
+    if isinstance(callback.message, Message):
+        await callback.message.answer(locale.MEMORY_FORGET_CANCELLED)
+    await callback.answer()

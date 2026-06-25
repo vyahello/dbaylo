@@ -13,7 +13,9 @@ adds no new path to the model and the safety choke-point invariant is untouched.
 
 from __future__ import annotations
 
-from sqlalchemy import delete, select
+from typing import Any, cast
+
+from sqlalchemy import CursorResult, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.db.models import ConsultMemory
@@ -22,6 +24,7 @@ from dbaylo.db.models import ConsultMemory
 # the table never grows forever — the oldest talks age out naturally after each write.
 _RECALL_TURNS = 12  # most-recent turns injected into a new consultation's context
 _RETENTION_ROWS = 400  # per-user cap; rows older than this are pruned on every write
+_VIEW_TURNS = 16  # how many recent turns the user sees in the /memory view
 
 _ROLE_LABEL = {"user": "Користувач", "assistant": "Дбайло"}
 
@@ -119,3 +122,18 @@ async def recall_block(
     """Load + format this user's recent memory block in one call (``""`` when there is none)."""
     turns = await recent_turns(session, user_id=user_id, limit=limit)
     return format_block(turns, exclude=exclude)
+
+
+async def count(session: AsyncSession, *, user_id: int) -> int:
+    """How many consultation turns are remembered for this user."""
+    total = await session.scalar(
+        select(func.count()).select_from(ConsultMemory).where(ConsultMemory.user_id == user_id)
+    )
+    return int(total or 0)
+
+
+async def clear_all(session: AsyncSession, *, user_id: int) -> int:
+    """Forget EVERYTHING remembered for this user ("забути все"). Returns how many turns were
+    deleted. Irreversible — the caller confirms first."""
+    result = await session.execute(delete(ConsultMemory).where(ConsultMemory.user_id == user_id))
+    return cast("CursorResult[Any]", result).rowcount or 0

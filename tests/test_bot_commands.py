@@ -18,6 +18,7 @@ from aiogram.types import BotCommand
 from dbaylo import locale
 from dbaylo.bot import (
     companion_flow,
+    consult_flow,
     handlers,
     history_flow,
     lab_flow,
@@ -38,6 +39,7 @@ _ROUTERS: tuple[Router, ...] = (
     proactive_flow.router,
     history_flow.router,
     companion_flow.router,
+    consult_flow.router,
 )
 
 # /reports is a deliberate alias of /history; one "/" menu entry is enough for the pair.

@@ -399,3 +399,8 @@ MENU_PRICE = "menu_price"
 MENU_COVERAGE = "menu_coverage"
 # The one shared dialog-cancel callback (handled centrally; clears any active FSM).
 CANCEL_DIALOG = "menu_cancel"
+
+# --- Consult memory: /memory forget-all (static, no ids; two-step confirm) -------
+MEMORY_FORGET = "mem_forget"  # open the "забути все" confirmation
+MEMORY_FORGET_OK = "mem_forget_ok"  # confirmed -> wipe this user's consult memory
+MEMORY_FORGET_NO = "mem_forget_no"  # cancelled -> keep the memory

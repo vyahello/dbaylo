@@ -141,6 +141,43 @@ async def test_build_context_injects_the_memory_block(async_session: AsyncSessio
     assert "двобічний нефролітіаз" in context  # the prior conversation is recalled
 
 
+async def test_count_and_clear_all(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    assert await consult_memory.count(async_session, user_id=user.id) == 0
+    for i in range(3):
+        await consult_memory.record_turn(async_session, user_id=user.id, role="user", text=f"q{i}")
+    assert await consult_memory.count(async_session, user_id=user.id) == 3
+    deleted = await consult_memory.clear_all(async_session, user_id=user.id)
+    assert deleted == 3
+    assert await consult_memory.count(async_session, user_id=user.id) == 0
+    assert await consult_memory.recall_block(async_session, user_id=user.id) == ""
+
+
+async def test_clear_all_is_scoped_per_user(async_session: AsyncSession) -> None:
+    a = await ensure_user(async_session, 1)
+    b = await ensure_user(async_session, 2)
+    await consult_memory.record_turn(async_session, user_id=a.id, role="user", text="A")
+    await consult_memory.record_turn(async_session, user_id=b.id, role="user", text="B")
+    await consult_memory.clear_all(async_session, user_id=a.id)
+    assert await consult_memory.count(async_session, user_id=a.id) == 0
+    assert await consult_memory.count(async_session, user_id=b.id) == 1  # B untouched
+
+
+async def test_memory_view_escapes_html_and_truncates(async_session: AsyncSession) -> None:
+    from dbaylo.bot.consult_flow import _MEMORY_LINE_CAP, _render_memory_view
+
+    user = await ensure_user(async_session, 1)
+    await consult_memory.record_turn(
+        async_session, user_id=user.id, role="user", text="<b>x</b> & y " + "довго" * 100
+    )
+    turns = await consult_memory.recent_turns(async_session, user_id=user.id)
+    rendered = _render_memory_view(turns, total=1)
+    assert "&lt;b&gt;" in rendered and "&amp;" in rendered  # angle brackets / ampersand escaped
+    assert "<b>x</b>" not in rendered  # the raw user tag is never injected as markup
+    assert "…" in rendered  # the long line is truncated
+    assert len("довго" * 100) > _MEMORY_LINE_CAP  # sanity: it really exceeded the cap
+
+
 async def test_deleting_a_report_decouples_but_keeps_the_memory(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:
