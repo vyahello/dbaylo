@@ -30,6 +30,7 @@ from aiogram import F, Router
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, StateFilter
+from aiogram.fsm.context import FSMContext
 from aiogram.types import (
     BufferedInputFile,
     CallbackQuery,
@@ -42,6 +43,7 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import (
     SECTION_KEYS,
     answer_chunked,
@@ -733,7 +735,7 @@ async def _render_pickable(
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_PICK + ":"))
-async def on_chart_pick(callback: CallbackQuery) -> None:
+async def on_chart_pick(callback: CallbackQuery, state: FSMContext) -> None:
     """Render ONE indicator (the picked button) — a chart, or a table for a qualitative one — with
     carousel nav under it so the next indicator is reachable without scrolling back up."""
     parsed = callbacks.parse_chart_pick(callback.data or "")
@@ -764,10 +766,13 @@ async def on_chart_pick(callback: CallbackQuery) -> None:
             specimen=spec,
             keyboard=_chart_nav_keyboard(report_id, index, len(items)),
         )
+        # Now that this indicator is on screen, a free-text question about it (no button tap) is
+        # answered IN context (see consult_flow.start_primed_consult).
+        await consult_flow.prime_indicator(state, report_id=report_id, key=item.key, name=item.name)
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_NAV + ":"))
-async def on_chart_nav(callback: CallbackQuery) -> None:
+async def on_chart_nav(callback: CallbackQuery, state: FSMContext) -> None:
     """Carousel: flip to the prev/next indicator by editing the SAME photo in place, so browsing
     many indicators never floods the chat or buries the picker."""
     parsed = callbacks.parse_chart_nav(callback.data or "")
@@ -801,6 +806,8 @@ async def on_chart_nav(callback: CallbackQuery) -> None:
     if full:
         with contextlib.suppress(TelegramBadRequest):
             await callback.message.edit_caption(caption=full, reply_markup=keyboard)
+    # Re-anchor a free-text question to the indicator now showing.
+    await consult_flow.prime_indicator(state, report_id=report_id, key=item.key, name=item.name)
 
 
 @router.callback_query(F.data.startswith(callbacks.CHART_ALL + ":"))
@@ -1187,7 +1194,7 @@ async def on_dyn_category(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith(callbacks.DYN_IND + ":"))
-async def on_dyn_indicator(callback: CallbackQuery) -> None:
+async def on_dyn_indicator(callback: CallbackQuery, state: FSMContext) -> None:
     """Show one indicator's trend chart (the analyte's dynamics across all labs)."""
     parsed = callbacks.parse_dyn_indicator(callback.data or "")
     tg = _telegram_id(callback)
@@ -1203,9 +1210,8 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
         indicators = history.indicators_in(items, category)
         if not 0 <= index < len(indicators):
             return
-        view = await history.trend_for_analyte(
-            session, user_id=user.id, analyte=indicators[index].name
-        )
+        indicator = indicators[index]
+        view = await history.trend_for_analyte(session, user_id=user.id, analyte=indicator.name)
     if view.chart is not None:
         consult_kb = InlineKeyboardMarkup(
             inline_keyboard=[[_btn(locale.BTN_CONSULT, callbacks.consult_dyn(category, index))]]
@@ -1217,6 +1223,10 @@ async def on_dyn_indicator(callback: CallbackQuery) -> None:
             analyte=view.analyte,
             specimen=view.specimen,
             keyboard=consult_kb,
+        )
+        # A free-text question right after is answered about this indicator (no button tap needed).
+        await consult_flow.prime_indicator(
+            state, report_id=0, key=indicator.key, name=indicator.name
         )
     else:
         await callback.message.answer(view.text)

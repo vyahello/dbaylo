@@ -175,6 +175,63 @@ async def _open(
     await message.answer(prompt, reply_markup=_end_keyboard())
 
 
+# --- "Primed" consult: typing a question right after viewing a chart/indicator, no button tap -----
+# Telegram never tells the bot what the user is "looking at", so a free-text question after a chart
+# would otherwise hit the general companion ("I don't see this analysis"). When a single indicator's
+# chart is shown we PRIME its subject; the companion's free-text handler then routes the next text
+# into a grounded consult about it (so "що скажеш про цей аналіз?" just works).
+_PRIME_TTL = timedelta(minutes=15)
+
+
+async def prime_indicator(state: FSMContext, *, report_id: int, key: str, name: str) -> None:
+    """Remember the indicator the user is now viewing, so their next free-text turn is answered in
+    its context. Stores the subject + a timestamp in FSM data; the state itself stays untouched."""
+    subject = Subject(kind=KIND_INDICATOR, report_id=report_id, analyte_key=key, analyte_name=name)
+    await state.update_data(consult_primed=subject.to_dict(), consult_primed_ts=_now().isoformat())
+
+
+def _primed_recent(ts: object) -> bool:
+    if not isinstance(ts, str):
+        return False
+    try:
+        when = datetime.fromisoformat(ts)
+    except ValueError:
+        return False
+    return (_now() - when) <= _PRIME_TTL
+
+
+async def start_primed_consult(
+    message: Message, state: FSMContext, *, scheduler: ReminderScheduler
+) -> bool:
+    """If a chart/indicator was recently primed, enter a consult about it and answer the user's text
+    as its first turn. Returns True when it handled the message, False to fall back to ordinary chat
+    (no recent prime, or the subject no longer resolves)."""
+    data = await state.get_data()
+    primed = data.get("consult_primed")
+    if not primed or not _primed_recent(data.get("consult_primed_ts")):
+        return False
+    tg = _telegram_id(message)
+    if tg is None:
+        return False
+    subject = Subject.from_dict(dict(primed))
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        built = await build_context(session, user.id, subject, today=date.today())
+    if built is None:
+        return False
+    _context, label = built
+    await state.set_state(ConsultStates.active)
+    await state.update_data(
+        consult_subject=subject.to_dict(),
+        consult_transcript=[],
+        consult_label=label,
+        consult_primed=None,
+        consult_primed_ts=None,
+    )
+    await _run_consult_turn(message, state, message.text or "", tg=tg, scheduler=scheduler)
+    return True
+
+
 @router.callback_query(F.data.startswith(callbacks.CONSULT_CHART + ":"))
 async def on_consult_chart(callback: CallbackQuery, state: FSMContext) -> None:
     """Open a consultation anchored to ONE indicator (the chart the user is looking at)."""

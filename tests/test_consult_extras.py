@@ -36,6 +36,40 @@ def test_typed_intents_route_to_reminder_or_clinic_not_the_llm() -> None:
     assert not _wants_reminder("що це означає?") and not _wants_clinics("що це означає?")
 
 
+def test_primed_recent_window() -> None:
+    from datetime import timedelta
+
+    from dbaylo.bot.consult_flow import _PRIME_TTL, _now, _primed_recent
+
+    assert _primed_recent(_now().isoformat())  # just now -> recent
+    assert _primed_recent((_now() - _PRIME_TTL + timedelta(minutes=1)).isoformat())  # inside window
+    assert not _primed_recent((_now() - _PRIME_TTL - timedelta(minutes=1)).isoformat())  # stale
+    assert not _primed_recent("not-a-date") and not _primed_recent(None)
+
+
+class _FakeState:
+    def __init__(self, data: dict) -> None:
+        self._data = data
+
+    async def get_data(self) -> dict:
+        return self._data
+
+
+async def test_start_primed_consult_skips_when_nothing_recent_is_primed() -> None:
+    # No prime / a stale prime -> returns False so the companion gives an ordinary reply (it never
+    # touches `message` / `scheduler` in that case).
+    from datetime import timedelta
+
+    from dbaylo.bot import consult_flow
+
+    assert not await consult_flow.start_primed_consult(None, _FakeState({}), scheduler=None)  # type: ignore[arg-type]
+    stale = {
+        "consult_primed": {"kind": "indicator", "report_id": 0, "key": "k", "name": "Глюкоза"},
+        "consult_primed_ts": (consult_flow._now() - timedelta(hours=1)).isoformat(),
+    }
+    assert not await consult_flow.start_primed_consult(None, _FakeState(stale), scheduler=None)  # type: ignore[arg-type]
+
+
 def test_booking_lead_fires_well_before_a_far_visit_and_clamps_a_near_one() -> None:
     # A booking reminder fires several days before the visit (the slot isn't arranged yet — time to
     # call and agree); if the visit is too soon, it clamps to "soon", never after the visit.

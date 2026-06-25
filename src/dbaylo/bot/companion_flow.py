@@ -20,10 +20,12 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import Message
 
 from dbaylo import locale
+from dbaylo.bot import consult_flow
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import checkin, goals, intake
 from dbaylo.companion.conversation import generate_reply
+from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
 from dbaylo.safety import GateSource, screen
@@ -161,7 +163,9 @@ async def on_intake_turn(message: Message, state: FSMContext) -> None:
 
 
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
-async def on_free_text(message: Message, state: FSMContext) -> None:
+async def on_free_text(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
     text = message.text or ""
     decision = screen(text)
     # The wellness guardrail (disordered eating / unsafe goals) owns its own response.
@@ -172,6 +176,10 @@ async def on_free_text(message: Message, state: FSMContext) -> None:
     # deterministic triage stays the escalation backstop inside the intake.
     if decision.source is GateSource.TRIAGE or intake.looks_like_complaint(text):
         await _run_intake_turn(message, state, [{"role": "user", "text": text}])
+        return
+    # If the user just opened a chart/indicator and is now writing about it (no «Запитати Дбайло»
+    # tap), answer IN that grounded context instead of the contextless companion.
+    if await consult_flow.start_primed_consult(message, state, scheduler=reminder_scheduler):
         return
     # Otherwise — ordinary companion chat.
     async with keep_typing(message):
