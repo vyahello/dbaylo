@@ -693,6 +693,12 @@ CONSULT_PROMPT_REPORT = (
 CONSULT_PROMPT_SECTION = (
     "Питай про «{subject}» з цього розбору — розберемо детальніше саме цей бік. 🩺"
 )
+# Appended to the consult prompt when there are past conversations about this analysis — so it's
+# clear the memory is folded into "Запитати Дбайло" (a separate «Памʼять» button was confusing).
+CONSULT_PROMPT_MEMORY_NOTE = (
+    "\n\n💭 Памʼятаю наші попередні розмови про цей аналіз — можеш спитати «що ми вже "
+    "обговорювали?» або просто продовжити."
+)
 CONSULT_BTN_END = "✅ Завершити розмову"
 CONSULT_BTN_REMIND = "🔔 Нагадати"
 CONSULT_BTN_CLINICS = "🏥 Де зробити"
@@ -790,12 +796,6 @@ MEMORY_FORGET_DONE = (
 MEMORY_FORGET_ONE_DONE = "Готово — цю розмову забув ({total}). Решта памʼяті лишається. 🌿"
 MEMORY_FORGET_EMPTY = "Памʼять і так порожня — нема чого забувати. 🙂"
 MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — памʼять лишається. 🙂"
-# The 💭 Памʼять button on a /history report card (this analysis's conversations).
-BTN_MEMORY_REPORT = "💭 Памʼять"
-MEMORY_REPORT_EMPTY = (
-    "Про цей аналіз ми ще не розмовляли. Відкрий «💬 Запитати Дбайло», щоб почати — і я "
-    "памʼятатиму розмову."
-)
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 

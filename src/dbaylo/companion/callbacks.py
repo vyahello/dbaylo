@@ -442,7 +442,6 @@ MEMORY_HUB = "mem_hub"  # back to the conversation-groups list (static, edit-in-
 MEMORY_GROUP = "mem_grp"  # open ONE conversation group (carries report_id; 0 = general)
 MEMORY_FORGET_ONE = "mem_fgone"  # open the "забути цю розмову" confirmation (carries rid)
 MEMORY_FORGET_ONE_OK = "mem_fgoneok"  # confirmed -> forget just that conversation (carries rid)
-MEMORY_OPEN_REPORT = "mem_oreport"  # open a report's memory from its /history card (carries rid)
 
 
 def memory_group(report_id: int) -> str:  # 0 encodes the general (no-report) group
@@ -467,33 +466,3 @@ def memory_forget_one_ok(report_id: int) -> str:
 
 def parse_memory_forget_one_ok(data: str) -> int | None:
     return _parse(MEMORY_FORGET_ONE_OK, data)
-
-
-def memory_open_report(report_id: int) -> str:
-    return _make(MEMORY_OPEN_REPORT, report_id)
-
-
-def parse_memory_open_report(data: str) -> int | None:
-    return _parse(MEMORY_OPEN_REPORT, data)
-
-
-# Forget a report's conversation FROM ITS CARD — stays in the report's context (back to the card),
-# unlike MEMORY_FORGET_ONE which returns to the general groups hub.
-MEMORY_FORGET_CARD = "mem_fcard"
-MEMORY_FORGET_CARD_OK = "mem_fcardok"
-
-
-def memory_forget_card(report_id: int) -> str:
-    return _make(MEMORY_FORGET_CARD, report_id)
-
-
-def parse_memory_forget_card(data: str) -> int | None:
-    return _parse(MEMORY_FORGET_CARD, data)
-
-
-def memory_forget_card_ok(report_id: int) -> str:
-    return _make(MEMORY_FORGET_CARD_OK, report_id)
-
-
-def parse_memory_forget_card_ok(data: str) -> int | None:
-    return _parse(MEMORY_FORGET_CARD_OK, data)
