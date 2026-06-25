@@ -23,6 +23,7 @@ from dbaylo.bot import (
     lab_flow,
     menu_flow,
     navigator_flow,
+    prescription_flow,
     proactive_flow,
 )
 from dbaylo.bot.access import OwnerOnlyMiddleware
@@ -67,6 +68,9 @@ def build_dispatcher(
     # The menu is registered early so its exact-label taps win over the history-NL and
     # companion free-text handlers (a reply-keyboard tap is a plain text message).
     dispatcher.include_router(menu_flow.router)
+    # Before lab_flow: its photo/document handlers are state-filtered to the prescription flow, so a
+    # prescription upload is handled here while every other photo still reaches the lab pipeline.
+    dispatcher.include_router(prescription_flow.router)
     dispatcher.include_router(lab_flow.router)
     dispatcher.include_router(navigator_flow.router)
     dispatcher.include_router(proactive_flow.router)

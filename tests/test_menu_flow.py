@@ -141,10 +141,24 @@ async def test_menu_care_hub_bundles_meds_and_reminders() -> None:
     await menu_flow.menu_care(message)
     _, kwargs = message.answer.call_args
     assert _cb_datas(kwargs["reply_markup"]) == [
+        callbacks.MENU_MED_PHOTO,  # 📷 read a prescription photo leads the hub
         callbacks.MENU_MED_LIST,
         callbacks.MENU_MED_NEW,
         callbacks.MENU_OPEN_REMINDERS,
     ]
+
+
+async def test_cb_med_photo_starts_the_prescription_dialog(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, state):
+        seen["args"] = (message, state)
+
+    monkeypatch.setattr(menu_flow.prescription_flow, "start_prescription_dialog", fake)
+    callback = _callback(callbacks.MENU_MED_PHOTO)
+    state = object()
+    await menu_flow.cb_med_photo(callback, state)
+    assert seen["args"] == (callback.message, state)
 
 
 async def test_cb_open_analyses_posts_the_labs_hub() -> None:

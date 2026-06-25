@@ -466,6 +466,8 @@ MENU_PROB_LIST = "menu_probs"
 MENU_PROB_NEW = "menu_prob_new"
 MENU_MED_LIST = "menu_meds"
 MENU_MED_NEW = "menu_med_new"
+MENU_MED_PHOTO = "menu_med_photo"  # start the "read a prescription photo" flow
+PRESCRIPTION_CONFIRM = "presc_ok"  # confirm the extracted meds (the meds live in FSM state)
 MENU_PRICE = "menu_price"
 MENU_COVERAGE = "menu_coverage"
 # The one shared dialog-cancel callback (handled centrally; clears any active FSM).

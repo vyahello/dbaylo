@@ -36,12 +36,18 @@ def parse_times(text: str) -> list[time]:
 
 
 async def add_medication(
-    session: AsyncSession, *, user: User, name: str, times: list[time]
+    session: AsyncSession, *, user: User, name: str, times: list[time], dose: str | None = None
 ) -> tuple[Medication, list[Reminder]]:
-    """Record the medication and create one daily reminder per dose time."""
+    """Record the medication and create one daily reminder per dose time.
+
+    ``dose`` is optional RECORD-KEEPING of the prescribed amount (e.g. captured from a prescription
+    photo) — stored on the :class:`Medication` (rail #1 allows storing what a doctor prescribed) but
+    NEVER placed in the reminder text.
+    """
     medication = Medication(
         user_id=user.id,
         name=name.strip(),
+        dose=(dose or None),
         schedule=", ".join(t.strftime("%H:%M") for t in times),
     )
     session.add(medication)

@@ -26,7 +26,14 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot import companion_flow, consult_flow, history_flow, navigator_flow, proactive_flow
+from dbaylo.bot import (
+    companion_flow,
+    consult_flow,
+    history_flow,
+    navigator_flow,
+    prescription_flow,
+    proactive_flow,
+)
 from dbaylo.bot.keyboards import clear_inline_keyboard, section_keyboard
 from dbaylo.companion import callbacks
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -70,6 +77,7 @@ async def menu_care(message: Message) -> None:
     await message.answer(
         locale.MENU_CARE_INTRO,
         reply_markup=section_keyboard(
+            (locale.BTN_MENU_MED_PHOTO, callbacks.MENU_MED_PHOTO),
             (locale.BTN_MENU_MED_LIST, callbacks.MENU_MED_LIST),
             (locale.BTN_MENU_MED_NEW, callbacks.MENU_MED_NEW),
             (locale.BTN_MENU_REMINDERS, callbacks.MENU_OPEN_REMINDERS),
@@ -248,6 +256,13 @@ async def cb_med_list(callback: CallbackQuery) -> None:
 async def cb_med_new(callback: CallbackQuery, state: FSMContext) -> None:
     if isinstance(callback.message, Message):
         await proactive_flow.start_medication_dialog(callback.message, state)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MENU_MED_PHOTO)
+async def cb_med_photo(callback: CallbackQuery, state: FSMContext) -> None:
+    if isinstance(callback.message, Message):
+        await prescription_flow.start_prescription_dialog(callback.message, state)
     await callback.answer()
 
 

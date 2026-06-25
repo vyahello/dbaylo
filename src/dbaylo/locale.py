@@ -549,6 +549,32 @@ MED_ADDED = (
     "приймай за призначенням лікаря."
 )
 
+# --- "Ліки з фото рецепта" (the agent reads a prescription) ----------------------
+# The agent OCRs a doctor's prescription, the user confirms, then it sets reminders. The dose is
+# stored as record-keeping and SHOWN in the confirm (it's the user's own prescription) but never put
+# in a reminder and never advised by the bot (rail #1).
+MED_FROM_PHOTO_ASK = (
+    "Надішли фото або PDF рецепта (листа призначень) — я зчитаю ліки й час прийому, "
+    "а ти підтвердиш. 📷"
+)
+PRESCRIPTION_RECEIVED = "Читаю рецепт… ⏳"
+PRESCRIPTION_FAILED = (
+    "Не вдалося зчитати рецепт. Спробуй чіткіше фото — або додай ліки вручну через «➕ Додати»."
+)
+PRESCRIPTION_NONE = "Не побачив тут ліків — це точно рецепт? Можеш додати вручну через «➕ Додати»."
+PRESCRIPTION_CONFIRM_HEADER = (
+    "Ось що я зчитав із рецепта. Перевір і підтвердь — і я налаштую нагадування "
+    "(дозу лишаю як запис, у нагадуваннях її не буде):"
+)
+PRESCRIPTION_LINE_NO_TIME = "час не вказано — додай вручну через «➕ Додати»"
+BTN_PRESCRIPTION_CONFIRM = "✅ Підтвердити"
+PRESCRIPTION_SAVED = "Готово! Налаштував нагадування: {names}. 💊"
+PRESCRIPTION_SAVED_SKIPPED = "Без часу (додай їх вручну через «➕ Додати»): {names}."
+PRESCRIPTION_NOTHING_SAVED = (
+    "У жодних ліків не було часу прийому, тож нагадувань не створив. "
+    "Додай вручну через «➕ Додати» — там вкажеш час."
+)
+
 # --- Tier 1.1: reminders management ---------------------------------------------
 
 REMINDERS_HEADER = "Твої активні нагадування (натисни, щоб переглянути):"
@@ -1151,6 +1177,7 @@ BTN_MENU_PROB_LIST = "📋 Активні"
 BTN_MENU_PROB_NEW = "➕ Додати"
 BTN_MENU_MED_LIST = "📋 Мої ліки"
 BTN_MENU_MED_NEW = "➕ Додати ліки"
+BTN_MENU_MED_PHOTO = "📷 З фото рецепта"
 BTN_MENU_PRICE = "💊 Ціна ліків"
 BTN_MENU_COVERAGE = "🏥 Покриття НСЗУ"
 
