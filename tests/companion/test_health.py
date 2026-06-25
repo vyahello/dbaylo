@@ -51,6 +51,43 @@ async def test_analyze_splits_current_and_resolved(async_session: AsyncSession) 
     assert "Холестерин" not in current_names
 
 
+async def test_watch_flags_an_in_range_value_trending_toward_a_bound(
+    async_session: AsyncSession,
+) -> None:
+    user = await ensure_user(async_session, 1)
+    # Гемоглобін: 145 -> 158 (both in 130–160, rising, 158 is within 15% of the 160 bound) -> WATCH.
+    await _confirm(
+        async_session,
+        user,
+        day=date(2026, 1, 1),
+        analytes=[_analyte("Гемоглобін", 145.0, 130, 160, unit="г/л")],
+    )
+    await _confirm(
+        async_session,
+        user,
+        day=date(2026, 6, 1),
+        analytes=[_analyte("Гемоглобін", 158.0, 130, 160, unit="г/л")],
+    )
+    picture = await health.analyze_health(async_session, user.id, today=_TODAY)
+    assert {f.name for f in picture.watch} == {"Гемоглобін"}  # early warning, not yet a problem
+    assert not picture.current  # still in range
+    ctx = await health.build_health_context(async_session, user.id, today=_TODAY)
+    assert "EARLY WARNING" in ctx and "UPPER limit" in ctx
+
+
+async def test_stable_in_range_is_not_a_watch(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    # Comfortably mid-range and barely moving -> not a watch.
+    await _confirm(
+        async_session, user, day=date(2026, 1, 1), analytes=[_analyte("Глюкоза", 4.8, 3.9, 6.1)]
+    )
+    await _confirm(
+        async_session, user, day=date(2026, 6, 1), analytes=[_analyte("Глюкоза", 4.9, 3.9, 6.1)]
+    )
+    picture = await health.analyze_health(async_session, user.id, today=_TODAY)
+    assert not picture.watch and not picture.current
+
+
 async def test_has_current_flags_and_should_have_checkin(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     assert not await health.has_current_flags(async_session, user.id, today=_TODAY)

@@ -18,7 +18,7 @@ Pure-ish: a DB read fed to the deterministic trend engine. No LLM here (the anal
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -58,8 +58,46 @@ class HealthPicture:
     """The deterministic read of the user's whole lab history."""
 
     current: list[HealthFinding] = field(default_factory=list)
+    watch: list[HealthFinding] = field(default_factory=list)  # in range but trending toward a bound
     resolved: list[HealthFinding] = field(default_factory=list)
     concerns: list[str] = field(default_factory=list)
+
+
+# How close to a reference bound (a fraction of the range width, or of the bound) a still-in-range
+# value must be — while trending toward it — to count as an early-warning "watch".
+_WATCH_MARGIN = 0.15
+
+
+def _series_bounds(numeric: list[LabPoint]) -> tuple[float | None, float | None]:
+    """The reference to judge the series by: the most recent point that carries a numeric bound."""
+    for point in reversed(numeric):
+        if point.ref_low is not None or point.ref_high is not None:
+            return point.ref_low, point.ref_high
+    return None, None
+
+
+def _watch_direction(numeric: list[LabPoint]) -> str | None:
+    """If the LATEST value is IN range but moving toward — and near — a bound, describe that
+    early-warning trend; else ``None``. Deterministic, never a verdict."""
+    if len(numeric) < 2:
+        return None
+    latest, previous = numeric[-1], numeric[-2]
+    low, high = _series_bounds(numeric)
+    value, prev = latest.value, previous.value
+    if value is None or prev is None:
+        return None
+    if (low is not None and value < low) or (high is not None and value > high):
+        return None  # already out of range -> handled as "current", not a watch
+    width = (high - low) if (low is not None and high is not None) else None
+    if high is not None and value > prev:  # rising toward the upper bound
+        margin = _WATCH_MARGIN * (width if width else abs(high))
+        if value >= high - margin:
+            return "approaching its UPPER limit (still in range, but trending up toward it)"
+    if low is not None and value < prev:  # falling toward the lower bound
+        margin = _WATCH_MARGIN * (width if width else abs(low))
+        if value <= low + margin:
+            return "approaching its LOWER limit (still in range, but trending down toward it)"
+    return None
 
 
 def _ref_text(low: float | None, high: float | None) -> str:
@@ -101,6 +139,7 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
     """Deterministically read the user's whole lab history into current / resolved findings."""
     series = build_series(await load_series_points(session, user_id))
     current: list[HealthFinding] = []
+    watch: list[HealthFinding] = []
     resolved: list[HealthFinding] = []
     for points in series.values():
         if not points:
@@ -109,13 +148,21 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
         finding = _finding(latest, compute_trend(points), len(points))
         if _is_oor(latest):
             current.append(finding)
+            continue
+        numeric = [p for p in points if p.value is not None]  # already date-ascending
+        watch_text = _watch_direction(numeric)
+        if watch_text is not None:  # in range but trending toward a bound — early warning
+            watch.append(replace(finding, flag_text=watch_text))
         elif any(_is_oor(p) for p in points):  # was off before, latest is back in range
             resolved.append(finding)
-    current.sort(key=lambda f: f.last_date or date.min, reverse=True)
-    resolved.sort(key=lambda f: f.last_date or date.min, reverse=True)
+    by_date = lambda f: f.last_date or date.min  # noqa: E731
+    current.sort(key=by_date, reverse=True)
+    watch.sort(key=by_date, reverse=True)
+    resolved.sort(key=by_date, reverse=True)
     conditions = await concerns.list_active(session, user_id=user_id)
     return HealthPicture(
         current=current,
+        watch=watch,
         resolved=resolved,
         concerns=[c.name for c in conditions if c.name],
     )
@@ -158,6 +205,17 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
         for f in picture.current:
             lines.append(
                 f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; trend {f.direction}; "
+                f"latest {f.last_date.isoformat() if f.last_date else '?'}."
+            )
+        parts.append("\n".join(lines))
+    if picture.watch:
+        lines = [
+            "EARLY WARNING — still in range but trending toward a limit (worth WATCHING, not yet a "
+            "problem; mention gently, never alarm or diagnose):"
+        ]
+        for f in picture.watch:
+            lines.append(
+                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; "
                 f"latest {f.last_date.isoformat() if f.last_date else '?'}."
             )
         parts.append("\n".join(lines))
