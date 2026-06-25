@@ -274,7 +274,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `➕ Своя проблема` stays as a fallback. Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
   `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
-  (list + turn off, next_run from the scheduler). On lab confirm the bot **offers** a repeat-lab
+  (list + turn off, next_run from the scheduler). **💊 з фото рецепта** (`labs/prescription.py`
+  extractor + `bot/prescription_flow.py`, the 📷 button): a prescription photo/PDF is OCR'd to
+  drug · dose · times (claude, defensive parser, like lab extraction), shown for confirmation
+  (rail #5; nothing persists until confirm, rail #2), then a `Medication`+reminders per timed drug.
+  The router is registered BEFORE `lab_flow`, state-filtered to `PrescriptionStates.waiting_photo`,
+  so a prescription upload routes here while every other photo still reaches the lab pipeline. The
+  **dose is stored** on `Medication.dose` as record-keeping (rail #1 permits it) and shown in the
+  confirm, but NEVER in a reminder; a med whose time the page didn't print is listed for manual
+  entry, never guessed. The daily check-in no longer appears as a deletable reminder — it's an
+  info line ("керую цим я") above the list (`_reminders_payload`). On lab confirm the bot **offers** a repeat-lab
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
 - **Tier 1.2 — history & retrieval** (`companion/history.py`, `bot/history_flow.py`, migration
@@ -406,12 +415,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 
 ```
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
-             labs/ (L2)  navigator/ (L4)  llm/ (claude subprocess)  db/  web/  locale.py  config.py
-             bot/ (handlers · menu_flow · keyboards · *_flow · access · state_reset)  maintenance/
+             labs/ (L2: extraction·prescription·trends·humanize·…)  navigator/ (L4)  llm/ (claude
+             subprocess)  db/  web/  locale.py  config.py
+             bot/ (handlers · menu_flow · keyboards · *_flow [incl. prescription_flow] · access ·
+                   state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history·grouping · intake ·
                          consult·consult_context·consult_memory·cities·notecache·notewarm · health)
-migrations/  Alembic 0001..0015   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0017   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands
