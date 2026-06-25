@@ -21,6 +21,35 @@ def _exploding_runner():
     return run
 
 
+def _capturing_runner(text: str):
+    captured: dict[str, object] = {}
+
+    async def run(prompt: str, *args, **kwargs) -> ClaudeResult:
+        captured["prompt"] = prompt
+        return ClaudeResult(ok=True, text=text, raw_stdout=text, exit_code=0)
+
+    run.captured = captured  # type: ignore[attr-defined]
+    return run
+
+
+async def test_companion_grounds_in_the_patient_context_when_given() -> None:
+    # The grounding fix: a patient profile (problems + analyses) is handed to the model so the
+    # general reply can be based on the user's real picture, not "пальцем у небо".
+    runner = _capturing_runner("Памʼятаю про твої нирки — ось що варто.")
+    ctx = "PATIENT PROFILE: - Health concerns: Камені в нирках."
+    reply = await generate_reply("щось тягне поперек", context=ctx, runner=runner)
+    assert reply.source == "llm"
+    assert "Камені в нирках" in runner.captured["prompt"]  # type: ignore[attr-defined]
+    assert "щось тягне поперек" in runner.captured["prompt"]  # type: ignore[attr-defined]
+
+
+async def test_companion_stays_general_without_context() -> None:
+    # No profile -> the prompt is just the user's text (a plain general reply).
+    runner = _capturing_runner("Тримайся, друже.")
+    await generate_reply("як справи?", context="", runner=runner)
+    assert runner.captured["prompt"] == "як справи?"  # type: ignore[attr-defined]
+
+
 async def test_symptoms_short_circuit_to_triage() -> None:
     reply = await generate_reply(
         "у мене температура, озноб і біль у боці", runner=_exploding_runner()

@@ -13,6 +13,8 @@ DB access reuses :func:`dbaylo.labs.intake.ensure_user`. The free-text handler i
 
 from __future__ import annotations
 
+from datetime import date
+
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
@@ -24,6 +26,7 @@ from dbaylo.bot import consult_flow
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import checkin, goals, intake
+from dbaylo.companion.consult_context import patient_profile
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -137,11 +140,23 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
 # --- Symptom intake (history-taking) --------------------------------------------
 
 
+async def _health_context(message: Message) -> str:
+    """The user's grounded health profile (tracked problems + recent analyses with dates + age/sex),
+    so general chat / the symptom interview answer based on THEIR data — ``""`` when there's nothing
+    to ground in, so the reply stays general."""
+    tg = _telegram_id(message)
+    if tg is None:
+        return ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        return await patient_profile(session, user.id, date.today())
+
+
 async def _run_intake_turn(
-    message: Message, state: FSMContext, transcript: list[dict[str, str]]
+    message: Message, state: FSMContext, transcript: list[dict[str, str]], *, context: str = ""
 ) -> None:
     async with keep_typing(message):  # 'typing…' stays up for the whole LLM call, not ~5 s
-        reply = await intake.advance(transcript)
+        reply = await intake.advance(transcript, context=context)
     transcript.append({"role": "assistant", "text": reply.text})
     if reply.done:
         await state.clear()
@@ -156,7 +171,7 @@ async def on_intake_turn(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     transcript = list(data.get("intake") or [])
     transcript.append({"role": "user", "text": message.text or ""})
-    await _run_intake_turn(message, state, transcript)
+    await _run_intake_turn(message, state, transcript, context=await _health_context(message))
 
 
 # --- Free-text companion chat (only when no FSM flow is active) ------------------
@@ -172,16 +187,19 @@ async def on_free_text(
     if decision.source is GateSource.GUARDRAIL:
         await message.answer(decision.message)
         return
+    # Ground the reply in the user's real health picture (tracked problems + recent analyses) so
+    # Дбайло answers like an assistant who knows them — '' when there's nothing -> stays general.
+    context = await _health_context(message)
     # A red-flag symptom OR a broader physical complaint starts the guided intake; the
     # deterministic triage stays the escalation backstop inside the intake.
     if decision.source is GateSource.TRIAGE or intake.looks_like_complaint(text):
-        await _run_intake_turn(message, state, [{"role": "user", "text": text}])
+        await _run_intake_turn(message, state, [{"role": "user", "text": text}], context=context)
         return
     # If the user just opened a chart/indicator and is now writing about it (no «Запитати Дбайло»
     # tap), answer IN that grounded context instead of the contextless companion.
     if await consult_flow.start_primed_consult(message, state, scheduler=reminder_scheduler):
         return
-    # Otherwise — ordinary companion chat.
+    # Otherwise — ordinary companion chat, grounded in the profile when relevant.
     async with keep_typing(message):
-        reply = await generate_reply(text)
+        reply = await generate_reply(text, context=context)
     await message.answer(reply.text)

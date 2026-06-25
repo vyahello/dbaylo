@@ -174,10 +174,12 @@ async def _section_context(
     return f"{report_ctx}\n\n{focus}", name
 
 
-async def _patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
-    """A compact, grounded profile of THIS patient — so the consult acts like an assistant who knows
-    them: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
-    judge how old a key exam is). Deterministic, read-only."""
+async def patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
+    """A compact, grounded profile of THIS patient — so Дбайло acts like an assistant who knows the
+    person: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
+    judge how old a key exam is). Deterministic, read-only. Returns ``""`` when there is nothing to
+    ground in (no age/sex, no tracked concerns, no reports) — the caller then answers generally.
+    Shared by the consult and the general companion / symptom intake."""
     reports = await history.list_confirmed(session, user_id=user_id, limit=8)
     conditions = await concerns.list_active(session, user_id=user_id)
     age = sex = None
@@ -186,6 +188,8 @@ async def _patient_profile(session: AsyncSession, user_id: int, today: date) -> 
             age = age_on(r.birth_date, today)
         if sex is None and r.sex:
             sex = r.sex
+    if age is None and sex is None and not conditions and not reports:
+        return ""  # nothing to personalise from -> a general (non-grounded) reply
     lines = [f"PATIENT PROFILE (personalise to THIS patient; today is {today.isoformat()}):"]
     who = []
     if age is not None:
@@ -236,7 +240,7 @@ async def build_context(
     if built is None:
         return None
     context, label = built
-    profile = await _patient_profile(session, user_id, today)
+    profile = await patient_profile(session, user_id, today)
     memory = await consult_memory.recall_block(session, user_id=user_id, exclude=recall_exclude)
     parts = [part for part in (profile, memory, context) if part]
     return "\n\n".join(parts), label

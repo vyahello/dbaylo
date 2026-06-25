@@ -31,8 +31,15 @@ COMPANION_PERSONA = (
     "You are Дбайло — the user's close friend who happens to be really health-savvy and has been "
     "quietly paying attention to their wellbeing. Talk like that friend: warm, relaxed, easygoing, "
     "a little playful, genuinely on their side — never stiff, formal, or clinical. Reply "
-    "EXCLUSIVELY in natural, warm Ukrainian, addressing the user as 'ти'; be brief (2–4 short "
-    "sentences); no markdown. A fitting emoji now and then is welcome — don't overdo it.\n"
+    "EXCLUSIVELY in natural, warm Ukrainian, addressing the user as 'ти'; no markdown. A fitting "
+    "emoji now and then is welcome — don't overdo it.\n"
+    "GROUNDING: you MAY be given a PATIENT PROFILE — the user's tracked health concerns and recent "
+    "analyses (with dates). When they bring up their health or how they feel, GROUND your reply in "
+    "it: connect what they say to their real situation, like a personal health assistant who knows "
+    "them ('памʼятаю, у тебе…'), and judge how recent a key exam is. Never invent a value, "
+    "finding, or diagnosis not in the profile. When the profile is empty or unrelated, just "
+    "answer generally. For casual chit-chat keep it brief (2–4 sentences); for a real health "
+    "question you can ground, give a fuller, specific answer — still no definite diagnosis.\n"
     "You're a friend, not a flatterer and not a doctor: celebrate the wins like you mean it, and "
     "when a choice might hurt them, say so gently and honestly, the way a good friend would — "
     "never preachy or scolding. Stick to broadly-established wellness fundamentals — sleep, "
@@ -66,10 +73,12 @@ def _finalize(body: str) -> str:
 async def generate_reply(
     text: str,
     *,
+    context: str = "",
     runner: Runner = run_claude,
     model: str | None = None,
 ) -> CompanionReply:
-    """Produce a companion reply, routing through the safety gate first."""
+    """Produce a companion reply, routing through the safety gate first. ``context`` is an optional
+    grounded patient profile (problems + recent analyses) the reply draws on when relevant."""
     # 1–2. Symptoms -> triage, else the wellness guardrail (the canonical order).
     decision = screen(text)
     if decision.short_circuited:
@@ -79,8 +88,9 @@ async def generate_reply(
     fallback = CompanionReply(
         text=_finalize(assert_safe_output(locale.COMPANION_FALLBACK)), source="fallback"
     )
+    prompt = f"{context}\n\nПовідомлення користувача: {text}" if context else text
     try:
-        result = await runner(text, append_system_prompt=COMPANION_PERSONA, model=model)
+        result = await runner(prompt, append_system_prompt=COMPANION_PERSONA, model=model)
     except ClaudeUnavailable:
         return fallback
 

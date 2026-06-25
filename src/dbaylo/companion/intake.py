@@ -40,6 +40,11 @@ INTAKE_PERSONA = (
     "You are Дбайло conducting a careful symptom intake (history-taking), like a doctor's "
     "first conversation. You are NOT a doctor and never give a definitive diagnosis. Reply in "
     "natural, correct Ukrainian. The user has a health complaint.\n"
+    "GROUNDING: you MAY be given a PATIENT PROFILE — the user's tracked health concerns and recent "
+    "analyses (with dates). USE IT: connect the complaint to their real history when it fits "
+    "('памʼятаю, у тебе були камені в нирках — біль у попереку може бути повʼязаний; чи віддає "
+    "вбік?'), and target your questions accordingly — do not guess blindly. Never invent a value, "
+    "finding, or diagnosis not in the profile; when it is empty or unrelated, proceed generally.\n"
     "Across a SHORT exchange: ask FOCUSED clarifying questions — where exactly, character of the "
     "symptom, when it started and how long, severity, what makes it better or worse, associated "
     "symptoms, relevant history/medication. Ask only a small batch (2–4 questions) per message, "
@@ -86,8 +91,14 @@ def _accumulated_user_text(transcript: list[Turn]) -> str:
     return "\n".join(t["text"] for t in transcript if t.get("role") == "user")
 
 
-def _prompt(transcript: list[Turn], *, triage_level: str, exchanges_left: int) -> str:
-    lines = [
+def _prompt(
+    transcript: list[Turn], *, triage_level: str, exchanges_left: int, context: str = ""
+) -> str:
+    lines = []
+    if context:
+        lines.append(context)
+        lines.append("")
+    lines += [
         f"Deterministic triage level (do not go below this): {triage_level}.",
         f"Exchanges left before you must give your assessment: {exchanges_left}.",
         "Conversation so far:",
@@ -113,13 +124,15 @@ def _safety_lead(decision_source: GateSource, decision: object) -> str | None:
 async def advance(
     transcript: list[Turn],
     *,
+    context: str = "",
     runner: object = run_claude,
     model: str | None = None,
 ) -> IntakeReply:
     """Produce the next intake message for a transcript ending in the user's latest turn.
 
     Runs the deterministic triage backstop, then the (guarded) LLM interview; a high
-    escalation always leads the reply and is never softened.
+    escalation always leads the reply and is never softened. ``context`` is an optional grounded
+    patient profile (problems + recent analyses) the interview connects the complaint to.
     """
     user_turns = sum(1 for t in transcript if t.get("role") == "user")
     done = user_turns >= MAX_TURNS
@@ -136,6 +149,7 @@ async def advance(
                 transcript,
                 triage_level=triage_level,
                 exchanges_left=0 if done else MAX_TURNS - user_turns,
+                context=context,
             ),
             append_system_prompt=INTAKE_PERSONA,
             model=model,

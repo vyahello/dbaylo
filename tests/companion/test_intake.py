@@ -23,6 +23,21 @@ def _runner(text: str, ok: bool = True):
     return run
 
 
+async def test_intake_grounds_in_the_patient_context_when_given() -> None:
+    # The symptom interview connects the complaint to the user's real history when handed a profile.
+    captured: dict[str, object] = {}
+
+    async def run(prompt: str, *args, **kwargs) -> ClaudeResult:
+        captured["prompt"] = prompt
+        return ClaudeResult(ok=True, text="Чи віддає вбік?", raw_stdout="", exit_code=0)
+
+    ctx = "PATIENT PROFILE: - Health concerns: Камені в нирках."
+    await intake.advance(
+        [{"role": "user", "text": "болить поперек і тягне"}], context=ctx, runner=run
+    )
+    assert "Камені в нирках" in captured["prompt"]  # the history is handed to the interview
+
+
 @pytest.mark.parametrize(
     ("text", "expected"),
     [

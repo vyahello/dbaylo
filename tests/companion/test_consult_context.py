@@ -148,6 +148,27 @@ async def test_context_prepends_a_state_aware_patient_profile(
     assert "2023-05-02" in context  # the recent report's date
 
 
+async def test_patient_profile_is_empty_without_any_data(async_session: AsyncSession) -> None:
+    # Grounding fallback: a user with no age/sex, no concerns and no reports yields "" so the
+    # general companion / intake answers without a (non-existent) profile.
+    from dbaylo.companion.consult_context import patient_profile
+
+    user = await ensure_user(async_session, 1)
+    assert await patient_profile(async_session, user.id, _TODAY) == ""
+
+
+async def test_patient_profile_carries_concerns_and_reports(async_session: AsyncSession) -> None:
+    from dbaylo.companion import concerns
+    from dbaylo.companion.consult_context import patient_profile
+
+    user = await ensure_user(async_session, 1)
+    await _confirm(async_session, user, 5, 6.2)
+    await concerns.add_active(async_session, user=user, name="Камені в нирках")
+    profile = await patient_profile(async_session, user.id, _TODAY)
+    assert "Камені в нирках" in profile  # tracked concern is grounded
+    assert "2023-01-05" in profile  # the recent report's date
+
+
 async def test_missing_subject_resolves_to_none(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     # A report id that does not exist, and an unknown analyte key -> None, never a crash.
