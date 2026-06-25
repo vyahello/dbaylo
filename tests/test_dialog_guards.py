@@ -10,6 +10,7 @@ from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from aiogram.types import Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -77,3 +78,62 @@ async def test_blank_medication_name_aborts() -> None:
     state.clear.assert_awaited_once()
     state.set_state.assert_not_awaited()  # never advances to "ask times"
     message.answer.assert_awaited_once_with(locale.NOTHING_SAVED)
+
+
+# --- "Цілі = the agent suggests" (the AI-driven goals screen) --------------------
+
+
+@asynccontextmanager
+async def _fake_session():
+    yield AsyncMock()  # has an awaitable .commit()
+
+
+async def test_open_goals_screen_proposes_goals_with_adopt_buttons(monkeypatch) -> None:
+    from dbaylo.companion import callbacks as cb
+
+    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "propose_goals",
+        AsyncMock(return_value=["Привести Глюкоза до норми", "Налагодити режим сну"]),
+    )
+    monkeypatch.setattr(companion_flow.goals, "active_goal_texts", AsyncMock(return_value=[]))
+    message = AsyncMock()
+    await companion_flow.open_goals_screen(message, telegram_id=4242)
+    message.answer.assert_awaited_once()
+    rows = message.answer.call_args.kwargs["reply_markup"].inline_keyboard
+    datas = [b.callback_data for row in rows for b in row]
+    assert (
+        cb.goal_adopt(0) in datas and cb.goal_adopt(1) in datas
+    )  # one adopt button per suggestion
+    assert cb.MENU_GOAL_NEW in datas  # manual "➕ Своя ціль" fallback
+
+
+async def test_on_goal_adopt_sets_the_goal_by_index(monkeypatch) -> None:
+    from dbaylo.companion import callbacks as cb
+
+    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "propose_goals",
+        AsyncMock(return_value=["Привести Глюкоза до норми"]),
+    )
+    monkeypatch.setattr(companion_flow.goals, "active_goal_texts", AsyncMock(return_value=[]))
+    set_goal = AsyncMock(return_value=SimpleNamespace(saved=True))
+    monkeypatch.setattr(companion_flow.goals, "set_goal", set_goal)
+
+    callback = AsyncMock()
+    callback.data = cb.goal_adopt(0)
+    callback.from_user = SimpleNamespace(id=4242)
+    callback.message = AsyncMock(spec=Message)
+    callback.message.edit_text = AsyncMock()
+    await companion_flow.on_goal_adopt(callback)
+    set_goal.assert_awaited_once()
+    assert set_goal.await_args.kwargs["text"] == "Привести Глюкоза до норми"  # adopted by index 0
+    callback.message.edit_text.assert_awaited()  # refreshed in place, no new message

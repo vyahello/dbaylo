@@ -351,6 +351,22 @@ GOAL_REDIRECT_AGGRESSIVE = (
 )
 GOAL_LIST_HEADER = "Ось твої цілі:"
 GOAL_LIST_EMPTY = "Цілей поки немає. Тисни «➕ Нова ціль» і напиши, чого хочеш досягти. 🌱"
+
+# --- "Цілі = the agent suggests" (the AI-driven goals screen) --------------------
+GOAL_PROPOSE_HEADER = (
+    "🎯 Ось що я можу запропонувати як цілі — з твоїх аналізів і для гарного самопочуття. "
+    "Тисни, щоб узяти собі:"
+)
+GOAL_ALL_SET = (
+    "Поки не бачу, що підказати окремо. Тисни «➕ Своя ціль» — і напиши, чого хочеш досягти. 🌱"
+)
+# Neutral, data-framed goal for an out-of-range finding (no method/dose/diet implied).
+GOAL_SUGGEST_NORMALIZE = "Привести {name} до норми"
+BTN_GOAL_ADOPT = "🎯 {goal}"  # carries the goal text; tap = adopt
+BTN_GOAL_OWN = "➕ Своя ціль"
+GOAL_ADOPTED_TOAST = "Взяв у цілі! 🎯"
+GOAL_NOT_ADOPTED = "Цю ціль не вийшло взяти — спробуй сформулювати інакше."
+
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",
     "achieved": "досягнута",

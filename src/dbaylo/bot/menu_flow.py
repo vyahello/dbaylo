@@ -50,14 +50,6 @@ def _labs_hub() -> tuple[str, InlineKeyboardMarkup]:
     )
 
 
-def _goals_section() -> tuple[str, InlineKeyboardMarkup]:
-    """The goals section: list my goals / add a new one."""
-    return locale.MENU_GOALS_INTRO, section_keyboard(
-        (locale.BTN_MENU_GOALS_LIST, callbacks.MENU_GOALS_LIST),
-        (locale.BTN_MENU_GOAL_NEW, callbacks.MENU_GOAL_NEW),
-    )
-
-
 @router.message(StateFilter(None), F.text == locale.MENU_HEALTH)
 async def menu_health(message: Message) -> None:
     """🩺 Моє здоровʼя — the agent's health hub: analyses · problems · goals · check-in."""
@@ -105,8 +97,9 @@ async def cb_open_labs(callback: CallbackQuery) -> None:
 @router.message(StateFilter(None), F.text == locale.MENU_GOALS)
 async def menu_goals(message: Message) -> None:
     # Legacy label (now reached via 🩺 Моє здоровʼя → Цілі); kept for a cached old keyboard.
-    text, keyboard = _goals_section()
-    await message.answer(text, reply_markup=keyboard)
+    tg = _owner_tg(message)
+    if tg is not None:
+        await companion_flow.open_goals_screen(message, tg)
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_PROBLEMS)
@@ -178,9 +171,9 @@ async def cb_open_analyses(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_GOALS)
 async def cb_open_goals(callback: CallbackQuery) -> None:
-    if isinstance(callback.message, Message):
-        text, keyboard = _goals_section()
-        await callback.message.answer(text, reply_markup=keyboard)
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        await companion_flow.open_goals_screen(callback.message, tg)
     await callback.answer()
 
 

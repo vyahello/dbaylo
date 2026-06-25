@@ -91,3 +91,52 @@ async def test_list_goals(async_session: AsyncSession) -> None:
     await set_goal(async_session, user=user, text="краще спати")
     listed = await list_goals(async_session, user=user)
     assert "краще спати" in listed
+
+
+async def test_propose_goals_suggests_from_data_and_excludes_existing(
+    async_session: AsyncSession,
+) -> None:
+    from datetime import date
+    from pathlib import Path
+
+    from dbaylo.companion import goals as goals_module
+    from dbaylo.labs.intake import create_pending_report, persist_confirmed
+    from dbaylo.labs.schema import ExtractedAnalyte
+
+    user = await _user(async_session)
+    # No labs yet -> only the generic wellness goals are proposed.
+    generic = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
+    assert any("сну" in g for g in generic)
+
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/g.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Глюкоза", value=7.0, unit="ммоль/л", ref_low=3.9, ref_high=6.1
+            )
+        ],
+        report_date=date(2026, 6, 2),
+        lab="Synevo",
+    )
+    proposed = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
+    assert any("Глюкоза" in g for g in proposed)  # a data-derived goal for the out-of-range value
+
+    # Adopting it removes it from future suggestions (and it persisted as a real goal).
+    glucose_goal = next(g for g in proposed if "Глюкоза" in g)
+    result = await set_goal(async_session, user=user, text=glucose_goal)
+    assert result.saved
+    again = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
+    assert not any("Глюкоза" in g for g in again)  # not re-proposed once it's a goal
+
+
+async def test_suggested_goals_pass_the_guardrail(async_session: AsyncSession) -> None:
+    # Every suggested goal must adopt cleanly (no dose/diet/guardrail trip) — they're agent output.
+
+    from dbaylo.companion import goals as goals_module
+
+    user = await _user(async_session)
+    for text in goals_module.GENERIC_GOALS:
+        result = await set_goal(async_session, user=user, text=text)
+        assert result.saved, f"generic goal rejected: {text!r}"

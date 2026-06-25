@@ -13,21 +13,24 @@ DB access reuses :func:`dbaylo.labs.intake.ensure_user`. The free-text handler i
 
 from __future__ import annotations
 
+import contextlib
 from datetime import date
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import Message
+from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import checkin, goals, intake
+from dbaylo.companion import callbacks, checkin, goals, intake
 from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -92,11 +95,88 @@ async def _save_goal(message: Message, text: str) -> None:
 
 
 async def open_goals(message: Message, telegram_id: int) -> None:
-    """Render the user's goals (from /goals or the menu)."""
+    """Render the user's goals as plain text (from /goals — a read-only list)."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         text = await goals.list_goals(session, user=user)
     await message.answer(text)
+
+
+def _short_goal(text: str, limit: int = 40) -> str:
+    text = text.strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+async def _goals_screen(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    """The agent's goals screen: suggested goals (one-tap adopt) + the user's current goals + a
+    manual-add fallback. The suggester is deterministic; each adopt re-runs the guardrail."""
+    suggestions = await goals.propose_goals(session, user_id, today=date.today())
+    current = await goals.active_goal_texts(session, user_id=user_id)
+    lines: list[str] = []
+    kb: list[list[InlineKeyboardButton]] = []
+    if suggestions:
+        lines.append(locale.GOAL_PROPOSE_HEADER)
+        for index, text in enumerate(suggestions):
+            kb.append(
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_GOAL_ADOPT.format(goal=_short_goal(text)),
+                        callback_data=callbacks.goal_adopt(index),
+                    )
+                ]
+            )
+    if current:
+        if lines:
+            lines.append("")
+        lines.append(locale.GOAL_LIST_HEADER)
+        lines.extend(f"• {text}" for text in current)
+    if not suggestions and not current:
+        lines.append(locale.GOAL_ALL_SET)
+    kb.append(
+        [InlineKeyboardButton(text=locale.BTN_GOAL_OWN, callback_data=callbacks.MENU_GOAL_NEW)]
+    )
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+async def open_goals_screen(message: Message, telegram_id: int) -> None:
+    """The agent-driven goals screen (the 🎯 Цілі entry): proposes goals from the data, one-tap
+    adopt, plus the current goals and a manual fallback."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        text, keyboard = await _goals_screen(session, user_id=user.id)
+    await message.answer(text, reply_markup=keyboard)
+
+
+async def _edit_goals(callback: CallbackQuery) -> None:
+    """Re-render the goals screen in place (after an adopt) — no message spam."""
+    tg = callback.from_user.id if callback.from_user else None
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        text, keyboard = await _goals_screen(session, user_id=user.id)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data.startswith(callbacks.GOAL_ADOPT + ":"))
+async def on_goal_adopt(callback: CallbackQuery) -> None:
+    """Adopt an AI-suggested goal by its index (re-derived on tap); the guardrail still vets it."""
+    index = callbacks.parse_goal_adopt(callback.data or "")
+    tg = callback.from_user.id if callback.from_user else None
+    if index is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        suggestions = await goals.propose_goals(session, user.id, today=date.today())
+        if 0 <= index < len(suggestions):
+            result = await goals.set_goal(session, user=user, text=suggestions[index])
+            await session.commit()
+            toast = locale.GOAL_ADOPTED_TOAST if result.saved else locale.GOAL_NOT_ADOPTED
+    await callback.answer(toast)
+    await _edit_goals(callback)
 
 
 @router.message(Command("goals"))

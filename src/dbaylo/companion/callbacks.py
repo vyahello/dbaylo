@@ -12,6 +12,9 @@ PROBLEM_RENAME = "prob_rename"
 # (the finding is computed, not a DB row; the index is re-resolved on tap, like the charts picker).
 PROBLEM_TRACK = "prob_track"
 PROBLEM_DISMISS = "prob_dismiss"
+# AI-suggested goals: adopt one by its INDEX in the freshly-derived suggestion list (computed, not a
+# DB row; re-resolved on tap like the problems proposals).
+GOAL_ADOPT = "goal_adopt"
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 # Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
@@ -80,6 +83,14 @@ def problem_dismiss(index: int) -> str:
 
 def parse_problem_dismiss(data: str) -> int | None:
     return _parse(PROBLEM_DISMISS, data)
+
+
+def goal_adopt(index: int) -> str:
+    return _make(GOAL_ADOPT, index)
+
+
+def parse_goal_adopt(data: str) -> int | None:
+    return _parse(GOAL_ADOPT, data)
 
 
 def reminder_off(reminder_id: int) -> str:

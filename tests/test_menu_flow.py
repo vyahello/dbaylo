@@ -155,11 +155,17 @@ async def test_cb_open_analyses_posts_the_labs_hub() -> None:
     callback.answer.assert_awaited_once()
 
 
-async def test_cb_open_goals_posts_the_goals_section() -> None:
+async def test_cb_open_goals_delegates_to_the_agent_screen(monkeypatch) -> None:
+    # 🎯 Цілі now opens the agent-driven screen (it suggests goals), not a list/new sub-menu.
+    seen = {}
+
+    async def fake(message, telegram_id):
+        seen["args"] = (message, telegram_id)
+
+    monkeypatch.setattr(menu_flow.companion_flow, "open_goals_screen", fake)
     callback = _callback(callbacks.MENU_OPEN_GOALS)
     await menu_flow.cb_open_goals(callback)
-    _, kwargs = callback.message.answer.call_args
-    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_GOALS_LIST, callbacks.MENU_GOAL_NEW]
+    assert seen["args"] == (callback.message, 4242)
 
 
 async def test_cb_open_checkin_passes_the_owner_tg(monkeypatch) -> None:
@@ -202,11 +208,18 @@ async def test_menu_labs_splits_history_and_dynamics() -> None:
     assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
 
 
-async def test_menu_goals_offers_list_and_new() -> None:
+async def test_menu_goals_legacy_label_delegates_to_the_agent_screen(monkeypatch) -> None:
+    # The legacy 🎯 Цілі label (cached keyboard) also opens the agent-driven goals screen.
+    seen = {}
+
+    async def fake(message, telegram_id):
+        seen["args"] = (message, telegram_id)
+
+    monkeypatch.setattr(menu_flow.companion_flow, "open_goals_screen", fake)
     message = AsyncMock()
+    message.from_user = SimpleNamespace(id=4242)
     await menu_flow.menu_goals(message)
-    _, kwargs = message.answer.call_args
-    assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_GOALS_LIST, callbacks.MENU_GOAL_NEW]
+    assert seen["args"] == (message, 4242)
 
 
 async def test_menu_prices_offers_price_and_coverage() -> None:
