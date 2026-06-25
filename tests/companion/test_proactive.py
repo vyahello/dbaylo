@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dbaylo import locale
 from dbaylo.companion import proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db.models import User
@@ -110,3 +111,59 @@ async def test_repeat_lab_is_scheduled(
     )
     await async_session.commit()
     assert _count(scheduler, "repeat_lab") == 1
+
+
+async def test_reminders_list_taps_open_a_view_not_a_delete(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # The fix: tapping a reminder in the list must READ it (open a card), never delete it. So the
+    # list buttons carry a *view* callback; turning off lives behind the card's explicit 🗑 button.
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    user = await _user(async_session)
+    rem = await proactive.add_repeat_lab(
+        async_session,
+        user=user,
+        run_at=datetime(2027, 1, 1, 9, 0),
+        label="ТТГ",
+        scheduler=scheduler,
+    )
+    await proactive.add_medication(
+        async_session, user=user, name="Аспірин", times=[time(8, 0)], scheduler=scheduler
+    )
+    await async_session.commit()
+
+    text, keyboard = await proactive_flow._reminders_payload(
+        async_session, user_id=user.id, scheduler=scheduler
+    )
+    assert text == locale.REMINDERS_HEADER and keyboard is not None
+    datas = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    # Every list button is a VIEW (read) — never a turn-off.
+    assert any(d == callbacks.reminder_view(rem.id) for d in datas)
+    assert any(d and d.startswith(callbacks.MEDICATION_VIEW + ":") for d in datas)
+    assert not any(d and d.startswith(callbacks.REMINDER_OFF + ":") for d in datas)
+    assert not any(d and d.startswith(callbacks.MEDICATION_OFF + ":") for d in datas)
+
+
+async def test_card_keyboard_offers_turn_off_and_back(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    keyboard = proactive_flow._card_keyboard(callbacks.reminder_off(7))
+    datas = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert datas == [callbacks.reminder_off(7), callbacks.REMINDERS_BACK]  # 🗑 off · ◀ back
+
+
+async def test_empty_reminders_list_has_no_keyboard(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    from dbaylo.bot import proactive_flow
+
+    user = await _user(async_session)
+    text, keyboard = await proactive_flow._reminders_payload(
+        async_session, user_id=user.id, scheduler=scheduler
+    )
+    assert text == locale.REMINDERS_EMPTY and keyboard is None

@@ -26,7 +26,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
 
 from dbaylo import locale
-from dbaylo.bot import companion_flow, history_flow, navigator_flow, proactive_flow
+from dbaylo.bot import companion_flow, consult_flow, history_flow, navigator_flow, proactive_flow
 from dbaylo.bot.keyboards import clear_inline_keyboard, section_keyboard
 from dbaylo.companion import callbacks
 from dbaylo.companion.scheduler import ReminderScheduler
@@ -115,6 +115,13 @@ async def menu_prices(message: Message) -> None:
             (locale.BTN_MENU_COVERAGE, callbacks.MENU_COVERAGE),
         ),
     )
+
+
+@router.message(StateFilter(None), F.text == locale.MENU_MEMORY)
+async def menu_memory(message: Message) -> None:
+    tg = _owner_tg(message)
+    if tg is not None:
+        await consult_flow.open_memory_view(message, tg)
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_CHECKIN)

@@ -10,6 +10,11 @@ PROBLEM_RESOLVE = "prob_resolve"
 PROBLEM_RENAME = "prob_rename"
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
+# Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
+# off is a deliberate button inside the card.
+REMINDER_VIEW = "rem_view"
+MEDICATION_VIEW = "med_view"
+REMINDERS_BACK = "rem_back"  # back to the reminders list (static, edit-in-place)
 
 # Tier 1.2 — history & retrieval. All carry only ids/indices (well within the 64-byte
 # callback-data limit); analyte names are looked up by index, never embedded.
@@ -71,6 +76,22 @@ def medication_off(medication_id: int) -> str:
 
 def parse_medication_off(data: str) -> int | None:
     return _parse(MEDICATION_OFF, data)
+
+
+def reminder_view(reminder_id: int) -> str:
+    return _make(REMINDER_VIEW, reminder_id)
+
+
+def parse_reminder_view(data: str) -> int | None:
+    return _parse(REMINDER_VIEW, data)
+
+
+def medication_view(medication_id: int) -> str:
+    return _make(MEDICATION_VIEW, medication_id)
+
+
+def parse_medication_view(data: str) -> int | None:
+    return _parse(MEDICATION_VIEW, data)
 
 
 # --- Tier 1.2: history & retrieval ----------------------------------------------

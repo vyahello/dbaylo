@@ -565,14 +565,11 @@ def _render_memory_view(turns: list[ConsultMemory], total: int) -> str:
     return "\n".join(lines)
 
 
-@router.message(Command("memory"))
-async def on_memory(message: Message) -> None:
-    """Перегляд памʼяті — show what Дбайло remembers, with a forget-all button."""
-    tg = _telegram_id(message)
-    if tg is None:
-        return
+async def open_memory_view(message: Message, telegram_id: int) -> None:
+    """Show what Дбайло remembers across consultations, with a «забути все» button. Shared by the
+    /memory command and the 🧠 Памʼять menu tap."""
     async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
+        user = await ensure_user(session, telegram_id=telegram_id)
         total = await consult_memory.count(session, user_id=user.id)
         turns = (
             await consult_memory.recent_turns(session, user_id=user.id, limit=16) if total else []
@@ -586,6 +583,14 @@ async def on_memory(message: Message) -> None:
         parse_mode=ParseMode.HTML,
         reply_markup=_forget_keyboard(),
     )
+
+
+@router.message(Command("memory"))
+async def on_memory(message: Message) -> None:
+    """Перегляд памʼяті — show what Дбайло remembers, with a forget-all button."""
+    tg = _telegram_id(message)
+    if tg is not None:
+        await open_memory_view(message, tg)
 
 
 @router.callback_query(F.data == callbacks.MEMORY_FORGET)

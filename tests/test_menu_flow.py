@@ -52,11 +52,12 @@ def test_main_menu_keyboard_layout() -> None:
         locale.MENU_MEDS,
         locale.MENU_REMINDERS,
         locale.MENU_PRICES,
+        locale.MENU_MEMORY,
         locale.MENU_CHECKIN,
         locale.MENU_HELP,
     ]
     assert kb.is_persistent and kb.resize_keyboard
-    assert len(kb.keyboard) == 4 and len(kb.keyboard[-1]) == 2  # two-per-row, checkin+help last
+    assert len(kb.keyboard) == 5 and len(kb.keyboard[-1]) == 1  # memory+checkin, then help alone
 
 
 def test_menu_labels_set_is_the_keyboard_labels() -> None:
@@ -67,6 +68,7 @@ def test_menu_labels_set_is_the_keyboard_labels() -> None:
         locale.MENU_MEDS,
         locale.MENU_REMINDERS,
         locale.MENU_PRICES,
+        locale.MENU_MEMORY,
         locale.MENU_CHECKIN,
         locale.MENU_HELP,
     } == locale.MENU_LABELS
@@ -178,6 +180,19 @@ async def test_menu_reminders_delegates_to_open_reminders(monkeypatch) -> None:
     scheduler = object()
     await menu_flow.menu_reminders(message, scheduler)
     assert seen["args"] == (message, 4242, scheduler)
+
+
+async def test_menu_memory_delegates_to_open_memory_view(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, telegram_id):
+        seen["args"] = (message, telegram_id)
+
+    monkeypatch.setattr(menu_flow.consult_flow, "open_memory_view", fake)
+    message = AsyncMock()
+    message.from_user = SimpleNamespace(id=4242)
+    await menu_flow.menu_memory(message)
+    assert seen["args"] == (message, 4242)
 
 
 async def test_open_problems_is_one_message_with_a_row_per_concern(monkeypatch) -> None:

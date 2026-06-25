@@ -8,20 +8,23 @@ schedule immediately (no restart).
 
 from __future__ import annotations
 
+import contextlib
 from datetime import datetime
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
 from dbaylo.companion import callbacks, concerns, medications, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
-from dbaylo.db.models import Reminder
+from dbaylo.db.models import Medication, Reminder
 from dbaylo.labs.intake import ensure_user
 
 router = Router(name="proactive")
@@ -253,16 +256,29 @@ async def open_medications(message: Message, telegram_id: int) -> None:
 # --- Reminder management --------------------------------------------------------
 
 
-async def open_reminders(message: Message, telegram_id: int, scheduler: ReminderScheduler) -> None:
-    """List active reminders with per-item turn-off (from /reminders or the menu)."""
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=telegram_id)
-        rows = await reminders.active_reminders_for_user(session, user_id=user.id)
-        meds = {m.id: m for m in await medications.list_medications(session, user_id=user.id)}
-    if not rows:
-        await message.answer(locale.REMINDERS_EMPTY)
-        return
+def _reminder_label(reminder: Reminder, med: object | None, when: str) -> str:
+    """The one-line description of a reminder (icon · what · next run) — shown in the list and as
+    the card's title. A tap on this in the list OPENS it (read), it no longer deletes."""
+    if reminder.type == reminders.TYPE_MEDICATION:
+        name = getattr(med, "name", None) or reminder.payload or "?"
+        times = getattr(med, "schedule", None) or "?"
+        return locale.REMINDER_ITEM_MEDICATION.format(name=name, times=times, when=when)
+    if reminder.type == reminders.TYPE_CHECKIN:
+        return locale.REMINDER_ITEM_CHECKIN.format(when=when)
+    if reminder.type == reminders.TYPE_REPEAT_LAB:
+        return locale.REMINDER_ITEM_REPEAT_LAB.format(name=reminder.payload or "?", when=when)
+    return locale.REMINDER_ITEM_CONSULT.format(name=reminder.payload or "?", when=when)
 
+
+async def _reminders_payload(
+    session: AsyncSession, *, user_id: int, scheduler: ReminderScheduler
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Build the reminders list (header + one button per reminder). Tapping a button opens that
+    reminder's card; medications collapse to one row (their card turns off all times)."""
+    rows = await reminders.active_reminders_for_user(session, user_id=user_id)
+    meds = {m.id: m for m in await medications.list_medications(session, user_id=user_id)}
+    if not rows:
+        return locale.REMINDERS_EMPTY, None
     next_run = {job.id: job.next_run for job in scheduler.list_jobs()}
     kb_rows: list[list[InlineKeyboardButton]] = []
     shown_medications: set[int] = set()
@@ -270,25 +286,53 @@ async def open_reminders(message: Message, telegram_id: int, scheduler: Reminder
         when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
         if reminder.type == reminders.TYPE_MEDICATION and reminder.medication_id is not None:
             if reminder.medication_id in shown_medications:
-                continue  # one row per medication; its turn-off removes all its jobs
+                continue  # one row per medication; its card turns off all its times
             shown_medications.add(reminder.medication_id)
-            med = meds.get(reminder.medication_id)
-            label = locale.REMINDER_ITEM_MEDICATION.format(
-                name=med.name if med else (reminder.payload or "?"),
-                times=med.schedule if med else "?",
-                when=when,
-            )
-            data = callbacks.medication_off(reminder.medication_id)
-        elif reminder.type == reminders.TYPE_CHECKIN:
-            label = locale.REMINDER_ITEM_CHECKIN.format(when=when)
-            data = callbacks.reminder_off(reminder.id)
-        else:  # repeat_lab
-            label = locale.REMINDER_ITEM_REPEAT_LAB.format(name=reminder.payload or "?", when=when)
-            data = callbacks.reminder_off(reminder.id)
+            label = _reminder_label(reminder, meds.get(reminder.medication_id), when)
+            data = callbacks.medication_view(reminder.medication_id)
+        else:
+            label = _reminder_label(reminder, None, when)
+            data = callbacks.reminder_view(reminder.id)
         kb_rows.append([InlineKeyboardButton(text=label, callback_data=data)])
-    await message.answer(
-        locale.REMINDERS_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    return locale.REMINDERS_HEADER, InlineKeyboardMarkup(inline_keyboard=kb_rows)
+
+
+def _card_keyboard(off_data: str) -> InlineKeyboardMarkup:
+    """A reminder card's actions: turn it off (deliberate) or go back to the list."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=locale.BTN_REMINDER_OFF, callback_data=off_data),
+                InlineKeyboardButton(
+                    text=locale.BTN_REMINDER_BACK, callback_data=callbacks.REMINDERS_BACK
+                ),
+            ]
+        ]
     )
+
+
+def _render_card(label: str, when: str) -> str:
+    return f"{label}\n{locale.REMINDER_CARD_NEXT.format(when=when)}\n\n{locale.REMINDER_CARD_HINT}"
+
+
+async def open_reminders(message: Message, telegram_id: int, scheduler: ReminderScheduler) -> None:
+    """List active reminders (from /reminders or the menu). A tap opens the reminder to read it."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        text, keyboard = await _reminders_payload(session, user_id=user.id, scheduler=scheduler)
+    await message.answer(text, reply_markup=keyboard)
+
+
+async def _edit_to_list(callback: CallbackQuery, scheduler: ReminderScheduler) -> None:
+    """Edit the current message back into the (refreshed) reminders list."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        text, keyboard = await _reminders_payload(session, user_id=user.id, scheduler=scheduler)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
 
 
 @router.message(Command("reminders"))
@@ -299,13 +343,75 @@ async def cmd_reminders(message: Message, reminder_scheduler: ReminderScheduler)
     await open_reminders(message, tg, reminder_scheduler)
 
 
+@router.callback_query(F.data == callbacks.REMINDERS_BACK)
+async def on_reminders_back(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    await _edit_to_list(callback, reminder_scheduler)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.REMINDER_VIEW + ":"))
+async def on_reminder_view(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Open a reminder's card (read it) — turning it off is a deliberate button, not this tap."""
+    reminder_id = callbacks.parse_reminder_view(callback.data or "")
+    if reminder_id is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
+    async with get_session() as session:
+        reminder = await session.get(Reminder, reminder_id)
+    if reminder is None or not reminder.active:
+        await _edit_to_list(callback, reminder_scheduler)  # gone meanwhile — show the fresh list
+        await callback.answer()
+        return
+    when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            _render_card(_reminder_label(reminder, None, when), when),
+            reply_markup=_card_keyboard(callbacks.reminder_off(reminder.id)),
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEDICATION_VIEW + ":"))
+async def on_medication_view(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    medication_id = callbacks.parse_medication_view(callback.data or "")
+    tg = _telegram_id(callback)
+    if medication_id is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        med = await session.get(Medication, medication_id)
+        rems = [
+            r
+            for r in await reminders.active_reminders_for_user(session, user_id=user.id)
+            if r.medication_id == medication_id
+        ]
+    if med is None or not rems:
+        await _edit_to_list(callback, reminder_scheduler)  # gone meanwhile — show the fresh list
+        await callback.answer()
+        return
+    times = [w for r in rems if (w := next_run.get(f"reminder:{r.id}")) is not None]
+    when = _fmt_when(min(times) if times else None)
+    label = locale.REMINDER_ITEM_MEDICATION.format(name=med.name, times=med.schedule, when=when)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            _render_card(label, when),
+            reply_markup=_card_keyboard(callbacks.medication_off(medication_id)),
+        )
+    await callback.answer()
+
+
 @router.callback_query(F.data.startswith(callbacks.REMINDER_OFF + ":"))
 async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Deliberate turn-off from a reminder's card; then refresh the list in place."""
     reminder_id = callbacks.parse_reminder_off(callback.data or "")
     if reminder_id is None:
         await callback.answer()
         return
-    await remove_button_row(callback)  # this reminder is off — consume just its row
     async with get_session() as session:
         reminder = await session.get(Reminder, reminder_id)
         if reminder is not None:
@@ -313,9 +419,8 @@ async def on_reminder_off(callback: CallbackQuery, reminder_scheduler: ReminderS
                 session, reminder=reminder, scheduler=reminder_scheduler
             )
             await session.commit()
-    if isinstance(callback.message, Message):
-        await callback.message.answer(locale.REMINDER_TURNED_OFF)
-    await callback.answer()
+    await callback.answer(locale.REMINDER_TURNED_OFF)
+    await _edit_to_list(callback, reminder_scheduler)
 
 
 @router.callback_query(F.data.startswith(callbacks.MEDICATION_OFF + ":"))
@@ -324,12 +429,10 @@ async def on_medication_off(callback: CallbackQuery, reminder_scheduler: Reminde
     if medication_id is None:
         await callback.answer()
         return
-    await remove_button_row(callback)  # this medication is off — consume just its row
     async with get_session() as session:
         await proactive.turn_off_medication(
             session, medication_id=medication_id, scheduler=reminder_scheduler
         )
         await session.commit()
-    if isinstance(callback.message, Message):
-        await callback.message.answer(locale.REMINDER_TURNED_OFF)
-    await callback.answer()
+    await callback.answer(locale.REMINDER_TURNED_OFF)
+    await _edit_to_list(callback, reminder_scheduler)

@@ -56,12 +56,13 @@ async def remove_button_row(callback: CallbackQuery) -> None:
         await message.edit_reply_markup(reply_markup=markup)
 
 
-# Persistent reply keyboard: two-per-row main actions; check-in + help share the last row.
+# Persistent reply keyboard: two-per-row main actions; memory + check-in, then help.
 _MENU_ROWS = (
     (locale.MENU_LABS, locale.MENU_GOALS),
     (locale.MENU_PROBLEMS, locale.MENU_MEDS),
     (locale.MENU_REMINDERS, locale.MENU_PRICES),
-    (locale.MENU_CHECKIN, locale.MENU_HELP),
+    (locale.MENU_MEMORY, locale.MENU_CHECKIN),
+    (locale.MENU_HELP,),
 )
 
 

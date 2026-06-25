@@ -513,14 +513,19 @@ MED_ADDED = (
 
 # --- Tier 1.1: reminders management ---------------------------------------------
 
-REMINDERS_HEADER = "Твої активні нагадування (натисни, щоб вимкнути):"
+REMINDERS_HEADER = "Твої активні нагадування (натисни, щоб переглянути):"
 REMINDERS_EMPTY = "Активних нагадувань немає."
 REMINDER_ITEM_CHECKIN = "🌙 Щоденний чек-ін — {when}"
 REMINDER_ITEM_MEDICATION = "💊 {name} ({times}) — {when}"
 REMINDER_ITEM_REPEAT_LAB = "🧪 Повтор аналізів ({name}) — {when}"
+REMINDER_ITEM_CONSULT = "🔔 {name} — {when}"
 REMINDER_NEXT_UNKNOWN = "час не визначено"
 REMINDER_TURNED_OFF = "Вимкнув нагадування."
 BTN_REMINDER_OFF = "🗑 Вимкнути"
+BTN_REMINDER_BACK = "◀ Назад"
+# Reminder detail card (tap a reminder to read it; turning it off is the explicit 🗑 button).
+REMINDER_CARD_HINT = "Нагадаю тобі вчасно. Якщо більше не потрібно — натисни «🗑 Вимкнути»."
+REMINDER_CARD_NEXT = "🗓 Наступне: {when}"
 
 # --- Tier 1.2: history & file retrieval -----------------------------------------
 
@@ -986,6 +991,7 @@ MENU_MEDS = "💊 Ліки"
 MENU_REMINDERS = "🔔 Нагадування"
 MENU_PRICES = "💰 Ціни/НСЗУ"
 MENU_CHECKIN = "📝 Чек-ін"
+MENU_MEMORY = "🧠 Памʼять"
 MENU_HELP = "❓ Довідка"
 
 MENU_LABELS: frozenset[str] = frozenset(
@@ -997,6 +1003,7 @@ MENU_LABELS: frozenset[str] = frozenset(
         MENU_REMINDERS,
         MENU_PRICES,
         MENU_CHECKIN,
+        MENU_MEMORY,
         MENU_HELP,
     }
 )
