@@ -348,6 +348,19 @@ def _wants_booking(text: str) -> bool:
     return bool(_BOOKING_INTENT_RE.search(text.casefold()))
 
 
+# A booking reminder fires a day or two BEFORE the visit, so there's time to call and book.
+_BOOKING_LEAD_DAYS = 2
+
+
+def _booking_lead(visit: datetime) -> datetime:
+    """When to remind for a booking: ``_BOOKING_LEAD_DAYS`` before the visit, but if the visit is
+    too soon for that, as soon as practical (in ~2h) — never after the visit itself."""
+    lead = visit - timedelta(days=_BOOKING_LEAD_DAYS)
+    if lead <= _now():
+        return min(_now() + timedelta(hours=2), visit)
+    return lead
+
+
 async def _ask_reminder_subject(message: Message, state: FSMContext) -> None:
     """Fallback: ask WHAT to remind about (only when we couldn't infer it from the conversation)."""
     await state.set_state(ConsultRemindStates.waiting_label)
@@ -380,10 +393,21 @@ async def _start_reminder(
         return
     await state.update_data(consult_remind_label=draft.subject)
     run_at = _parse_when(draft.date) if draft.date else None
-    if run_at is not None:  # we know WHAT and WHEN — just create it
-        await _create_consult_reminder(
-            message, state, run_at=run_at, scheduler=scheduler, booking=booking
+    if run_at is not None and booking:
+        # A "book me" request: remind a day or two BEFORE the visit, and name the visit date in BOTH
+        # the stored reminder (so the firing text is clear) and the confirmation.
+        visit = run_at.date()
+        await state.update_data(consult_remind_label=f"{draft.subject} — {visit.isoformat()}")
+        lead = _booking_lead(run_at)
+        confirm = locale.CONSULT_REMIND_SET_BOOKING.format(
+            label=draft.subject, when=lead.date().isoformat(), visit=visit.isoformat()
         )
+        await _create_consult_reminder(
+            message, state, run_at=lead, scheduler=scheduler, confirm_text=confirm
+        )
+        return
+    if run_at is not None:  # a non-booking reminder: fire exactly on the date the user gave
+        await _create_consult_reminder(message, state, run_at=run_at, scheduler=scheduler)
         return
     # We know WHAT but not WHEN — ask only the date (subject pre-filled).
     await state.set_state(ConsultRemindStates.waiting_date)
@@ -423,10 +447,10 @@ async def _create_consult_reminder(
     *,
     run_at: datetime,
     scheduler: ReminderScheduler,
-    booking: bool = False,
+    confirm_text: str | None = None,
 ) -> None:
-    """Persist + live-schedule the reminder, confirm, and resume the consultation. A ``booking``
-    reminder gets the 'I can't book — call them' confirmation instead of the plain one."""
+    """Persist + live-schedule the reminder, confirm, and resume the consultation. ``confirm_text``
+    overrides the default confirmation (the booking flow passes its own 'lead-before-visit' one)."""
     data = await state.get_data()
     label = str(data.get("consult_remind_label") or "").strip() or locale.LAB_REPEAT_LABEL
     tg = _telegram_id(message)
@@ -438,8 +462,10 @@ async def _create_consult_reminder(
             session, user=user, run_at=run_at, label=label, scheduler=scheduler
         )
         await session.commit()
-    template = locale.CONSULT_REMIND_SET_BOOKING if booking else locale.CONSULT_REMIND_SET
-    await message.answer(template.format(label=label, when=run_at.date().isoformat()))
+    await message.answer(
+        confirm_text
+        or locale.CONSULT_REMIND_SET.format(label=label, when=run_at.date().isoformat())
+    )
     # Record the reminder in the transcript so the consultation stays aware of it (context).
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
     transcript.append(

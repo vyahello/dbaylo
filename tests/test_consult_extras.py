@@ -36,6 +36,21 @@ def test_typed_intents_route_to_reminder_or_clinic_not_the_llm() -> None:
     assert not _wants_reminder("що це означає?") and not _wants_clinics("що це означає?")
 
 
+def test_booking_lead_fires_before_a_far_visit_and_clamps_a_near_one() -> None:
+    # A booking reminder fires ~2 days before the visit; if the visit is too soon, it clamps to
+    # "soon" (never after the visit) so you still get a nudge to call.
+    from datetime import timedelta
+
+    from dbaylo.bot.consult_flow import _booking_lead, _now
+
+    far = _now() + timedelta(days=30)
+    assert _booking_lead(far) == far - timedelta(days=2)  # a genuine 2-day lead
+
+    near = _now() + timedelta(hours=20)  # sooner than the 2-day lead
+    lead_near = _booking_lead(near)
+    assert _now() < lead_near <= near  # clamped to soon, never after the visit
+
+
 def test_booking_requests_route_to_the_reminder_flow() -> None:
     # "запиши мене …" can't be a real booking, so it must reach the reminder flow (which saves it +
     # nudges to call), instead of the LLM repeating "I can't book you".
