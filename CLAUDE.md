@@ -396,9 +396,30 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   clears any state, saves nothing). `/price`·`/coverage` gained a small `NavStates` so the **typed**
   answer routes through `run_price`/`run_coverage` (i.e. `gate.screen`) **identically to the arg** — a
   symptom in the drug field short-circuits to triage. No new models/migrations.
-- **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. Every reply
-  passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback. The persona
-  forbids fabricated sources/statistics and encodes the numeric boundary.
+- **Shared persona core** (`dbaylo/persona.py`, root leaf — pure text, NO imports): the parts every
+  Дбайло voice must share — `IDENTITY` (the expert "personal health assistant, not a chatbot"),
+  `GROUNDING` (profile + current/watch/resolved + state + MEMORY; never invent), `SAFETY_BOUNDARY`
+  (the numeric boundary + forbidden phrases + "escalation is NOT yours"), `FORMATTING_LIGHT`.
+  Distilled from the consult (the most refined voice) and used to bring the lighter voices UP to it:
+  `conversation` and `intake` personas are built from these blocks (so general chat / the interview
+  speak as the SAME expert assistant, with identical safety wording); `consult`/`checkin` keep their
+  own tuned text. Lives at the package root (not scanned) so it adds no LLM path.
+- **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. **A continuous,
+  grounded, memory-backed thread** (the unified-chat overhaul), not a stateless one-shot. The persona
+  is built from the shared core (expert, not "buddy"): casual chit-chat stays short, a health turn
+  switches into expert mode (ground in the data, cautious "може бути повʼязано з…", 1–3 focused
+  questions). `generate_reply(text, *, context, history)` lays out the prior turns so it answers the
+  LATEST line in thread; with neither history nor context the prompt is the bare text (a single
+  turn). Routing/threading live in `bot/companion_flow._run_companion_turn`: the recent
+  back-and-forth is kept in **FSM data** (`chat_transcript` + `chat_ts`) under the catch-all
+  `StateFilter(None)`, so it threads across free-text turns and is wiped on any `/command` or menu
+  tap (the reset middleware clears FSM data too); a gap past `_CHAT_TTL` (6 h) starts a fresh thread.
+  `_grounded_context` now also recalls **cross-session memory** (`consult_memory.recall_block`, the
+  same store the consult uses) alongside the lab picture + check-in state — so general chat AND the
+  intake remember earlier talks; a **substantive** exchange (`_worth_remembering`: not a bare
+  greeting/ack) is written back to the GENERAL memory bucket (`report_id=None`). Every reply still
+  passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback (a non-`llm`
+  reply is never persisted to memory).
 - **Symptom intake** (`companion/intake.py`, Stage 6B): a multi-turn **history-taking** interview —
   when a free-text turn is a symptom (gate→triage) or a broad physical complaint
   (`looks_like_complaint`, router-only), `companion_flow` starts a guided intake (FSM
@@ -407,7 +428,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   flag (or a disordered-eating guardrail signal) **leads** the reply verbatim and the LLM can never
   lower it. Output passes `assert_safe_output` + disclaimer, deterministic fallback. Imports
   `safety.screen` + `run_claude` (gate-routed; never the escalation engines) so the AST choke-point
-  stays green. **FSM state is persisted** (`bot/storage.py` `SQLiteStorage` — a dedicated SQLite file
+  stays green. The persona is built from the **shared core** (`dbaylo/persona.py`) and the interview
+  is grounded by the same memory-augmented `_grounded_context` as the chat (labs + check-in state +
+  cross-session `consult_memory` recall), so it threads on the user's real history. **FSM state is
+  persisted** (`bot/storage.py` `SQLiteStorage` — a dedicated SQLite file
   via the already-present `aiosqlite`, wired in `build_dispatcher`) so an in-progress interview /
   lab confirmation survives a restart; the file is separate from the domain DB so Alembic is unaffected.
 - **Safety gate** (`safety/gate.py`, Stage 3.5): the **single sanctioned path from user text to
@@ -464,7 +488,7 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 ```
 src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the user-text choke-point)
              labs/ (L2: extraction·prescription·trends·humanize·…)  navigator/ (L4)  llm/ (claude
-             subprocess)  db/  web/  locale.py  config.py
+             subprocess)  db/  web/  locale.py  config.py  persona.py (shared persona core)
              bot/ (handlers · menu_flow · keyboards · *_flow [incl. prescription_flow] · access ·
                    state_reset)  maintenance/
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·

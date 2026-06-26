@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import contextlib
 import html
-from datetime import date
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -31,9 +32,10 @@ from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, checkin, goals, health, intake
-from dbaylo.companion.conversation import generate_reply
+from dbaylo.companion import callbacks, checkin, consult_memory, goals, health, intake
+from dbaylo.companion.conversation import Turn, generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
+from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
 from dbaylo.safety import GateSource, screen
@@ -405,20 +407,25 @@ async def on_checkin_answer(message: Message, state: FSMContext) -> None:
 # --- Symptom intake (history-taking) --------------------------------------------
 
 
-async def _health_context(message: Message) -> str:
-    """The user's grounded picture — labs (profile + current/resolved out-of-range indicators) AND
-    recent check-in STATE memory (how they've been) — so general chat / the symptom interview answer
-    based on THEIR real data and remember their state. ``""`` when there's nothing to ground in."""
+async def _grounded_context(message: Message, *, exclude: frozenset[str] = frozenset()) -> str:
+    """The user's full grounded picture for a chat turn: labs (profile + current/resolved
+    out-of-range indicators), recent check-in STATE memory (how they've been), AND a MEMORY of
+    earlier conversations (``consult_memory``) — so general chat / the symptom interview answer from
+    THEIR real data, remember their state, and carry continuity across sessions like the consult.
+    ``exclude`` drops memory turns already in the live transcript (no mid-conversation duplication).
+    ``""`` when there is nothing to ground in."""
     tg = _telegram_id(message)
     if tg is None:
         return ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        return await checkin.grounded_context(session, user_id=user.id, today=date.today())
+        grounded = await checkin.grounded_context(session, user_id=user.id, today=date.today())
+        memory = await consult_memory.recall_block(session, user_id=user.id, exclude=exclude)
+    return "\n\n".join(part for part in (grounded, memory) if part)
 
 
 async def _run_intake_turn(
-    message: Message, state: FSMContext, transcript: list[dict[str, str]], *, context: str = ""
+    message: Message, state: FSMContext, transcript: list[Turn], *, context: str = ""
 ) -> None:
     async with keep_typing(message):  # 'typing…' stays up for the whole LLM call, not ~5 s
         reply = await intake.advance(transcript, context=context)
@@ -436,10 +443,105 @@ async def on_intake_turn(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     transcript = list(data.get("intake") or [])
     transcript.append({"role": "user", "text": message.text or ""})
-    await _run_intake_turn(message, state, transcript, context=await _health_context(message))
+    exclude = frozenset(t["text"].strip() for t in transcript if t.get("text"))
+    await _run_intake_turn(
+        message, state, transcript, context=await _grounded_context(message, exclude=exclude)
+    )
 
 
 # --- Free-text companion chat (only when no FSM flow is active) ------------------
+# General chat is a CONTINUOUS, grounded, memory-backed thread — not a cold one-shot. The recent
+# back-and-forth lives in FSM data (``chat_transcript``) under the catch-all StateFilter(None), so
+# it threads across free-text turns and is wiped on any /command or menu tap (the reset middleware
+# clears FSM data too). A long gap starts a fresh thread; substantive exchanges are saved to durable
+# memory so a later conversation remembers them — the same memory the consult uses.
+_CHAT_TTL = timedelta(hours=6)  # a free-text turn after this gap starts a new conversation thread
+_CHAT_KEEP_TURNS = 6  # recent exchanges (×2 messages) kept threading in FSM data
+
+# Bare greetings / acknowledgements not worth persisting to durable memory (they would clutter the
+# 🧠 Памʼять "Загальні розмови" group). In-session threading still keeps them for the moment.
+_TRIVIAL_TURNS = frozenset(
+    {
+        "привіт",
+        "вітаю",
+        "дякую",
+        "дяки",
+        "дякс",
+        "ок",
+        "окей",
+        "ага",
+        "так",
+        "ні",
+        "добре",
+        "хай",
+        "пока",
+        "бувай",
+        "доброго ранку",
+        "добрий ранок",
+        "добрий день",
+        "добрий вечір",
+        "на добраніч",
+        "до побачення",
+    }
+)
+
+
+def _now() -> datetime:
+    return datetime.now(ZoneInfo(get_settings().timezone))
+
+
+def _thread_fresh(ts: object) -> bool:
+    """Whether a stored chat thread is still recent enough to continue (else start fresh)."""
+    if not isinstance(ts, str):
+        return False
+    try:
+        when = datetime.fromisoformat(ts)
+    except ValueError:
+        return False
+    return (_now() - when) <= _CHAT_TTL
+
+
+def _worth_remembering(text: str) -> bool:
+    """A general-chat turn worth saving to durable memory: not a bare greeting / one-word ack."""
+    stripped = text.strip().casefold()
+    return len(stripped) >= 5 and stripped not in _TRIVIAL_TURNS
+
+
+async def _remember_general(tg: int, user_text: str, assistant_text: str) -> None:
+    """Persist a substantive general-chat exchange to durable cross-session memory (best-effort) —
+    the GENERAL bucket (no report/analyte anchor), the same store the consult recalls from."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        await consult_memory.record_turn(session, user_id=user.id, role="user", text=user_text)
+        await consult_memory.record_turn(
+            session, user_id=user.id, role="assistant", text=assistant_text
+        )
+        await session.commit()
+
+
+async def _run_companion_turn(message: Message, state: FSMContext, text: str) -> None:
+    """One ordinary companion turn: thread on the recent history, ground in the user's data +
+    memory, answer in the SAME conversation, and remember the substantive exchange."""
+    data = await state.get_data()
+    history: list[Turn] = (
+        list(data.get("chat_transcript") or []) if _thread_fresh(data.get("chat_ts")) else []
+    )
+    exclude = frozenset(t["text"].strip() for t in history if t.get("text"))
+    context = await _grounded_context(message, exclude=exclude)
+    async with keep_typing(message):  # 'typing…' covers the whole multi-second LLM call
+        reply = await generate_reply(text, context=context, history=history)
+    history = [
+        *history,
+        {"role": "user", "text": text},
+        {"role": "assistant", "text": reply.text},
+    ]
+    await state.update_data(
+        chat_transcript=history[-2 * _CHAT_KEEP_TURNS :], chat_ts=_now().isoformat()
+    )
+    tg = _telegram_id(message)
+    if tg is not None and reply.source == "llm" and _worth_remembering(text):
+        await _remember_general(tg, text, reply.text)
+    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)
 
 
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
@@ -452,19 +554,15 @@ async def on_free_text(
     if decision.source is GateSource.GUARDRAIL:
         await message.answer(decision.message)
         return
-    # Ground the reply in the user's real health picture (tracked problems + recent analyses) so
-    # Дбайло answers like an assistant who knows them — '' when there's nothing -> stays general.
-    context = await _health_context(message)
     # A red-flag symptom OR a broader physical complaint starts the guided intake; the
     # deterministic triage stays the escalation backstop inside the intake.
     if decision.source is GateSource.TRIAGE or intake.looks_like_complaint(text):
+        context = await _grounded_context(message)
         await _run_intake_turn(message, state, [{"role": "user", "text": text}], context=context)
         return
     # If the user just opened a chart/indicator and is now writing about it (no «Запитати Дбайло»
     # tap), answer IN that grounded context instead of the contextless companion.
     if await consult_flow.start_primed_consult(message, state, scheduler=reminder_scheduler):
         return
-    # Otherwise — ordinary companion chat, grounded in the profile when relevant.
-    async with keep_typing(message):
-        reply = await generate_reply(text, context=context)
-    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)
+    # Otherwise — ordinary companion chat: a continuous, grounded, memory-backed thread.
+    await _run_companion_turn(message, state, text)

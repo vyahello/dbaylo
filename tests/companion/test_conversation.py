@@ -44,10 +44,26 @@ async def test_companion_grounds_in_the_patient_context_when_given() -> None:
 
 
 async def test_companion_stays_general_without_context() -> None:
-    # No profile -> the prompt is just the user's text (a plain general reply).
+    # No profile and no history -> the prompt is just the user's text (a plain single-turn reply).
     runner = _capturing_runner("Тримайся, друже.")
     await generate_reply("як справи?", context="", runner=runner)
     assert runner.captured["prompt"] == "як справи?"  # type: ignore[attr-defined]
+
+
+async def test_companion_threads_on_prior_history() -> None:
+    # The unified-chat fix: prior turns are handed to the model so a multi-message conversation
+    # threads (it answers the LATEST line in context), instead of replying to each message cold.
+    runner = _capturing_runner("А вже місяць — це варто перевірити.")
+    history = [
+        {"role": "user", "text": "я постійно втомлений"},
+        {"role": "assistant", "text": "Давно це триває?"},
+    ]
+    reply = await generate_reply("вже десь місяць", context="", history=history, runner=runner)
+    assert reply.source == "llm"
+    prompt = runner.captured["prompt"]  # type: ignore[attr-defined]
+    assert "я постійно втомлений" in prompt  # the earlier turn is in the prompt
+    assert "Давно це триває?" in prompt  # Дбайло's own prior question too
+    assert "вже десь місяць" in prompt  # and the latest message it must answer
 
 
 async def test_symptoms_short_circuit_to_triage() -> None:
