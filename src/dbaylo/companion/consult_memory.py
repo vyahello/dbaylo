@@ -13,9 +13,10 @@ adds no new path to the model and the safety choke-point invariant is untouched.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, delete, func, select
+from sqlalchemy import ColumnElement, CursorResult, and_, case, delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.db.models import ConsultMemory
@@ -36,9 +37,16 @@ async def record_turn(
     role: str,
     text: str,
     report_id: int | None = None,
+    analyte_key: str | None = None,
+    subject_label: str | None = None,
 ) -> None:
     """Persist one consultation turn, then prune this user's oldest rows past the retention cap.
-    Blank text is ignored (nothing worth remembering)."""
+    Blank text is ignored (nothing worth remembering).
+
+    A consultation about a TREND chart carries ``analyte_key`` (+ a display ``subject_label``)
+    instead of a ``report_id`` — a chart spans many reports, so the turn is grouped by its analyte,
+    not dumped into the general bucket. A report/section consult carries ``report_id``; a turn with
+    neither is a genuinely general chat."""
     text = (text or "").strip()
     if not text:
         return
@@ -48,6 +56,8 @@ async def record_turn(
             role=role,
             text=text,
             report_id=report_id if report_id else None,
+            analyte_key=analyte_key or None,
+            subject_label=(subject_label or None) if analyte_key else None,
         )
     )
     await session.flush()
@@ -139,45 +149,100 @@ async def clear_all(session: AsyncSession, *, user_id: int) -> int:
     return cast("CursorResult[Any]", result).rowcount or 0
 
 
-# --- Grouping by analysis (a conversation is anchored to a report, or general) ----
+# --- Grouping by subject (anchored to an analyte, a report, or general) ----------
+# A trend-chart conversation is grouped by its analyte (``analyte_key``); a report/section one by
+# its ``report_id``; anything anchored to neither is the general group. Charts store report_id NULL,
+# reports store analyte_key NULL, so the three groups never overlap.
+
+KIND_ANALYTE = "analyte"
+KIND_REPORT = "report"
+KIND_GENERAL = "general"
 
 
-def _report_cond(report_id: int | None):  # type: ignore[no-untyped-def]
-    """Match rows of ONE conversation group: a specific report, or the general (no-report) group."""
-    return (
-        ConsultMemory.report_id == report_id
-        if report_id is not None
-        else (ConsultMemory.report_id.is_(None))
-    )
+@dataclass(frozen=True)
+class MemoryGroup:
+    """One conversation group in the memory view, most-recently-active ordered by the caller."""
+
+    kind: str  # KIND_ANALYTE | KIND_REPORT | KIND_GENERAL
+    report_id: int | None  # set for a report group
+    analyte_key: str | None  # set for an analyte (trend-chart) group
+    label: str | None  # the analyte's display name (analyte group only)
+    count: int
 
 
-async def list_groups(session: AsyncSession, *, user_id: int) -> list[tuple[int | None, int]]:
-    """The user's conversation groups as ``(report_id_or_None, turn_count)``, most-recently-active
-    first. ``None`` is the general group (consults not anchored to a specific report)."""
+def _group_cond(report_id: int | None, analyte_key: str | None) -> ColumnElement[bool]:
+    """Match the rows of exactly ONE conversation group: an analyte's chart, a specific report, or
+    the general (anchored to neither) group."""
+    if analyte_key is not None:
+        return ConsultMemory.analyte_key == analyte_key
+    if report_id is not None:
+        return and_(ConsultMemory.report_id == report_id, ConsultMemory.analyte_key.is_(None))
+    return and_(ConsultMemory.report_id.is_(None), ConsultMemory.analyte_key.is_(None))
+
+
+async def list_groups(session: AsyncSession, *, user_id: int) -> list[MemoryGroup]:
+    """The user's conversation groups, most-recently-active first: one per analyte (trend chart) we
+    talked about, one per report, plus the general group for chats anchored to neither.
+
+    An analyte group collapses ACROSS reports (a chart is about the analyte over time): the report
+    column is folded to NULL whenever ``analyte_key`` is set, so every turn about an analyte lands
+    in one group even if a chart consult carried a report id. This mirrors ``_group_cond``."""
+    report_bucket = case((ConsultMemory.analyte_key.is_(None), ConsultMemory.report_id), else_=None)
     rows = (
         await session.execute(
             select(
-                ConsultMemory.report_id,
+                report_bucket.label("report_id"),
+                ConsultMemory.analyte_key,
                 func.count().label("n"),
+                func.max(ConsultMemory.subject_label).label("label"),
                 func.max(ConsultMemory.id).label("mx"),
             )
             .where(ConsultMemory.user_id == user_id)
-            .group_by(ConsultMemory.report_id)
+            .group_by(report_bucket, ConsultMemory.analyte_key)
             .order_by(func.max(ConsultMemory.id).desc())
         )
     ).all()
-    return [(row.report_id, int(row.n)) for row in rows]
+    groups: list[MemoryGroup] = []
+    for row in rows:
+        if row.analyte_key is not None:
+            kind, report_id = KIND_ANALYTE, None
+        elif row.report_id is not None:
+            kind, report_id = KIND_REPORT, row.report_id
+        else:
+            kind, report_id = KIND_GENERAL, None
+        groups.append(
+            MemoryGroup(
+                kind=kind,
+                report_id=report_id,
+                analyte_key=row.analyte_key,
+                label=row.label if row.analyte_key is not None else None,
+                count=int(row.n),
+            )
+        )
+    return groups
 
 
-async def recent_turns_for_report(
-    session: AsyncSession, *, user_id: int, report_id: int | None, limit: int = _VIEW_TURNS
+async def group_at(session: AsyncSession, *, user_id: int, index: int) -> MemoryGroup | None:
+    """The conversation group at ``index`` in the freshly-derived groups list, or ``None`` if it no
+    longer exists (the list is re-derived on every tap, like the charts/problems pickers)."""
+    groups = await list_groups(session, user_id=user_id)
+    return groups[index] if 0 <= index < len(groups) else None
+
+
+async def recent_turns_for_group(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    report_id: int | None = None,
+    analyte_key: str | None = None,
+    limit: int = _VIEW_TURNS,
 ) -> list[ConsultMemory]:
-    """The most recent turns of ONE conversation (a report's, or general), oldest→newest."""
+    """The most recent turns of ONE group (analyte / report / general), oldest→newest."""
     rows = (
         (
             await session.execute(
                 select(ConsultMemory)
-                .where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+                .where(ConsultMemory.user_id == user_id, _group_cond(report_id, analyte_key))
                 .order_by(ConsultMemory.id.desc())
                 .limit(limit)
             )
@@ -188,20 +253,34 @@ async def recent_turns_for_report(
     return list(reversed(rows))
 
 
-async def count_for_report(session: AsyncSession, *, user_id: int, report_id: int | None) -> int:
+async def count_for_group(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    report_id: int | None = None,
+    analyte_key: str | None = None,
+) -> int:
     """How many turns are remembered for ONE conversation group."""
     total = await session.scalar(
         select(func.count())
         .select_from(ConsultMemory)
-        .where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+        .where(ConsultMemory.user_id == user_id, _group_cond(report_id, analyte_key))
     )
     return int(total or 0)
 
 
-async def clear_report(session: AsyncSession, *, user_id: int, report_id: int | None) -> int:
-    """Forget ONE conversation ("забути цю розмову") — a report's, or the general group. Returns how
-    many turns were deleted; leaves every other conversation untouched."""
+async def clear_group(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    report_id: int | None = None,
+    analyte_key: str | None = None,
+) -> int:
+    """Forget ONE conversation ("забути цю розмову") — an analyte's, a report's, or the general
+    group. Returns how many turns were deleted; leaves every other conversation untouched."""
     result = await session.execute(
-        delete(ConsultMemory).where(ConsultMemory.user_id == user_id, _report_cond(report_id))
+        delete(ConsultMemory).where(
+            ConsultMemory.user_id == user_id, _group_cond(report_id, analyte_key)
+        )
     )
     return cast("CursorResult[Any]", result).rowcount or 0

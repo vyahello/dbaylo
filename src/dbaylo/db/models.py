@@ -301,6 +301,12 @@ class ConsultMemory(TimestampMixin, Base):
     report_id: Mapped[int | None] = mapped_column(
         ForeignKey("lab_reports.id", ondelete="SET NULL"), default=None
     )
+    # A consultation about a single indicator's TREND chart spans many reports, so it has no single
+    # report anchor. ``analyte_key`` (the cross-report series key) groups + labels it by the analyte
+    # instead of dumping it into the general bucket; ``subject_label`` is its display name, captured
+    # at write time so the memory view needs no re-resolution. Both NULL for report/section talks.
+    analyte_key: Mapped[str | None] = mapped_column(default=None)
+    subject_label: Mapped[str | None] = mapped_column(default=None)
     role: Mapped[str] = mapped_column()  # "user" | "assistant"
     text: Mapped[str] = mapped_column(Text)
 

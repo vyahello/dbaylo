@@ -833,9 +833,10 @@ MEMORY_GROUPS_INTRO = (
     "свого аналізу:"
 )
 MEMORY_GROUPS_COUNT = "Усього збережено реплік: {total}."
+MEMORY_GROUP_ANALYTE = "📊 {name} — {n}"  # button: a conversation about one indicator's chart
 MEMORY_GROUP_REPORT = "📄 {what} — {n}"  # button: a per-analysis conversation
 MEMORY_GROUP_REPORT_DELETED = "📄 видалений аналіз — {n}"
-MEMORY_GROUP_GENERAL = "💬 Загальні розмови — {n}"  # button: consults not tied to one report
+MEMORY_GROUP_GENERAL = "💬 Загальні розмови — {n}"  # button: consults not tied to one subject
 MEMORY_GROUP_GENERAL_TITLE = "💬 Загальні розмови"
 MEMORY_REPORT_TITLE = "💭 <b>Розмови про {what}</b>"
 MEMORY_VIEW_EMPTY = (

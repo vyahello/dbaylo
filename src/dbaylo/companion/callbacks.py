@@ -478,29 +478,33 @@ MEMORY_FORGET = "mem_forget"  # open the "забути все" confirmation
 MEMORY_FORGET_OK = "mem_forget_ok"  # confirmed -> wipe this user's consult memory
 MEMORY_FORGET_NO = "mem_forget_no"  # cancelled -> back to the groups list
 MEMORY_HUB = "mem_hub"  # back to the conversation-groups list (static, edit-in-place)
-MEMORY_GROUP = "mem_grp"  # open ONE conversation group (carries report_id; 0 = general)
-MEMORY_FORGET_ONE = "mem_fgone"  # open the "забути цю розмову" confirmation (carries rid)
-MEMORY_FORGET_ONE_OK = "mem_fgoneok"  # confirmed -> forget just that conversation (carries rid)
+# These carry the group's INDEX in the (re-derived) groups list — analyte / report / general groups
+# share one address space, so a report_id no longer suffices (like the charts/problems picker).
+MEMORY_GROUP = "mem_grp"  # open ONE conversation group (carries the group index)
+MEMORY_FORGET_ONE = "mem_fgone"  # open the "забути цю розмову" confirmation (carries the index)
+MEMORY_FORGET_ONE_OK = (
+    "mem_fgoneok"  # confirmed -> forget just that conversation (carries the index)
+)
 
 
-def memory_group(report_id: int) -> str:  # 0 encodes the general (no-report) group
-    return _make(MEMORY_GROUP, report_id)
+def memory_group(index: int) -> str:  # the group's position in the groups list
+    return _make(MEMORY_GROUP, index)
 
 
 def parse_memory_group(data: str) -> int | None:
     return _parse(MEMORY_GROUP, data)
 
 
-def memory_forget_one(report_id: int) -> str:
-    return _make(MEMORY_FORGET_ONE, report_id)
+def memory_forget_one(index: int) -> str:
+    return _make(MEMORY_FORGET_ONE, index)
 
 
 def parse_memory_forget_one(data: str) -> int | None:
     return _parse(MEMORY_FORGET_ONE, data)
 
 
-def memory_forget_one_ok(report_id: int) -> str:
-    return _make(MEMORY_FORGET_ONE_OK, report_id)
+def memory_forget_one_ok(index: int) -> str:
+    return _make(MEMORY_FORGET_ONE_OK, index)
 
 
 def parse_memory_forget_one_ok(data: str) -> int | None:

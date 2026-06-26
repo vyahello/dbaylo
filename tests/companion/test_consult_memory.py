@@ -202,8 +202,8 @@ def test_memory_clean_strips_markup_and_disclaimer() -> None:
 
 
 async def test_groups_and_per_report_memory(async_session: AsyncSession) -> None:
-    # Memory is grouped by analysis: a report's conversation is its own group, plus a general group
-    # for non-anchored chats (report_id None).
+    # Memory is grouped by SUBJECT: a report's conversation is its own group, plus a general group
+    # for non-anchored chats (no report, no analyte).
     user = await ensure_user(async_session, 1)
     report = await _confirmed_report(async_session, user)
     await consult_memory.record_turn(
@@ -218,36 +218,117 @@ async def test_groups_and_per_report_memory(async_session: AsyncSession) -> None
     )
     await consult_memory.record_turn(
         async_session, user_id=user.id, role="user", text="загальне питання"
-    )  # no report -> general group
+    )  # no anchor -> general group
 
-    groups = dict(await consult_memory.list_groups(async_session, user_id=user.id))
-    assert groups == {report.id: 2, None: 1}
+    groups = await consult_memory.list_groups(async_session, user_id=user.id)
+    by_kind = {g.kind: g for g in groups}
+    assert by_kind[consult_memory.KIND_REPORT].report_id == report.id
+    assert by_kind[consult_memory.KIND_REPORT].count == 2
+    assert by_kind[consult_memory.KIND_GENERAL].count == 1
 
     # Per-report turns are scoped to that conversation only.
-    turns = await consult_memory.recent_turns_for_report(
+    turns = await consult_memory.recent_turns_for_group(
         async_session, user_id=user.id, report_id=report.id
     )
     assert [t.text for t in turns] == ["про КТ", "відповідь про КТ"]
-    assert (
-        await consult_memory.count_for_report(async_session, user_id=user.id, report_id=None) == 1
+    assert await consult_memory.count_for_group(async_session, user_id=user.id) == 1  # general
+
+
+async def test_a_trend_chart_consult_groups_by_analyte_not_general(
+    async_session: AsyncSession,
+) -> None:
+    # The bug: a consult about an indicator's TREND chart spans many reports (no single report_id),
+    # so it used to fall into "Загальні розмови". Now it is grouped + labelled by its analyte.
+    user = await ensure_user(async_session, 1)
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="user",
+        text="що з білірубіном?",
+        analyte_key="bilirubin",
+        subject_label="Білірубін",
+    )
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="assistant",
+        text="Подивімось на динаміку.",
+        analyte_key="bilirubin",
+        subject_label="Білірубін",
     )
 
+    groups = await consult_memory.list_groups(async_session, user_id=user.id)
+    assert len(groups) == 1
+    group = groups[0]
+    assert group.kind == consult_memory.KIND_ANALYTE  # NOT general
+    assert group.analyte_key == "bilirubin"
+    assert group.label == "Білірубін"  # the display name the view shows
+    assert group.report_id is None
 
-async def test_clear_report_forgets_one_conversation_only(async_session: AsyncSession) -> None:
+    # The same chart consulted again (e.g. from a report's chart, with a report_id) still collapses
+    # into the ONE "Білірубін" conversation — a chart is about the analyte over time, not a report.
+    report = await _confirmed_report(async_session, user)
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="user",
+        text="а зараз?",
+        report_id=report.id,
+        analyte_key="bilirubin",
+        subject_label="Білірубін",
+    )
+    groups = await consult_memory.list_groups(async_session, user_id=user.id)
+    assert [g.kind for g in groups] == [consult_memory.KIND_ANALYTE]
+    assert groups[0].count == 3
+    turns = await consult_memory.recent_turns_for_group(
+        async_session, user_id=user.id, analyte_key="bilirubin"
+    )
+    assert [t.text for t in turns] == ["що з білірубіном?", "Подивімось на динаміку.", "а зараз?"]
+
+
+async def test_clear_group_forgets_one_conversation_only(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     report = await _confirmed_report(async_session, user)
     await consult_memory.record_turn(
         async_session, user_id=user.id, role="user", text="про КТ", report_id=report.id
     )
-    await consult_memory.record_turn(async_session, user_id=user.id, role="user", text="загальне")
-    deleted = await consult_memory.clear_report(async_session, user_id=user.id, report_id=report.id)
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="user",
+        text="про білірубін",
+        analyte_key="bilirubin",
+        subject_label="Білірубін",
+    )
+    deleted = await consult_memory.clear_group(async_session, user_id=user.id, report_id=report.id)
     assert deleted == 1
-    # The report's conversation is gone; the general one stays.
+    # The report's conversation is gone; the analyte chart conversation stays.
     assert (
-        await consult_memory.count_for_report(async_session, user_id=user.id, report_id=report.id)
+        await consult_memory.count_for_group(async_session, user_id=user.id, report_id=report.id)
         == 0
     )
+    assert (
+        await consult_memory.count_for_group(
+            async_session, user_id=user.id, analyte_key="bilirubin"
+        )
+        == 1
+    )
     assert await consult_memory.count(async_session, user_id=user.id) == 1
+
+
+async def test_group_at_resolves_index_and_is_bounds_safe(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    await consult_memory.record_turn(
+        async_session,
+        user_id=user.id,
+        role="user",
+        text="про білірубін",
+        analyte_key="bilirubin",
+        subject_label="Білірубін",
+    )
+    group = await consult_memory.group_at(async_session, user_id=user.id, index=0)
+    assert group is not None and group.analyte_key == "bilirubin"
+    assert await consult_memory.group_at(async_session, user_id=user.id, index=5) is None
 
 
 async def test_deleting_a_report_decouples_but_keeps_the_memory(
