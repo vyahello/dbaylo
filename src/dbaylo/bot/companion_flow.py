@@ -102,11 +102,19 @@ def _short_goal(text: str, limit: int = 32) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
+async def _wellness_suggestions(session: AsyncSession, user_id: int) -> list[goals.GoalSuggestion]:
+    """Generic WELLNESS goal suggestions only (sleep, movement, …). A finding-derived goal is now
+    redundant — an out-of-range indicator is tracked on the unified ⚕️ Проблеми screen — so those
+    (the ones carrying a ``series_key``) are dropped from the goals view to kill the duplication."""
+    proposed = await goals.propose_goals(session, user_id, today=date.today())
+    return [s for s in proposed if not s.series_key]
+
+
 async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The goals MASTER: short subject buttons — suggestions (🎯) then adopted goals (📌). A tap
-    opens that goal's detail (full title + the indicator's history) where the action lives. Short
-    labels here so a long 'Привести … до норми' is never cut off on mobile — detail has it all."""
-    suggestions = await goals.propose_goals(session, user_id, today=date.today())
+    """The goals view (reached from ⚕️ Проблеми → 🎯 Мої цілі): short subject buttons — wellness
+    suggestions (🎯) then adopted goals (📌). A tap opens that goal's detail where the action lives;
+    «◀ Назад» returns to the unified problems-and-goals screen."""
+    suggestions = await _wellness_suggestions(session, user_id)
     current = await goals.list_active_goals(session, user_id=user_id)
     lines: list[str] = [locale.GOAL_MASTER_HEADER]
     kb: list[list[InlineKeyboardButton]] = []
@@ -137,6 +145,13 @@ async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, In
         lines = [locale.GOAL_ALL_SET]
     kb.append(
         [InlineKeyboardButton(text=locale.BTN_GOAL_OWN, callback_data=callbacks.MENU_GOAL_NEW)]
+    )
+    kb.append(  # back to the unified ⚕️ Проблеми й цілі screen (goals live inside it now)
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_GOAL_BACK_TO_HEALTH, callback_data=callbacks.MENU_PROB_LIST
+            )
+        ]
     )
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
 
@@ -178,9 +193,10 @@ def _detail_keyboard(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
 async def _suggestion_detail(
     session: AsyncSession, user_id: int, index: int
 ) -> tuple[str, InlineKeyboardMarkup] | None:
-    """A suggestion's detail: full title + (for a data goal) why now + the indicator history, with a
-    🎯 Взяти ціль action. ``None`` when the index no longer resolves (caller falls back)."""
-    suggestions = await goals.propose_goals(session, user_id, today=date.today())
+    """A suggestion's detail: full title + a 🎯 Взяти ціль action. ``None`` when the index no longer
+    resolves (caller falls back). Only wellness suggestions are shown now (findings live in
+    ⚕️ Проблеми)."""
+    suggestions = await _wellness_suggestions(session, user_id)
     if not 0 <= index < len(suggestions):
         return None
     sug = suggestions[index]
@@ -308,7 +324,7 @@ async def on_goal_adopt(callback: CallbackQuery, reminder_scheduler: ReminderSch
     toast = ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        suggestions = await goals.propose_goals(session, user.id, today=date.today())
+        suggestions = await _wellness_suggestions(session, user.id)
         if 0 <= index < len(suggestions):
             result = await goals.set_goal(session, user=user, text=suggestions[index].text)
             if result.saved:

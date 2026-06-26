@@ -102,12 +102,9 @@ def section_keyboard(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
 _HELP_JUMPS = (
     (
         (locale.BTN_MENU_ANALYSES, callbacks.MENU_OPEN_ANALYSES),
-        (locale.BTN_MENU_PROBLEMS, callbacks.MENU_PROB_LIST),
+        (locale.BTN_MENU_PROBLEMS, callbacks.MENU_PROB_LIST),  # goals live inside this screen now
     ),
-    (
-        (locale.BTN_MENU_GOALS, callbacks.MENU_OPEN_GOALS),
-        (locale.BTN_MENU_CHECKIN, callbacks.MENU_OPEN_CHECKIN),
-    ),
+    ((locale.BTN_MENU_CHECKIN, callbacks.MENU_OPEN_CHECKIN),),
     (
         (locale.BTN_MENU_MED_LIST, callbacks.MENU_MED_LIST),
         (locale.BTN_MENU_REMINDERS, callbacks.MENU_OPEN_REMINDERS),

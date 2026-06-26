@@ -124,14 +124,15 @@ def test_section_keyboard_one_button_per_row() -> None:
 # --- The ~5-section hubs (🩺 Моє здоровʼя · 💊 Ліки й нагадування) ----------------
 
 
-async def test_menu_health_hub_offers_the_four_destinations() -> None:
+async def test_menu_health_hub_offers_analyses_problems_checkin() -> None:
+    # Цілі were folded INTO ⚕️ Проблеми (one screen — they proposed the same findings), so the hub
+    # now has three destinations; goals are reached via 🎯 Мої цілі inside the problems screen.
     message = AsyncMock()
     await menu_flow.menu_health(message)
     _, kwargs = message.answer.call_args
     assert _cb_datas(kwargs["reply_markup"]) == [
         callbacks.MENU_OPEN_ANALYSES,
         callbacks.MENU_PROB_LIST,
-        callbacks.MENU_OPEN_GOALS,
         callbacks.MENU_OPEN_CHECKIN,
     ]
 
@@ -237,14 +238,15 @@ async def test_menu_labs_splits_history_and_dynamics() -> None:
     assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
 
 
-async def test_menu_goals_legacy_label_delegates_to_the_agent_screen(monkeypatch) -> None:
-    # The legacy 🎯 Цілі label (cached keyboard) also opens the agent-driven goals screen.
+async def test_menu_goals_legacy_label_opens_the_unified_screen(monkeypatch) -> None:
+    # Цілі are folded into ⚕️ Проблеми, so the legacy 🎯 Цілі label (cached keyboard) now opens the
+    # unified problems-and-goals screen.
     seen = {}
 
     async def fake(message, telegram_id):
         seen["args"] = (message, telegram_id)
 
-    monkeypatch.setattr(menu_flow.companion_flow, "open_goals_screen", fake)
+    monkeypatch.setattr(menu_flow.proactive_flow, "open_problems", fake)
     message = AsyncMock()
     message.from_user = SimpleNamespace(id=4242)
     await menu_flow.menu_goals(message)
@@ -286,8 +288,9 @@ async def test_menu_help_is_actionable_not_a_command_list() -> None:
     ]
     # The quick-jumps go straight into the agent screens (reusing the existing leaf callbacks).
     assert callbacks.MENU_OPEN_ANALYSES in datas and callbacks.MENU_PROB_LIST in datas
-    assert callbacks.MENU_OPEN_GOALS in datas and callbacks.MENU_MED_LIST in datas
+    assert callbacks.MENU_OPEN_CHECKIN in datas and callbacks.MENU_MED_LIST in datas
     assert callbacks.MENU_PRICE in datas and callbacks.MENU_OPEN_MEMORY in datas
+    assert callbacks.MENU_OPEN_GOALS not in datas  # goals folded into ⚕️ Проблеми
 
 
 async def test_cb_open_memory_opens_the_memory_view(monkeypatch) -> None:
@@ -372,6 +375,7 @@ async def test_open_problems_groups_by_category(monkeypatch) -> None:
         "list_active",
         AsyncMock(return_value=[SimpleNamespace(id=1, name="Болить спина")]),
     )
+    monkeypatch.setattr(proactive_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
     monkeypatch.setattr(
         proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
     )
@@ -387,6 +391,7 @@ async def test_open_problems_groups_by_category(monkeypatch) -> None:
     assert callbacks.problem_category("urine") in datas
     assert callbacks.problem_category("watch") in datas  # the on-the-edge group, separated
     assert callbacks.PROBLEM_TRACKED in datas  # the tracked concerns are behind their own button
+    assert callbacks.MENU_OPEN_GOALS in datas  # 🎯 Мої цілі — goals folded into this screen
     assert callbacks.MENU_PROB_NEW in datas  # manual fallback always present
     # The top level is a digest — individual findings/resolve buttons are NOT dumped here.
     assert not any(str(d).startswith(callbacks.PROBLEM_TRACK + ":") for d in datas)
@@ -448,6 +453,7 @@ def _patch_problems(monkeypatch, finding=None):
         AsyncMock(return_value=[finding or _finding("Глюкоза", category="biochem")]),
     )
     monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=[]))
+    monkeypatch.setattr(proactive_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
     monkeypatch.setattr(
         proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
     )

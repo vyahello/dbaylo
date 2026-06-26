@@ -26,6 +26,7 @@ from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
 from dbaylo.companion import (
     callbacks,
     concerns,
+    goals,
     grouping,
     health,
     medications,
@@ -151,6 +152,7 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
     current, watch = _split_proposals(proposals)
     counts = _category_counts(current)
     active = await concerns.list_active(session, user_id=user_id)
+    active_goals = await goals.list_active_goals(session, user_id=user_id)
     # Only dismissals that are STILL off — a waved-off finding that returned to range is not shown
     # (restoring it would do nothing), so 🙈 Приховані appears only with something real to restore.
     dismissed = await health.list_relevant_dismissed(session, user_id, today=date.today())
@@ -187,6 +189,16 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
                 )
             ]
         )
+    # Goals folded into the same screen (they proposed the same findings as the problems): one
+    # 🎯 Мої цілі group → the goals view. Always shown so a goal can be added even with none yet.
+    kb.append(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_PROBLEM_GOALS.format(n=len(active_goals)),
+                callback_data=callbacks.MENU_OPEN_GOALS,
+            )
+        ]
+    )
     if dismissed:
         kb.append(
             [

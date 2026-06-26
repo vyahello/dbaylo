@@ -388,6 +388,7 @@ BTN_GOAL_ADOPT_DETAIL = "🎯 Взяти ціль"
 BTN_GOAL_ACHIEVE_DETAIL = "✅ Досягнута"
 BTN_GOAL_REMOVE_DETAIL = "🗑 Прибрати"
 BTN_GOAL_BACK = "◀ Назад"
+BTN_GOAL_BACK_TO_HEALTH = "◀ До проблем і цілей"  # goals view → the unified screen
 
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",
@@ -458,6 +459,7 @@ PROBLEM_GROUP_NOTHING_OFF = "🔎 Зараз нічого поза нормою.
 BTN_PROBLEM_CATEGORY = "{label} — {n}"  # label already carries an emoji (CATEGORY_NAMES)
 BTN_PROBLEM_WATCH = "📈 На межі — {n}"
 BTN_PROBLEM_TRACKED = "✅ Вже відстежую — {n}"
+BTN_PROBLEM_GOALS = "🎯 Мої цілі — {n}"  # the goals group, folded into the unified screen (#merge)
 BTN_PROBLEM_DISMISSED = "🙈 Приховані — {n}"
 BTN_PROBLEM_BACK = "◀ Назад"
 # Category / watch / tracked / dismissed detail headers.
@@ -1224,8 +1226,8 @@ MENU_PRICES_INTRO = "Ціни на ліки та покриття за Прог�
 
 # Hub destination-button labels (the 🩺 Моє здоровʼя and 💊 Ліки й нагадування screens).
 BTN_MENU_ANALYSES = "📊 Аналізи"
-BTN_MENU_PROBLEMS = "⚕️ Проблеми"
-BTN_MENU_GOALS = "🎯 Цілі"
+BTN_MENU_PROBLEMS = "⚕️ Проблеми й цілі"  # Цілі folded in (same findings) — one screen
+BTN_MENU_GOALS = "🎯 Цілі"  # legacy (the standalone Цілі entry was merged into Проблеми)
 BTN_MENU_CHECKIN = "📝 Чек-ін"
 BTN_MENU_REMINDERS = "🔔 Нагадування"
 # Section inline-button labels.

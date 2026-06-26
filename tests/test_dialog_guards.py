@@ -95,8 +95,9 @@ def _sug(text, subject, series_key=""):
 
 
 async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) -> None:
-    # The master is short SUBJECT buttons (long "Привести … до норми" would be cut off on mobile);
-    # a tap opens the detail. Suggestions -> goal_view_sug, adopted goals -> goal_view.
+    # Цілі folded into ⚕️ Проблеми: only WELLNESS suggestions (no series_key) are shown — a
+    # finding-derived goal is redundant (track it on Проблеми). A tap opens the detail; «◀» goes
+    # back to the unified screen.
     from dbaylo.companion import callbacks as cb
 
     monkeypatch.setattr(companion_flow, "get_session", _fake_session)
@@ -105,13 +106,18 @@ async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) 
     )
     monkeypatch.setattr(
         companion_flow.goals,
-        "propose_goals",
-        AsyncMock(return_value=[_sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза")]),
+        "propose_goals",  # a generic wellness suggestion (no series_key) + a finding one (filtered)
+        AsyncMock(
+            return_value=[
+                _sug("Налагодити режим сну", "Сон"),
+                _sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза"),
+            ]
+        ),
     )
     monkeypatch.setattr(
         companion_flow.goals,
         "list_active_goals",
-        AsyncMock(return_value=[SimpleNamespace(id=3, target="Налагодити режим сну")]),
+        AsyncMock(return_value=[SimpleNamespace(id=3, target="Більше рухатися")]),
     )
     monkeypatch.setattr(companion_flow.goals, "target_subject", lambda t: "")
     message = AsyncMock()
@@ -120,16 +126,17 @@ async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) 
         b for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard for b in row
     ]
     datas = [b.callback_data for b in flat]
-    assert cb.goal_view_sug(0) in datas  # a suggestion opens its detail
+    assert cb.goal_view_sug(0) in datas  # the wellness suggestion opens its detail
+    assert cb.goal_view_sug(1) not in datas  # the finding-derived suggestion is filtered out
     assert cb.goal_view(3) in datas  # an adopted goal opens its detail
     assert cb.MENU_GOAL_NEW in datas
+    assert cb.MENU_PROB_LIST in datas  # «◀» back to the unified problems-and-goals screen
     sug_btn = next(b for b in flat if b.callback_data == cb.goal_view_sug(0))
-    assert "Глюкоза" in sug_btn.text  # short subject on the button, not the long full sentence
+    assert "Сон" in sug_btn.text  # short subject on the button
 
 
-async def test_suggestion_detail_shows_history_and_adopt(monkeypatch) -> None:
+async def test_suggestion_detail_shows_the_goal_and_adopt(monkeypatch) -> None:
     from dbaylo.companion import callbacks as cb
-    from dbaylo.companion.health import HistoryPoint
 
     monkeypatch.setattr(companion_flow, "get_session", _fake_session)
     monkeypatch.setattr(
@@ -138,20 +145,7 @@ async def test_suggestion_detail_shows_history_and_adopt(monkeypatch) -> None:
     monkeypatch.setattr(
         companion_flow.goals,
         "propose_goals",
-        AsyncMock(return_value=[_sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза")]),
-    )
-    finding = SimpleNamespace(
-        kind="high", value="7 ммоль/л", ref="3.9–6.1", series_key="blood\x1fг"
-    )
-    monkeypatch.setattr(companion_flow.goals, "goal_analyte", AsyncMock(return_value=finding))
-    monkeypatch.setattr(
-        companion_flow.health,
-        "indicator_history",
-        AsyncMock(
-            return_value=[
-                HistoryPoint(date=None, value="7 ммоль/л", ref="3.9–6.1", out_of_range=True)
-            ]
-        ),
+        AsyncMock(return_value=[_sug("Налагодити режим сну", "Сон")]),  # a wellness suggestion
     )
     callback = _goal_cb(cb.goal_view_sug(0))
     await companion_flow.on_goal_view_sug(callback)
@@ -161,8 +155,7 @@ async def test_suggestion_detail_shows_history_and_adopt(monkeypatch) -> None:
         for row in callback.message.edit_text.call_args.kwargs["reply_markup"].inline_keyboard
         for b in row
     ]
-    assert "Привести Глюкоза до норми" in text  # the FULL title (not cut off) is in the detail
-    assert "7 ммоль/л" in text  # the indicator history is shown ("коли були проблеми")
+    assert "Налагодити режим сну" in text  # the FULL title (not cut off) is in the detail
     assert cb.goal_adopt(0) in datas and cb.GOAL_BACK in datas  # adopt + back live in the detail
 
 

@@ -382,8 +382,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
 - **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
   new domain logic. The persistent `ReplyKeyboardMarkup` is now **~5 agent-driven sections**
-  (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми · 🎯 Цілі ·
-  📝 Чек-ін) · **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
+  (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми й цілі ·
+  📝 Чек-ін — **Цілі were FOLDED INTO ⚕️ Проблеми**: they proposed the same out-of-range findings, so
+  it is now ONE screen; the unified Проблеми screen carries a `🎯 Мої цілі — N` group
+  (`callbacks.MENU_OPEN_GOALS`) → the goals view, whose «◀» returns via `MENU_PROB_LIST`. Finding-
+  derived goal suggestions are dropped — `companion_flow._wellness_suggestions` filters
+  `propose_goals` to the generic wellness ones (no `series_key`) since a finding is tracked as a
+  problem now) · **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
   🧠 Памʼять · ❓ Довідка — shown from `/start`. The two hubs post a section message whose inline
   buttons delegate to the SAME leaf helpers as before (`MENU_OPEN_ANALYSES`/`MENU_PROB_LIST`/
   `MENU_OPEN_GOALS`/`MENU_OPEN_CHECKIN`/`MENU_OPEN_REMINDERS`); the old single-purpose labels
