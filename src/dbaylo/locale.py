@@ -1045,6 +1045,10 @@ NAV_ASK_DRUG = "Назви ліки, ціну яких перевірити — 
 NAV_ASK_SERVICE = (
     "Назви послугу — наприклад, «пологи» чи «УЗД нирок». Перевірю, чи покриває ПМГ. 🏥"
 )
+# 💊 Ціна ліків — propose the user's own meds (one-tap), or type another.
+NAV_PRICE_OPTIONS = "💊 Перевірити ціну. Обери свої ліки або напиши інше:"
+BTN_PRICE_MED = "💊 {name}"
+BTN_PRICE_TYPE = "✏️ Інші ліки"
 
 # Med prices.
 NAV_PRICE_HEADER = "Ось що я знайшов по «{drug}»:"

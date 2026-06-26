@@ -271,9 +271,12 @@ async def cb_med_photo(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == callbacks.MENU_PRICE)
 async def cb_price(callback: CallbackQuery, state: FSMContext) -> None:
-    if isinstance(callback.message, Message):
-        await navigator_flow.start_price_dialog(callback.message, state)
     await callback.answer()
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        # Propose the owner's own meds for a one-tap price (the prompt is on a callback message,
+        # whose from_user is the bot, so the owner's tg is passed explicitly).
+        await navigator_flow.open_price_options(callback.message, state, telegram_id=tg)
 
 
 @router.callback_query(F.data == callbacks.MENU_COVERAGE)

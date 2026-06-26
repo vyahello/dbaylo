@@ -558,8 +558,21 @@ MENU_MED_PHOTO = "menu_med_photo"  # start the "read a prescription photo" flow
 PRESCRIPTION_CONFIRM = "presc_ok"  # confirm the extracted meds (the meds live in FSM state)
 MENU_PRICE = "menu_price"
 MENU_COVERAGE = "menu_coverage"
+# 💊 Ціна ліків proposes the user's own meds for a one-tap price check (by INDEX in the freshly
+# re-derived medication list), plus ✏️ type-another.
+PRICE_MED = "price_med"
+PRICE_TYPE = "price_type"
 # The one shared dialog-cancel callback (handled centrally; clears any active FSM).
 CANCEL_DIALOG = "menu_cancel"
+
+
+def price_med(index: int) -> str:
+    return _make(PRICE_MED, index)
+
+
+def parse_price_med(data: str) -> int | None:
+    return _parse(PRICE_MED, data)
+
 
 # --- Consult memory: grouped view + forget-all / forget-one (two-step confirm) ---
 MEMORY_FORGET = "mem_forget"  # open the "забути все" confirmation

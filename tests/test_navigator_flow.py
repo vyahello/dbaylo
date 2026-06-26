@@ -6,10 +6,82 @@ field short-circuits to triage (no fetch), and a blank answer saves/searches not
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+from aiogram.types import Message
 
 from dbaylo import locale
 from dbaylo.bot import navigator_flow
+from dbaylo.companion import callbacks
+
+
+@asynccontextmanager
+async def _fake_session():
+    yield AsyncMock()
+
+
+async def test_price_options_propose_the_users_meds(monkeypatch) -> None:
+    # 💊 Ціна ліків proposes the user's OWN meds for a one-tap price + ✏️ type-another.
+    monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        navigator_flow,
+        "_unique_meds",
+        AsyncMock(
+            return_value=[SimpleNamespace(name="Метформін"), SimpleNamespace(name="Аспірин")]
+        ),
+    )
+    message = AsyncMock()
+    await navigator_flow.open_price_options(message, AsyncMock(), telegram_id=4242)
+    datas = [
+        b.callback_data
+        for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+    ]
+    assert callbacks.price_med(0) in datas and callbacks.price_med(1) in datas  # one per med
+    assert callbacks.PRICE_TYPE in datas  # ✏️ type another
+
+
+async def test_price_options_fall_back_to_typing_without_meds(monkeypatch) -> None:
+    monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(navigator_flow, "_unique_meds", AsyncMock(return_value=[]))
+    started = {}
+
+    async def fake_start(message, state):
+        started["called"] = True
+
+    monkeypatch.setattr(navigator_flow, "start_price_dialog", fake_start)
+    await navigator_flow.open_price_options(AsyncMock(), AsyncMock(), telegram_id=4242)
+    assert started.get("called")  # no meds -> the type-a-drug dialog
+
+
+async def test_price_med_tap_prices_by_index_with_the_llm_fallback(monkeypatch) -> None:
+    # Tapping a proposed med runs the gated price lookup WITH the LLM re-parse fallback on.
+    monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        navigator_flow, "_unique_meds", AsyncMock(return_value=[SimpleNamespace(name="Метформін")])
+    )
+    run_price = AsyncMock(return_value=SimpleNamespace(text="ціни…"))
+    monkeypatch.setattr(navigator_flow, "run_price", run_price)
+    callback = AsyncMock()
+    callback.data = callbacks.price_med(0)
+    callback.from_user = SimpleNamespace(id=4242)
+    callback.message = AsyncMock(spec=Message)
+    callback.message.answer = AsyncMock()
+    await navigator_flow.on_price_med(callback, AsyncMock())
+    callback.answer.assert_awaited()  # ack first (the fetch is slow)
+    assert run_price.await_args.args[0] == "Метформін"
+    assert run_price.await_args.kwargs["use_llm_fallback"] is True  # fallback ON
 
 
 async def test_price_field_symptom_short_circuits_to_triage() -> None:

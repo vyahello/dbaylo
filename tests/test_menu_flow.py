@@ -528,17 +528,19 @@ async def test_cb_med_new_starts_the_dialog(monkeypatch) -> None:
     assert seen["args"] == (callback.message, state)
 
 
-async def test_cb_price_starts_the_dialog(monkeypatch) -> None:
+async def test_cb_price_opens_the_meds_price_options(monkeypatch) -> None:
+    # 💊 Ціна ліків now proposes the owner's own meds (one-tap), so the menu opens the options
+    # screen with the owner's tg threaded (callback from_user would otherwise be the bot).
     seen = {}
 
-    async def fake(message, state):
-        seen["args"] = (message, state)
+    async def fake(message, state, *, telegram_id):
+        seen["args"] = (message, state, telegram_id)
 
-    monkeypatch.setattr(menu_flow.navigator_flow, "start_price_dialog", fake)
+    monkeypatch.setattr(menu_flow.navigator_flow, "open_price_options", fake)
     callback = _callback(callbacks.MENU_PRICE)
     state = AsyncMock()
     await menu_flow.cb_price(callback, state)
-    assert seen["args"] == (callback.message, state)
+    assert seen["args"] == (callback.message, state, 4242)
 
 
 # --- The single shared cancel ---------------------------------------------------

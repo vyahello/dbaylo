@@ -423,7 +423,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   Command args are user text — `run_price`/`run_coverage` call `gate.screen` FIRST, so a symptom
   short-circuits to triage before any fetch/LLM. **The only navigator module that imports
   `run_claude`** (the Claude fallback is invoked post-gate). `--dry-run` runs the pipeline over a
-  built-in HTML fixture (no network).
+  built-in HTML fixture (no network). **The bot path enables the LLM fallback** (`run_price(…,
+  use_llm_fallback=True)` in `bot/navigator_flow.py`): when the deterministic site parsers miss, a
+  guarded Claude **re-parse of the fetched HTML** (`_claude_fallback`, sanity-checked, marked
+  «перевір») fills in — so a layout change no longer yields an empty result. The default stays
+  `False` (dry-run / tests are deterministic). **💊 Ціна ліків is agent-driven** (`open_price_options`):
+  it proposes the owner's OWN medications as one-tap `[💊 <name>]` price buttons (`price_med` by index,
+  re-derived; the tap acks first + `keep_typing`, then runs the gated lookup) + `[✏️ Інші ліки]` to
+  type another; with no meds it falls back to the type dialog.
 - **Fetch** (`navigator/fetch.py`): async `httpx` (the one new runtime dep), fail-soft (a dead
   source returns `ok=False`, never raises/fabricates), descriptive UA, short-TTL on-disk cache,
   on-demand only — **no price DB**.
