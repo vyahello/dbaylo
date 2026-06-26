@@ -452,15 +452,19 @@ PROBLEM_LAB_DRAFT = "{analyte} поза нормою"
 # Grouped problems screen (category master-detail): a top-level digest of what's off, grouped by
 # clinical category, then drill into one group. Keeps the screen from being a scary wall.
 PROBLEM_GROUP_HEADER = (
-    "🔎 Переглянув усі твої аналізи. Ось що поза нормою — обери категорію, щоб глянути.\n"
-    "Що візьмеш 👁 під нагляд — я нагадуватиму про це в щоденному чек-іні та згадуватиму в розмові."
+    "🔎 Я переглянув усі твої аналізи. Ось картина — за розділами:\n\n"
+    "⚕️ ПРОБЛЕМИ (зверху):\n"
+    "• категорії (🩸🔬🧪…) — що ПОЗА НОРМОЮ; тисни, щоб глянути й стежити\n"
+    "• 📈 на межі — ще в нормі, але близько\n"
+    "• ✅ під наглядом / 🙈 відкладені — що я веду в чек-іні / що ти відклав\n\n"
+    "🎯 ЦІЛІ (окремо) — над чим ти працюєш."
 )
 PROBLEM_GROUP_NOTHING_OFF = "🔎 Зараз нічого поза нормою."  # header when only watch/tracked remain
 BTN_PROBLEM_CATEGORY = "{label} — {n}"  # label already carries an emoji (CATEGORY_NAMES)
 BTN_PROBLEM_WATCH = "📈 На межі — {n}"
-BTN_PROBLEM_TRACKED = "✅ Вже відстежую — {n}"
+BTN_PROBLEM_TRACKED = "✅ Під наглядом — {n}"
 BTN_PROBLEM_GOALS = "🎯 Мої цілі — {n}"  # the goals group, folded into the unified screen (#merge)
-BTN_PROBLEM_DISMISSED = "🙈 Приховані — {n}"
+BTN_PROBLEM_DISMISSED = "🙈 Відкладені — {n}"
 BTN_PROBLEM_BACK = "◀ Назад"
 # Category / watch / tracked / dismissed detail headers.
 PROBLEM_CAT_HEADER = (
@@ -472,10 +476,14 @@ PROBLEM_WATCH_HEADER = (
     "📈 На межі норми — ще в нормі, але повзе до краю. Я пильную; взяти під нагляд (👁) чи ні (✖)?"
 )
 PROBLEM_TRACKED_HEADER = (
-    "✅ Тримаю під наглядом — нагадую про це в щоденному чек-іні й згадую в розмові.\n"
-    "Тисни на показник, щоб позначити ВИРІШЕНИМ (прибрати з нагляду), або ✏️ — перейменувати."
+    "✅ Під наглядом — показники, які я веду: нагадую про них у щоденному чек-іні й згадую в "
+    "розмові.\nТисни на показник, щоб позначити ВИРІШЕНИМ (прибрати з нагляду), або ✏️ — "
+    "перейменувати."
 )
-PROBLEM_DISMISSED_HEADER = "🙈 Приховані — ти позначив, що не турбує. Натисни ↩️, щоб повернути:"
+PROBLEM_DISMISSED_HEADER = (
+    "🙈 Відкладені — це показники з аналізів, які ти відклав (✖ «не турбує»). Я про них не "
+    "нагадую й не пропоную. Натисни ↩️, щоб повернути показник під нагляд:"
+)
 PROBLEM_ALL_CLEAR = (
     "Зараз усе в межах норми, активних проблем немає. Я сам пригляну за новими аналізами "
     "й підкажу, якщо щось зміниться. 💚"

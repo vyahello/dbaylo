@@ -146,8 +146,9 @@ def _category_counts(current: list[tuple[int, HealthFinding]]) -> dict[str, int]
 
 
 async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The grouped top level: one button per clinical category that has something out of range, then
-    📈 на межі, ✅ вже відстежую, 🙈 приховані, ➕ своя проблема. A digest, never a wall."""
+    """The unified top level, laid out as VISUAL GROUPS (not a flat pile): the out-of-range
+    categories two-per-row, then 📈 на межі, then the management pair (під наглядом + відкладені),
+    then a clearly-separated 🎯 Мої цілі row, then ➕. A structured digest, not a wall."""
     proposals = await health.propose_problems(session, user_id, today=date.today())
     current, watch = _split_proposals(proposals)
     counts = _category_counts(current)
@@ -157,64 +158,49 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
     # (restoring it would do nothing), so 🙈 Приховані appears only with something real to restore.
     dismissed = await health.list_relevant_dismissed(session, user_id, today=date.today())
 
+    def _ib(label: str, data: str) -> InlineKeyboardButton:
+        return InlineKeyboardButton(text=label, callback_data=data)
+
+    # Laid out as VISUAL GROUPS (not a flat pile), top → bottom:
+    #   ⚕️ ПРОБЛЕМИ: out-of-range categories (2 per row) · 📈 на межі · [під наглядом][відкладені]
+    #   🎯 ЦІЛІ: a separate row · then ➕ add.
     kb: list[list[InlineKeyboardButton]] = []
-    for cat in grouping.CATEGORY_ORDER:
-        n = counts.get(cat, 0)
-        if not n:
-            continue
-        label = locale.CATEGORY_NAMES.get(cat, cat)
-        kb.append(
-            [
-                InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_CATEGORY.format(label=label, n=n),
-                    callback_data=callbacks.problem_category(cat),
-                )
-            ]
+    cat_buttons = [
+        _ib(
+            locale.BTN_PROBLEM_CATEGORY.format(label=locale.CATEGORY_NAMES.get(cat, cat), n=n),
+            callbacks.problem_category(cat),
         )
+        for cat in grouping.CATEGORY_ORDER
+        if (n := counts.get(cat, 0))
+    ]
+    for i in range(0, len(cat_buttons), 2):  # the out-of-range categories, two per row
+        kb.append(cat_buttons[i : i + 2])
     if watch:
         kb.append(
             [
-                InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_WATCH.format(n=len(watch)),
-                    callback_data=callbacks.problem_category(_WATCH_CAT),
+                _ib(
+                    locale.BTN_PROBLEM_WATCH.format(n=len(watch)),
+                    callbacks.problem_category(_WATCH_CAT),
                 )
             ]
         )
+    # Problem MANAGEMENT — tracked + set-aside on one row (visually a pair, distinct from findings).
+    management = []
     if active:
-        kb.append(
-            [
-                InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_TRACKED.format(n=len(active)),
-                    callback_data=callbacks.PROBLEM_TRACKED,
-                )
-            ]
+        management.append(
+            _ib(locale.BTN_PROBLEM_TRACKED.format(n=len(active)), callbacks.PROBLEM_TRACKED)
         )
-    # Goals folded into the same screen (they proposed the same findings as the problems): one
-    # 🎯 Мої цілі group → the goals view. Always shown so a goal can be added even with none yet.
-    kb.append(
-        [
-            InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_GOALS.format(n=len(active_goals)),
-                callback_data=callbacks.MENU_OPEN_GOALS,
-            )
-        ]
-    )
     if dismissed:
-        kb.append(
-            [
-                InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_DISMISSED.format(n=len(dismissed)),
-                    callback_data=callbacks.PROBLEM_DISMISSED,
-                )
-            ]
+        management.append(
+            _ib(locale.BTN_PROBLEM_DISMISSED.format(n=len(dismissed)), callbacks.PROBLEM_DISMISSED)
         )
+    if management:
+        kb.append(management)
+    # 🎯 ЦІЛІ — its OWN row, clearly separated from the problems above (folded in, not mixed).
     kb.append(
-        [
-            InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_ADD_MANUAL, callback_data=callbacks.MENU_PROB_NEW
-            )
-        ]
+        [_ib(locale.BTN_PROBLEM_GOALS.format(n=len(active_goals)), callbacks.MENU_OPEN_GOALS)]
     )
+    kb.append([_ib(locale.BTN_PROBLEM_ADD_MANUAL, callbacks.MENU_PROB_NEW)])
     if counts:
         text = locale.PROBLEM_GROUP_HEADER
     elif watch or active:

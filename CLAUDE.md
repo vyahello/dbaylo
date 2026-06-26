@@ -388,7 +388,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (`callbacks.MENU_OPEN_GOALS`) → the goals view, whose «◀» returns via `MENU_PROB_LIST`. Finding-
   derived goal suggestions are dropped — `companion_flow._wellness_suggestions` filters
   `propose_goals` to the generic wellness ones (no `series_key`) since a finding is tracked as a
-  problem now) · **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
+  problem now. The unified screen is laid out as **visual GROUPS, not a flat pile** (`_problems_top`):
+  out-of-range categories two-per-row, then 📈 на межі, then the management pair `[✅ Під наглядом]
+  [🙈 Відкладені]` on one row, then a separated `🎯 Мої цілі` row, then ➕; a legend header
+  (`PROBLEM_GROUP_HEADER`) labels the ⚕️-problems vs 🎯-goals split. "Вже відстежую"→"Під наглядом",
+  "Приховані"→"Відкладені" (clearer; the dismissed header explains they are findings you ✖-ed)) ·
+  **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
   🧠 Памʼять · ❓ Довідка — shown from `/start`. The two hubs post a section message whose inline
   buttons delegate to the SAME leaf helpers as before (`MENU_OPEN_ANALYSES`/`MENU_PROB_LIST`/
   `MENU_OPEN_GOALS`/`MENU_OPEN_CHECKIN`/`MENU_OPEN_REMINDERS`); the old single-purpose labels
