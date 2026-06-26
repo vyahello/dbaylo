@@ -23,7 +23,7 @@ from datetime import date
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dbaylo.companion import concerns
+from dbaylo.companion import concerns, grouping
 from dbaylo.db.models import ResultFlag
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.trends import (
@@ -32,7 +32,13 @@ from dbaylo.labs.trends import (
     build_series,
     compute_trend,
     is_out_of_range,
+    specimen,
 )
+
+# Same-named analytes live in different specimens (blood/urine/semen "Еритроцити"). The trend engine
+# already keeps them as separate series; we surface that to the UI so a finding name is never
+# ambiguous. Blood is the implicit default (untagged); urine/semen carry a short qualifier.
+_SPECIMEN_TAG = {"urine": "сеча", "semen": "еякулят"}
 
 _FLAG_TEXT = {
     ResultFlag.HIGH: "above its reference (HIGH)",
@@ -54,6 +60,17 @@ class HealthFinding:
     # A small UI-facing severity tag (never a diagnosis): "high" / "low" / "watch" / "flag". Lets
     # the Ukrainian renderer pick a marker + phrase without re-deriving the numbers; default "flag".
     kind: str = "flag"
+    # Clinical category (grouping.categorize) — groups the problems screen (Кров/Сеча/Біохімія…).
+    category: str = "other"
+    # Body fluid (trends.specimen: blood/urine/semen) — disambiguates same-named analytes.
+    specimen: str = "blood"
+
+    @property
+    def display_name(self) -> str:
+        """The unambiguous name to SHOW / persist: a urine/semen analyte carries its specimen so
+        'Еритроцити (сеча)' is never confused with the blood one; blood stays bare."""
+        tag = _SPECIMEN_TAG.get(self.specimen)
+        return f"{self.name} ({tag})" if tag else self.name
 
 
 @dataclass(frozen=True)
@@ -124,8 +141,9 @@ _FLAG_KIND = {ResultFlag.HIGH: "high", ResultFlag.LOW: "low"}
 
 def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFinding:
     flag_text = _FLAG_TEXT.get(summary.latest_flag, "flagged by the lab")
+    name = summary.analyte or latest.analyte
     return HealthFinding(
-        name=summary.analyte or latest.analyte,
+        name=name,
         value=_value_text(latest),
         ref=_ref_text(latest.ref_low, latest.ref_high),
         flag_text=flag_text,
@@ -133,6 +151,8 @@ def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFi
         last_date=latest.taken_on,
         n_points=n_points,
         kind=_FLAG_KIND.get(summary.latest_flag, "flag"),
+        category=grouping.categorize(latest.section, name),
+        specimen=specimen(latest.section, name),
     )
 
 
@@ -179,16 +199,27 @@ def _norm(name: str) -> str:
     return name.casefold().strip()
 
 
-def _already_known(finding_name: str, existing: list[str]) -> bool:
-    """Whether ``finding_name`` matches a concern the user already tracks/dismissed. Matches on an
-    exact name or the analyte CORE (the part before any '(ABBR)') appearing in the concern name — so
-    a finding ``Гемоглобін (HGB)`` is covered by a stored ``Гемоглобін (HGB)`` (exact) and by the
-    legacy ``Гемоглобін поза нормою`` (core substring), but an unrelated manual concern isn't."""
-    n = _norm(finding_name)
-    core = n.split("(", 1)[0].strip()
+def _stored_specimen(norm_name: str) -> str:
+    """The specimen a STORED concern name refers to, read from its qualifier — 'еритроцити (сеча)'
+    is urine, '(еякулят)' is semen, everything else (incl. legacy bare names) is blood."""
+    for spec, tag in _SPECIMEN_TAG.items():
+        if f"({tag})" in norm_name:
+            return spec
+    return "blood"
+
+
+def _already_known(finding: HealthFinding, existing: list[str]) -> bool:
+    """Whether ``finding`` matches a concern the user already tracks/dismissed. Specimen-aware: a
+    urine 'Еритроцити' is NOT covered by a tracked blood 'Еритроцити' (they are different problems).
+    Within the same specimen it matches an exact name or the analyte CORE (the part before any
+    '(qualifier)') appearing in the concern — so 'Гемоглобін (HGB)' is covered by a stored
+    'Гемоглобін (HGB)' (exact) and by the legacy 'Гемоглобін поза нормою' (core substring)."""
+    core = _norm(finding.name).split("(", 1)[0].strip()
     for raw in existing:
         e = _norm(raw)
-        if n == e or (core and core in e):
+        if _stored_specimen(e) != finding.specimen:
+            continue  # a same-named analyte in a different fluid is a different concern
+        if core and (core == e or core in e):
             return True
     return False
 
@@ -201,7 +232,7 @@ async def propose_problems(
     Deterministic, data-only — the user confirms; the agent never decides escalation."""
     picture = await analyze_health(session, user_id, today=today)
     existing = await concerns.names_active_or_dismissed(session, user_id=user_id)
-    return [f for f in (*picture.current, *picture.watch) if not _already_known(f.name, existing)]
+    return [f for f in (*picture.current, *picture.watch) if not _already_known(f, existing)]
 
 
 async def has_current_flags(session: AsyncSession, user_id: int, *, today: date) -> bool:
@@ -211,7 +242,7 @@ async def has_current_flags(session: AsyncSession, user_id: int, *, today: date)
     if not picture.current:
         return False
     dismissed = await concerns.names_dismissed(session, user_id=user_id)
-    return any(not _already_known(f.name, dismissed) for f in picture.current)
+    return any(not _already_known(f, dismissed) for f in picture.current)
 
 
 async def should_have_checkin(session: AsyncSession, user_id: int, *, today: date) -> bool:

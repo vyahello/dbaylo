@@ -17,8 +17,10 @@ from dbaylo.labs.schema import ExtractedAnalyte
 _TODAY = date(2026, 6, 25)
 
 
-def _analyte(name, value, low=None, high=None, unit="ммоль/л"):
-    return ExtractedAnalyte(analyte=name, value=value, unit=unit, ref_low=low, ref_high=high)
+def _analyte(name, value, low=None, high=None, unit="ммоль/л", section=None):
+    return ExtractedAnalyte(
+        analyte=name, value=value, unit=unit, ref_low=low, ref_high=high, section=section
+    )
 
 
 async def _confirm(session, user, *, day: date, analytes):
@@ -127,6 +129,34 @@ async def test_propose_problems_excludes_tracked_and_dismissed(
     await concerns.dismiss(async_session, user=user, name="Сечовина")
     again = {f.name for f in await health.propose_problems(async_session, user.id, today=_TODAY)}
     assert again == set()
+
+
+async def test_same_analyte_in_blood_and_urine_are_distinct_problems(
+    async_session: AsyncSession,
+) -> None:
+    # The owner's complaint: "Еритроцити" — blood or urine? They are SEPARATE findings, and tracking
+    # one must not silently suppress the other.
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session,
+        user,
+        day=date(2026, 6, 2),
+        analytes=[
+            _analyte("Еритроцити", 6.5, 4.0, 5.5, unit="млн/мкл", section="Загальний аналіз крові"),
+            _analyte("Еритроцити", 25, 0, 20, unit="у п/з", section="Загальний аналіз сечі"),
+        ],
+    )
+    findings = {
+        f.specimen: f for f in await health.propose_problems(async_session, user.id, today=_TODAY)
+    }
+    assert set(findings) == {"blood", "urine"}  # two distinct specimens
+    assert findings["blood"].display_name == "Еритроцити"  # blood stays bare
+    assert findings["urine"].display_name == "Еритроцити (сеча)"  # urine is disambiguated
+
+    # Track the BLOOD one (under its display name) -> the URINE one is STILL proposed.
+    await concerns.add_active(async_session, user=user, name=findings["blood"].display_name)
+    still = await health.propose_problems(async_session, user.id, today=_TODAY)
+    assert [f.specimen for f in still] == ["urine"]  # urine not suppressed by the blood concern
 
 
 async def test_dismissed_flag_stops_the_data_driven_checkin(async_session: AsyncSession) -> None:

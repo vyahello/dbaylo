@@ -21,7 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
-from dbaylo.companion import callbacks, concerns, health, medications, proactive, reminders
+from dbaylo.companion import (
+    callbacks,
+    concerns,
+    grouping,
+    health,
+    medications,
+    proactive,
+    reminders,
+)
 from dbaylo.companion.health import HealthFinding
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
@@ -96,10 +104,7 @@ async def _add_problem(message: Message, name: str, scheduler: ReminderScheduler
     await message.answer(locale.PROBLEM_ADDED)
 
 
-def _short(name: str, limit: int = 28) -> str:
-    name = name.strip()
-    return name if len(name) <= limit else name[: limit - 1] + "…"
-
+_WATCH_CAT = "watch"  # the on-the-edge pseudo-category key (shares the category-detail plumbing)
 
 _PROBLEM_LINE = {
     "high": locale.PROBLEM_LINE_HIGH,
@@ -109,57 +114,78 @@ _PROBLEM_LINE = {
 }
 
 
-def _finding_line(finding: HealthFinding) -> str:
+def _finding_line(finding: HealthFinding, *, name: str) -> str:
     template = _PROBLEM_LINE.get(finding.kind, locale.PROBLEM_LINE_FLAG)
-    return template.format(name=finding.name, value=finding.value, ref=finding.ref)
+    return template.format(name=name, value=finding.value, ref=finding.ref)
 
 
-async def _problems_screen(
-    session: AsyncSession, *, user_id: int
-) -> tuple[str, InlineKeyboardMarkup]:
-    """Build the AI-driven problems screen: the agent's detected findings (👁 track / ✖ dismiss),
-    then the already-tracked concerns (✅ resolve / ✏️ rename), then a manual-add fallback. Pure
-    rendering over the deterministic analyzer — the user confirms, the agent never decides."""
+def _split_proposals(
+    proposals: list[HealthFinding],
+) -> tuple[list[tuple[int, HealthFinding]], list[tuple[int, HealthFinding]]]:
+    """Partition the flat proposal list into (current-out-of-range, watch), keeping each finding's
+    ORIGINAL flat index — track/dismiss re-derive the same flat list and address by that index."""
+    current = [(i, f) for i, f in enumerate(proposals) if f.kind != "watch"]
+    watch = [(i, f) for i, f in enumerate(proposals) if f.kind == "watch"]
+    return current, watch
+
+
+def _category_counts(current: list[tuple[int, HealthFinding]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for _i, f in current:
+        counts[f.category] = counts.get(f.category, 0) + 1
+    return counts
+
+
+async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
+    """The grouped top level: one button per clinical category that has something out of range, then
+    📈 на межі, ✅ вже відстежую, 🙈 приховані, ➕ своя проблема. A digest, never a wall."""
     proposals = await health.propose_problems(session, user_id, today=date.today())
+    current, watch = _split_proposals(proposals)
+    counts = _category_counts(current)
     active = await concerns.list_active(session, user_id=user_id)
-    lines: list[str] = []
+    dismissed = await concerns.list_dismissed(session, user_id=user_id)
+
     kb: list[list[InlineKeyboardButton]] = []
-    if proposals:
-        lines.append(locale.PROBLEM_PROPOSE_HEADER)
-        lines.append("")
-        for index, finding in enumerate(proposals):
-            lines.append(_finding_line(finding))
-            kb.append(
-                [
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_TRACK.format(name=_short(finding.name)),
-                        callback_data=callbacks.problem_track(index),
-                    ),
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_DISMISS,
-                        callback_data=callbacks.problem_dismiss(index),
-                    ),
-                ]
-            )
+    for cat in grouping.CATEGORY_ORDER:
+        n = counts.get(cat, 0)
+        if not n:
+            continue
+        label = locale.CATEGORY_NAMES.get(cat, cat)
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_CATEGORY.format(label=label, n=n),
+                    callback_data=callbacks.problem_category(cat),
+                )
+            ]
+        )
+    if watch:
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_WATCH.format(n=len(watch)),
+                    callback_data=callbacks.problem_category(_WATCH_CAT),
+                )
+            ]
+        )
     if active:
-        if lines:
-            lines.append("")
-        lines.append(locale.PROBLEM_TRACKED_HEADER)
-        for condition in active:
-            kb.append(
-                [
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
-                        callback_data=callbacks.problem_resolve(condition.id),
-                    ),
-                    InlineKeyboardButton(
-                        text=locale.BTN_PROBLEM_RENAME_SHORT,
-                        callback_data=callbacks.problem_rename(condition.id),
-                    ),
-                ]
-            )
-    if not proposals and not active:
-        lines.append(locale.PROBLEM_ALL_CLEAR)
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_TRACKED.format(n=len(active)),
+                    callback_data=callbacks.PROBLEM_TRACKED,
+                )
+            ]
+        )
+    if dismissed:
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_DISMISSED.format(n=len(dismissed)),
+                    callback_data=callbacks.PROBLEM_DISMISSED,
+                )
+            ]
+        )
     kb.append(
         [
             InlineKeyboardButton(
@@ -167,75 +193,262 @@ async def _problems_screen(
             )
         ]
     )
+    if counts:
+        text = locale.PROBLEM_GROUP_HEADER
+    elif watch or active:
+        text = locale.PROBLEM_GROUP_NOTHING_OFF
+    else:
+        text = locale.PROBLEM_ALL_CLEAR
+    return text, InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+async def _category_detail(
+    session: AsyncSession, *, user_id: int, category: str
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """One category's out-of-range findings (or the watch list when ``category`` is ``watch``), each
+    a 👁 track / ✖ dismiss row. ``None`` when the group is now empty (caller falls back to top)."""
+    proposals = await health.propose_problems(session, user_id, today=date.today())
+    current, watch = _split_proposals(proposals)
+    if category == _WATCH_CAT:
+        items, header, qualify = watch, locale.PROBLEM_WATCH_HEADER, True
+    else:
+        items = [(i, f) for i, f in current if f.category == category]
+        label = locale.CATEGORY_NAMES.get(category, category)
+        header, qualify = locale.PROBLEM_CAT_HEADER.format(label=label), False
+    if not items:
+        return None
+    # In a single-category detail the header already says the specimen, so show the bare name; the
+    # watch list can mix specimens, so qualify there (Еритроцити (сеча)).
+    lines = [header, ""]
+    kb: list[list[InlineKeyboardButton]] = []
+    for index, finding in items:
+        shown = finding.display_name if qualify else finding.name
+        lines.append(_finding_line(finding, name=shown))
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_TRACK,
+                    callback_data=callbacks.problem_track(category, index),
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_DISMISS,
+                    callback_data=callbacks.problem_dismiss(category, index),
+                ),
+            ]
+        )
+    kb.append(
+        [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
+    )
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
 
 
+async def _tracked_detail(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    """The already-tracked concerns: ✅ resolve / ✏️ rename each, then back."""
+    active = await concerns.list_active(session, user_id=user_id)
+    kb: list[list[InlineKeyboardButton]] = []
+    for condition in active:
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
+                    callback_data=callbacks.problem_resolve(condition.id),
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_PROBLEM_RENAME_SHORT,
+                    callback_data=callbacks.problem_rename(condition.id),
+                ),
+            ]
+        )
+    kb.append(
+        [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
+    )
+    return locale.PROBLEM_TRACKED_HEADER, InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+async def _dismissed_detail(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """The waved-off findings, each with ↩️ to restore it under watch. ``None`` when none remain."""
+    dismissed = await concerns.list_dismissed(session, user_id=user_id)
+    if not dismissed:
+        return None
+    kb: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_PROBLEM_RESTORE.format(name=condition.name),
+                callback_data=callbacks.problem_restore(condition.id),
+            )
+        ]
+        for condition in dismissed
+    ]
+    kb.append(
+        [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
+    )
+    return locale.PROBLEM_DISMISSED_HEADER, InlineKeyboardMarkup(inline_keyboard=kb)
+
+
 async def open_problems(message: Message, telegram_id: int) -> None:
-    """The agent's read of your problems: what it sees as off (one-tap track/dismiss) + what you
-    already track. Replaces the old type-it-yourself list with a propose-then-confirm screen."""
+    """The agent's read of your problems, grouped by category (drill into one), plus what you
+    already track and what you waved off. Propose-then-confirm — the agent never decides."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
-        text, keyboard = await _problems_screen(session, user_id=user.id)
+        text, keyboard = await _problems_top(session, user_id=user.id)
     await message.answer(text, reply_markup=keyboard)
 
 
-async def _edit_problems(callback: CallbackQuery) -> None:
-    """Re-render the problems screen in place (after a track/dismiss) — never spams new messages."""
+async def _edit_to_top(callback: CallbackQuery) -> None:
+    """Re-render the grouped top level in place (after an action / «Назад»)."""
     tg = _telegram_id(callback)
     if tg is None or not isinstance(callback.message, Message):
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        text, keyboard = await _problems_screen(session, user_id=user.id)
+        text, keyboard = await _problems_top(session, user_id=user.id)
     with contextlib.suppress(TelegramBadRequest):
         await callback.message.edit_text(text, reply_markup=keyboard)
 
 
-@router.callback_query(F.data.startswith(callbacks.PROBLEM_TRACK + ":"))
-async def on_problem_track(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
-    """Track an AI-proposed finding (👁): create the concern + schedule the daily check-in."""
-    index = callbacks.parse_problem_track(callback.data or "")
+async def _edit_to_detail(
+    callback: CallbackQuery,
+    builder: str,
+    *,
+    category: str = "",
+) -> None:
+    """Edit the message into a detail view; fall back to the top level when the detail is empty."""
     tg = _telegram_id(callback)
-    if index is None or tg is None:
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        if builder == "category":
+            built = await _category_detail(session, user_id=user.id, category=category)
+        elif builder == "dismissed":
+            built = await _dismissed_detail(session, user_id=user.id)
+        else:  # tracked
+            built = await _tracked_detail(session, user_id=user.id)
+    if built is None:
+        await _edit_to_top(callback)
+        return
+    text, keyboard = built
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == callbacks.PROBLEM_BACK)
+async def on_problem_back(callback: CallbackQuery) -> None:
+    await _edit_to_top(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_CAT + ":"))
+async def on_problem_category(callback: CallbackQuery) -> None:
+    """Open one category's (or the watch) out-of-range detail."""
+    category = callbacks.parse_problem_category(callback.data or "")
+    if category is None:
         await callback.answer()
         return
-    toast = ""
+    await _edit_to_detail(callback, "category", category=category)
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.PROBLEM_TRACKED)
+async def on_problem_tracked(callback: CallbackQuery) -> None:
+    await _edit_to_detail(callback, "tracked")
+    await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.PROBLEM_DISMISSED)
+async def on_problem_dismissed(callback: CallbackQuery) -> None:
+    await _edit_to_detail(callback, "dismissed")
+    await callback.answer()
+
+
+async def _act_on_proposal(
+    callback: CallbackQuery,
+    *,
+    category: str,
+    index: int,
+    scheduler: ReminderScheduler,
+    track: bool,
+) -> str:
+    """Track (👁) or dismiss (✖) the proposal at ``index`` in the freshly-derived flat list. The
+    DISPLAY name (specimen-qualified) is persisted so a urine/blood twin is never confused."""
+    tg = _telegram_id(callback)
+    if tg is None:
+        return ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         proposals = await health.propose_problems(session, user.id, today=date.today())
-        if 0 <= index < len(proposals):
-            await proactive.add_problem(
-                session, user=user, name=proposals[index].name, scheduler=reminder_scheduler
-            )
-            await session.commit()
+        if not 0 <= index < len(proposals):
+            return ""
+        name = proposals[index].display_name
+        if track:
+            await proactive.add_problem(session, user=user, name=name, scheduler=scheduler)
             toast = locale.PROBLEM_TRACK_TOAST
+        else:
+            await proactive.dismiss_problem(session, user=user, name=name, scheduler=scheduler)
+            toast = locale.PROBLEM_DISMISS_TOAST
+        await session.commit()
+    return toast
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_TRACK + ":"))
+async def on_problem_track(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Track an AI-proposed finding (👁): create the concern + schedule the daily check-in, then
+    re-render the same detail (or the top when that group is now empty)."""
+    parsed = callbacks.parse_problem_track(callback.data or "")
+    if parsed is None:
+        await callback.answer()
+        return
+    category, index = parsed
+    toast = await _act_on_proposal(
+        callback, category=category, index=index, scheduler=reminder_scheduler, track=True
+    )
     await callback.answer(toast)
-    await _edit_problems(callback)
+    await _edit_to_detail(callback, "category", category=category)
 
 
 @router.callback_query(F.data.startswith(callbacks.PROBLEM_DISMISS + ":"))
 async def on_problem_dismiss(
     callback: CallbackQuery, reminder_scheduler: ReminderScheduler
 ) -> None:
-    """Wave off an AI-proposed finding (✖): remember it as dismissed so it stops being proposed and
-    stops keeping the data-driven check-in alive."""
-    index = callbacks.parse_problem_dismiss(callback.data or "")
+    """Wave off an AI-proposed finding (✖): remember it DISMISSED (reversible from 🙈 Приховані),
+    then re-render the same detail (or the top when that group is now empty)."""
+    parsed = callbacks.parse_problem_dismiss(callback.data or "")
+    if parsed is None:
+        await callback.answer()
+        return
+    category, index = parsed
+    toast = await _act_on_proposal(
+        callback, category=category, index=index, scheduler=reminder_scheduler, track=False
+    )
+    await callback.answer(toast)
+    await _edit_to_detail(callback, "category", category=category)
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_RESTORE + ":"))
+async def on_problem_restore(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    """↩️ Restore a wrongly-waved-off finding: drop its dismissal so it's proposed again."""
+    condition_id = callbacks.parse_problem_restore(callback.data or "")
     tg = _telegram_id(callback)
-    if index is None or tg is None:
+    if condition_id is None or tg is None:
         await callback.answer()
         return
     toast = ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        proposals = await health.propose_problems(session, user.id, today=date.today())
-        if 0 <= index < len(proposals):
-            await proactive.dismiss_problem(
-                session, user=user, name=proposals[index].name, scheduler=reminder_scheduler
-            )
-            await session.commit()
-            toast = locale.PROBLEM_DISMISS_TOAST
+        restored = await proactive.restore_problem(
+            session, user_id=user.id, condition_id=condition_id, scheduler=reminder_scheduler
+        )
+        await session.commit()
+        if restored is not None:
+            toast = locale.PROBLEM_RESTORE_TOAST
     await callback.answer(toast)
-    await _edit_problems(callback)
+    await _edit_to_detail(callback, "dismissed")
 
 
 @router.message(Command("problems"))

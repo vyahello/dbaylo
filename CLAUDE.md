@@ -263,15 +263,27 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   the scheduler's startup `reconcile`) makes the live job match that condition. The firing check-in also asks "still relevant?" for concerns
   due for review (~7 days, `Condition.last_review_at`) in ONE **batched** message — a `✅ <name>`
   button per due concern (not a message each), and `keyboards.remove_button_row` drops only the
-  tapped concern's row so the rest stay actionable. **⚕️ Проблеми is AGENT-DRIVEN** (the menu tap →
-  `open_problems` directly, no sub-menu): `health.propose_problems` reads ALL labs and the bot shows
-  what IT sees off — current out-of-range + `watch` findings (excluding anything already tracked or
-  dismissed) — each as a `[👁 <name>][✖]` row the user confirms in ONE tap (`callbacks.problem_track`/
-  `problem_dismiss`, by INDEX into the freshly-derived list, edit-in-place). 👁 = `add_problem`
-  (tracks → schedules the check-in); ✖ = `dismiss_problem` → a `ConditionStatus.DISMISSED` row
-  (migration 0017) so it is never re-proposed AND no longer keeps the data-driven check-in alive
-  (`has_current_flags` skips dismissed). Tracked concerns follow with `[✅ <name>][✏️]`; a manual
-  `➕ Своя проблема` stays as a fallback. Commands: `/problem`,
+  tapped concern's row so the rest stay actionable. **⚕️ Проблеми is AGENT-DRIVEN and grouped**
+  (the menu tap → `open_problems` directly, no sub-menu): `health.propose_problems` reads ALL labs;
+  the screen is a **category master-detail** (`proactive_flow._problems_top`) — a digest, never a
+  wall. The top level shows ONE button per clinical category that has something out of range
+  (`grouping.categorize` → `🩸 Кров — 3`, `🔬 Сеча — 2`, …, `CATEGORY_ORDER`), then `📈 На межі — N`
+  (the `watch` findings in their own group, NOT mixed with problems), `✅ Вже відстежую — N`, and —
+  only if any exist — `🙈 Приховані — N`, plus `➕ Своя проблема`. Tapping a category opens its
+  `_category_detail` (edit-in-place): each out-of-range finding as a line + `[👁 Відстежувати][✖]`,
+  `[◀ Назад]`. **Track/dismiss callbacks carry `(category, flat-index)`** (`callbacks.problem_track`/
+  `problem_dismiss` → `parse_*` returns a tuple) — the index addresses the finding in the
+  freshly-derived **flat** `propose_problems` list (re-resolved on tap, like the charts picker); the
+  category is only so the SAME detail re-renders after the action (empty → falls back to top). 👁 =
+  `add_problem`; ✖ = `dismiss_problem` → a `ConditionStatus.DISMISSED` row (migration 0017), no longer
+  re-proposed nor keeping the data-driven check-in alive (`has_current_flags` skips dismissed).
+  **✖ is reversible**: a dismissed finding lives under `🙈 Приховані` with `[↩️ <name>]` →
+  `proactive.restore_problem` (`concerns.undismiss` + reconcile) re-proposes it. **Names are
+  specimen-disambiguated**: a finding carries `category` + `specimen` (`trends.specimen`); the
+  persisted/shown name uses `HealthFinding.display_name` so a urine `Еритроцити (сеча)` is never
+  confused with the blood one, and `health._already_known` is **specimen-aware** (tracking blood
+  Еритроцити no longer suppresses proposing the urine one). Tracked concerns sit behind `✅ Вже
+  відстежую` (`[✅ <name>][✏️]` resolve/rename). Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
   `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
   (list + turn off, next_run from the scheduler). **💊 з фото рецепта** (`labs/prescription.py`
@@ -422,7 +434,7 @@ src/dbaylo/  triage/ (L3)  wellness/ (L1 guardrail core)  safety/ (gate: the use
              companion/ (L1 face: goals·checkin·conversation·symptoms · reminders·scheduler·
                          concerns·medications·proactive·callbacks · history·grouping · intake ·
                          consult·consult_context·consult_memory·cities·notecache·notewarm · health)
-migrations/  Alembic 0001..0017   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
+migrations/  Alembic 0001..0018   tests/  triage·labs.trends·wellness·safety·navigator.guard: highest bar
 ```
 
 ## Dev commands

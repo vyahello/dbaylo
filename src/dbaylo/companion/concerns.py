@@ -65,6 +65,31 @@ async def names_active_or_dismissed(session: AsyncSession, *, user_id: int) -> l
     return [n for n in rows.all() if n]
 
 
+async def list_dismissed(session: AsyncSession, *, user_id: int) -> list[Condition]:
+    """The user's DISMISSED findings (so a wrongly-waved-off one can be restored)."""
+    rows = await session.scalars(
+        select(Condition)
+        .where(Condition.user_id == user_id, Condition.status == ConditionStatus.DISMISSED)
+        .order_by(Condition.created_at)
+    )
+    return list(rows.all())
+
+
+async def undismiss(session: AsyncSession, *, user_id: int, condition_id: int) -> Condition | None:
+    """Undo a dismissal ("повернути під нагляд"): drop the DISMISSED row so the finding is proposed
+    again. Returns the removed row (for the toast), or ``None`` if not this user's dismissal."""
+    condition = await session.get(Condition, condition_id)
+    if (
+        condition is None
+        or condition.user_id != user_id
+        or condition.status != ConditionStatus.DISMISSED
+    ):
+        return None
+    await session.delete(condition)
+    await session.flush()
+    return condition
+
+
 async def resolve(session: AsyncSession, condition_id: int) -> Condition | None:
     condition = await session.get(Condition, condition_id)
     if condition is not None:

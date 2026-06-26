@@ -8,10 +8,17 @@ _SEP = ":"
 
 PROBLEM_RESOLVE = "prob_resolve"
 PROBLEM_RENAME = "prob_rename"
-# AI-proposed problems: track / wave off a finding by its INDEX in the freshly-derived proposal list
-# (the finding is computed, not a DB row; the index is re-resolved on tap, like the charts picker).
+# AI-proposed problems (category master-detail). Track / wave off a finding by (category, INDEX in
+# the freshly-derived flat proposal list) — the category is only so the SAME detail re-renders after
+# the tap; the finding itself is re-resolved by index, like the charts picker. category "watch" is
+# the on-the-edge detail.
 PROBLEM_TRACK = "prob_track"
 PROBLEM_DISMISS = "prob_dismiss"
+PROBLEM_CAT = "prob_cat"  # open one category's out-of-range detail (carries the category key)
+PROBLEM_BACK = "prob_pback"  # back to the grouped top level (static, edit-in-place)
+PROBLEM_TRACKED = "prob_trkd"  # open the "вже відстежую" detail (static)
+PROBLEM_DISMISSED = "prob_dmd"  # open the "приховані" restore detail (static)
+PROBLEM_RESTORE = "prob_rest"  # restore one dismissed finding (carries its condition_id)
 # AI-suggested goals: adopt one by its INDEX in the freshly-derived suggestion list (computed, not a
 # DB row; re-resolved on tap like the problems proposals).
 GOAL_ADOPT = "goal_adopt"
@@ -69,20 +76,47 @@ def parse_problem_rename(data: str) -> int | None:
     return _parse(PROBLEM_RENAME, data)
 
 
-def problem_track(index: int) -> str:
-    return _make(PROBLEM_TRACK, index)
+def _make_cat(prefix: str, category: str, index: int) -> str:
+    return f"{prefix}{_SEP}{category}{_SEP}{index}"
 
 
-def parse_problem_track(data: str) -> int | None:
-    return _parse(PROBLEM_TRACK, data)
+def _parse_cat(prefix: str, data: str) -> tuple[str, int] | None:
+    head, _, rest = data.partition(_SEP)
+    category, _, idx = rest.partition(_SEP)
+    return (category, int(idx)) if head == prefix and category and idx.isdigit() else None
 
 
-def problem_dismiss(index: int) -> str:
-    return _make(PROBLEM_DISMISS, index)
+def problem_track(category: str, index: int) -> str:
+    return _make_cat(PROBLEM_TRACK, category, index)
 
 
-def parse_problem_dismiss(data: str) -> int | None:
-    return _parse(PROBLEM_DISMISS, data)
+def parse_problem_track(data: str) -> tuple[str, int] | None:
+    return _parse_cat(PROBLEM_TRACK, data)
+
+
+def problem_dismiss(category: str, index: int) -> str:
+    return _make_cat(PROBLEM_DISMISS, category, index)
+
+
+def parse_problem_dismiss(data: str) -> tuple[str, int] | None:
+    return _parse_cat(PROBLEM_DISMISS, data)
+
+
+def problem_category(category: str) -> str:
+    return f"{PROBLEM_CAT}{_SEP}{category}"
+
+
+def parse_problem_category(data: str) -> str | None:
+    head, _, rest = data.partition(_SEP)
+    return rest if head == PROBLEM_CAT and rest else None
+
+
+def problem_restore(condition_id: int) -> str:
+    return _make(PROBLEM_RESTORE, condition_id)
+
+
+def parse_problem_restore(data: str) -> int | None:
+    return _parse(PROBLEM_RESTORE, data)
 
 
 def goal_adopt(index: int) -> str:

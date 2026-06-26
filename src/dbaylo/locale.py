@@ -426,25 +426,38 @@ PROBLEM_LAB_DRAFT = "{analyte} поза нормою"
 # --- "Проблеми = the agent proposes" (the AI-driven concerns screen) -------------
 # The agent reads ALL labs and shows what IT sees as off — the user confirms with one tap, instead
 # of typing problems by hand.
-PROBLEM_PROPOSE_HEADER = (
-    "🔎 Ось що я бачу у твоїх аналізах. Тисни 👁, щоб я відстежував і м'яко нагадував, "
-    "або ✖, якщо це не турбує:"
+# Grouped problems screen (category master-detail): a top-level digest of what's off, grouped by
+# clinical category, then drill into one group. Keeps the screen from being a scary wall.
+PROBLEM_GROUP_HEADER = "🔎 Переглянув усі твої аналізи. Ось що поза нормою — обери, щоб глянути:"
+PROBLEM_GROUP_NOTHING_OFF = "🔎 Зараз нічого поза нормою."  # header when only watch/tracked remain
+BTN_PROBLEM_CATEGORY = "{label} — {n}"  # label already carries an emoji (CATEGORY_NAMES)
+BTN_PROBLEM_WATCH = "📈 На межі — {n}"
+BTN_PROBLEM_TRACKED = "✅ Вже відстежую — {n}"
+BTN_PROBLEM_DISMISSED = "🙈 Приховані — {n}"
+BTN_PROBLEM_BACK = "◀ Назад"
+# Category / watch / tracked / dismissed detail headers.
+PROBLEM_CAT_HEADER = "{label} — поза нормою. Тисни 👁, щоб я відстежував, або ✖, якщо не турбує:"
+PROBLEM_WATCH_HEADER = (
+    "📈 На межі норми — ще в нормі, але повзе до краю. Я пильную; взяти під нагляд (👁) чи ні (✖)?"
 )
-PROBLEM_TRACKED_HEADER = "Вже відстежую:"
+PROBLEM_TRACKED_HEADER = "✅ Вже відстежую — тисни, щоб позначити вирішеним, або ✏️ перейменувати:"
+PROBLEM_DISMISSED_HEADER = "🙈 Приховані — ти позначив, що не турбує. Натисни ↩️, щоб повернути:"
 PROBLEM_ALL_CLEAR = (
     "Зараз усе в межах норми, активних проблем немає. Я сам пригляну за новими аналізами "
     "й підкажу, якщо щось зміниться. 💚"
 )
-# One finding line in the proposals body (plain text — analyte names are safe, no HTML).
+# One finding line in a detail body (plain text — analyte names are safe, no HTML).
 PROBLEM_LINE_HIGH = "⚠️ {name}: {value} (норма {ref}) — вище норми"
 PROBLEM_LINE_LOW = "⚠️ {name}: {value} (норма {ref}) — нижче норми"
 PROBLEM_LINE_WATCH = "📈 {name}: {value} (норма {ref}) — наближається до межі"
 PROBLEM_LINE_FLAG = "⚠️ {name}: {value} (норма {ref}) — позначено лабораторією"
-BTN_PROBLEM_TRACK = "👁 {name}"  # carries the analyte name; ✖ beside it dismisses
+BTN_PROBLEM_TRACK = "👁 Відстежувати"  # the line above names the finding; ✖ beside it dismisses
 BTN_PROBLEM_DISMISS = "✖"
+BTN_PROBLEM_RESTORE = "↩️ {name}"
 BTN_PROBLEM_ADD_MANUAL = "➕ Своя проблема"
 PROBLEM_TRACK_TOAST = "Відстежую — нагадаю й перепитаю. 👁"
-PROBLEM_DISMISS_TOAST = "Гаразд, не турбуватиму цим. ✖"
+PROBLEM_DISMISS_TOAST = "Гаразд, не турбуватиму цим. Передумаєш — поверну з «🙈 Приховані». ✖"
+PROBLEM_RESTORE_TOAST = "Повернув під нагляд. ↩️"
 
 # --- Tier 1.1: lab-flag concern offer + repeat-lab offer ------------------------
 

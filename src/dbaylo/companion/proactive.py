@@ -88,6 +88,20 @@ async def resolve_problem(
     return condition
 
 
+async def restore_problem(
+    session: AsyncSession, *, user_id: int, condition_id: int, scheduler: ReminderScheduler
+) -> Condition | None:
+    """Undo a wrongly-tapped ✖ ("повернути під нагляд"): drop the DISMISSED row so the finding is
+    proposed again, then reconcile — a restored current flag re-enables the data-driven check-in."""
+    condition = await concerns.undismiss(session, user_id=user_id, condition_id=condition_id)
+    if condition is None:
+        return None
+    user = await session.get(User, user_id)
+    if user is not None:
+        await reconcile_checkin(session, user=user, scheduler=scheduler)
+    return condition
+
+
 async def add_medication(
     session: AsyncSession,
     *,

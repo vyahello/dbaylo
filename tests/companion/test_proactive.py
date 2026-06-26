@@ -161,6 +161,50 @@ async def test_dismiss_problem_retires_the_data_driven_checkin(
     assert _count(scheduler, "checkin") == 0  # waved off -> nothing warrants a check-in anymore
 
 
+async def test_restore_problem_undoes_a_dismissal(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # An accidental ✖ is reversible: restoring drops the dismissal, so the finding is proposed again
+    # AND the data-driven check-in comes back.
+    from datetime import date as _date
+    from pathlib import Path
+
+    from dbaylo.companion import concerns, health
+    from dbaylo.labs.intake import create_pending_report, persist_confirmed
+    from dbaylo.labs.schema import ExtractedAnalyte
+
+    user = await _user(async_session)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/g3.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Глюкоза", value=7.0, unit="ммоль/л", ref_low=3.9, ref_high=6.1
+            )
+        ],
+        report_date=_date(2026, 6, 2),
+        lab="Synevo",
+    )
+    dismissed = await proactive.dismiss_problem(
+        async_session, user=user, name="Глюкоза", scheduler=scheduler
+    )
+    await async_session.commit()
+    today = _date(2026, 6, 25)
+    assert await health.propose_problems(async_session, user.id, today=today) == []  # not proposed
+    assert _count(scheduler, "checkin") == 0
+
+    restored = await proactive.restore_problem(
+        async_session, user_id=user.id, condition_id=dismissed.id, scheduler=scheduler
+    )
+    await async_session.commit()
+    assert restored is not None
+    assert await concerns.list_dismissed(async_session, user_id=user.id) == []  # dismissal gone
+    proposed = [f.name for f in await health.propose_problems(async_session, user.id, today=today)]
+    assert proposed == ["Глюкоза"]  # proposed again
+    assert _count(scheduler, "checkin") == 1  # the flag re-enables the check-in
+
+
 async def test_repeat_lab_is_scheduled(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:
