@@ -316,7 +316,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   a tracked concern (`concerns.resolve` → RESOLVED) lands it in a `✔️ Вирішені — N` archive
   (`concerns.list_resolved`, `_resolved_detail`), each row `[↩️ <name>]` → `proactive.reopen_problem`
   (`concerns.reopen` → ACTIVE + reconcile) puts it back under nadhliad — so a closed concern is never
-  lost. The 📈 **На межі list MIXES specimens**, so it tags every item with its sample via
+  lost. The Під наглядом / Відкладені / Вирішені lists **show each item's clinical GROUP** (🩸/🔬/⚗️/
+  🧫) re-derived from the STORED name — `proactive_flow._category_prefix` runs `grouping.categorize`
+  over the name as both section+analyte (so "Аналіз крові: …", a "(сеча)" tag, etc. are caught;
+  custom non-lab concerns → no tag), and `_by_category` sorts them so blood items cluster, then
+  urine, … (no migration — derived from the name). The 📈 **На межі list MIXES specimens**, so it
+  tags every item with its sample via
   `HealthFinding.specimen_name` (blood→`(кров)` too, not just urine/semen) — "Базофіли" / "ГГТ"
   aren't ambiguous next to "Неплаский епітелій (сеча)". **Names are
   specimen-disambiguated**: a finding carries `category` + `specimen` (`trends.specimen`); the

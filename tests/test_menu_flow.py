@@ -498,6 +498,18 @@ async def test_problem_dismiss_waves_off_by_index_and_refreshes(monkeypatch) -> 
     callback.message.edit_text.assert_awaited()
 
 
+def test_stored_concern_shows_its_clinical_group() -> None:
+    # Під наглядом / Відкладені / Вирішені list STORED concern names — they must show which аналіз
+    # group each belongs to (🩸/🔬/⚗️/🧫), re-derived from the name; a custom concern gets no tag.
+    p = proactive_flow._category_prefix
+    assert p("Базофіли").startswith("🩸")  # blood cell
+    assert p("Білок загальний").startswith("⚗️")  # biochemistry (blood-derived)
+    assert p("Нирковий епітелій (сеча)").startswith("🔬")  # urine (the «(сеча)» tag)
+    assert p("Аналіз крові: Швидкість осідання").startswith("🩸")  # the «крові» prefix
+    assert p("Клітини сперматогенезу (%)").startswith("🧫")  # semen
+    assert p("Болить спина") == ""  # a custom non-lab concern -> no group tag
+
+
 async def test_problem_restore_undismisses(monkeypatch) -> None:
     # ↩️ from the «Приховані» list restores a wrongly-waved-off finding (an undo for ✖).
     _patch_problems(monkeypatch)

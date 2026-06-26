@@ -36,7 +36,7 @@ from dbaylo.companion import (
 from dbaylo.companion.health import HealthFinding
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.db import get_session
-from dbaylo.db.models import Medication, Reminder
+from dbaylo.db.models import Condition, Medication, Reminder
 from dbaylo.labs.intake import ensure_user
 
 router = Router(name="proactive")
@@ -121,6 +121,35 @@ def _short(name: str, limit: int = 26) -> str:
     """Trim a name for an inline button (so a long analyte still fits + stays distinct)."""
     name = name.strip()
     return name if len(name) <= limit else name[: limit - 1].rstrip() + "…"
+
+
+def _stored_category(name: str) -> str:
+    """The clinical category of a STORED concern, re-derived from its name (passed as both section +
+    analyte, so 'Аналіз крові: …' / 'Мікроскопія осаду сечі: …' / a '(сеча)' tag are all caught)."""
+    return grouping.categorize(name, name)
+
+
+def _category_prefix(name: str) -> str:
+    """The group emoji (🩸/🔬/⚗️/…) for a stored concern name — so the Під наглядом / Відкладені /
+    Вирішені lists show which аналіз each belongs to (the SAME groups as the top screen). '' for a
+    non-lab custom concern ('other' / imaging), which carries no specimen."""
+    category = _stored_category(name)
+    if category in (grouping.OTHER, grouping.IMAGING):
+        return ""
+    emoji = locale.CATEGORY_NAMES.get(category, "").split(" ", 1)[0]
+    return f"{emoji} " if emoji else ""
+
+
+def _by_category(conditions: list[Condition]) -> list[Condition]:
+    """Stored concerns sorted by clinical category (CATEGORY_ORDER) so the list groups visually —
+    blood items together, then urine, etc. — instead of created order."""
+    order = {c: i for i, c in enumerate(grouping.CATEGORY_ORDER)}
+    return sorted(conditions, key=lambda c: order.get(_stored_category(c.name), 99))
+
+
+def _grouped_button_name(name: str) -> str:
+    """A stored concern's button label: the group emoji + the (trimmed) name."""
+    return _category_prefix(name) + _short(name)
 
 
 def _finding_line(finding: HealthFinding, *, name: str) -> str:
@@ -263,14 +292,17 @@ async def _category_detail(
 async def _tracked_detail(
     session: AsyncSession, *, user_id: int
 ) -> tuple[str, InlineKeyboardMarkup]:
-    """The already-tracked concerns: ✅ resolve / ✏️ rename each, then back."""
+    """The already-tracked concerns: ✅ resolve / ✏️ rename each, then back. Grouped by clinical
+    category and tagged with its group emoji so the user sees what each belongs to (🩸 кров / …)."""
     active = await concerns.list_active(session, user_id=user_id)
     kb: list[list[InlineKeyboardButton]] = []
-    for condition in active:
+    for condition in _by_category(active):
         kb.append(
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(name=condition.name),
+                    text=locale.BTN_PROBLEM_RESOLVED_NAMED.format(
+                        name=_grouped_button_name(condition.name)
+                    ),
                     callback_data=callbacks.problem_resolve(condition.id),
                 ),
                 InlineKeyboardButton(
@@ -295,11 +327,11 @@ async def _dismissed_detail(
     kb: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_RESTORE.format(name=condition.name),
+                text=locale.BTN_PROBLEM_RESTORE.format(name=_grouped_button_name(condition.name)),
                 callback_data=callbacks.problem_restore(condition.id),
             )
         ]
-        for condition in dismissed
+        for condition in _by_category(dismissed)
     ]
     kb.append(
         [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
@@ -318,11 +350,11 @@ async def _resolved_detail(
     kb: list[list[InlineKeyboardButton]] = [
         [
             InlineKeyboardButton(
-                text=locale.BTN_PROBLEM_REOPEN.format(name=_short(condition.name)),
+                text=locale.BTN_PROBLEM_REOPEN.format(name=_grouped_button_name(condition.name)),
                 callback_data=callbacks.problem_reopen(condition.id),
             )
         ]
-        for condition in resolved
+        for condition in _by_category(resolved)
     ]
     kb.append(
         [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
