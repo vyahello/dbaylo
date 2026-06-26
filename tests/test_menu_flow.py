@@ -197,6 +197,21 @@ async def test_cb_open_checkin_passes_the_owner_tg(monkeypatch) -> None:
     assert seen["args"] == (callback.message, state, 4242)
 
 
+async def test_cb_open_checkin_acks_the_tap_before_the_slow_prompt(monkeypatch) -> None:
+    # The grounded prompt is a multi-second LLM call; the tap must be acknowledged FIRST so the
+    # button doesn't spin (read as a hang) for the whole wait.
+    order = []
+
+    async def slow_start(message, state, *, telegram_id):
+        order.append("start")
+
+    callback = _callback(callbacks.MENU_OPEN_CHECKIN)
+    callback.answer = AsyncMock(side_effect=lambda *a, **k: order.append("answer"))
+    monkeypatch.setattr(menu_flow.companion_flow, "start_checkin_dialog", slow_start)
+    await menu_flow.cb_open_checkin(callback, object())
+    assert order == ["answer", "start"]  # ack first, then the slow grounded prompt
+
+
 async def test_cb_open_reminders_delegates_with_owner_tg(monkeypatch) -> None:
     seen = {}
 

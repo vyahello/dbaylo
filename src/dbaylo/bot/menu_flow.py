@@ -187,12 +187,15 @@ async def cb_open_goals(callback: CallbackQuery) -> None:
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_CHECKIN)
 async def cb_open_checkin(callback: CallbackQuery, state: FSMContext) -> None:
-    # The prompt is answered on a callback message (from_user is the bot), so pass the owner's tg
+    # Ack the tap FIRST: the grounded prompt is a multi-second claude call, so answering only after
+    # it would leave the button spinning the whole time (it reads as a hang). The "typing…" action
+    # inside start_checkin_dialog then signals work until the prompt lands.
+    await callback.answer()
+    # The prompt is sent on a callback message (from_user is the bot), so pass the owner's tg
     # explicitly — otherwise the grounded check-in can't load the right user.
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message):
         await companion_flow.start_checkin_dialog(callback.message, state, telegram_id=tg)
-    await callback.answer()
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_REMINDERS)
