@@ -240,6 +240,24 @@ async def propose_problems(
     return [f for f in (*picture.current, *picture.watch) if not _already_known(f, existing)]
 
 
+async def list_indicators(session: AsyncSession, user_id: int) -> list[HealthFinding]:
+    """A ``HealthFinding`` for EVERY analyte the user has data for (not just the out-of-range ones,
+    unlike ``analyze_health``) — so a free-text question can be matched to the indicator the user is
+    asking about. Sorted most-interesting first (currently out of range, then more measurements),
+    so a name shared by two specimens resolves to the one worth talking about. No verdict.
+    """
+    series = build_series(await load_series_points(session, user_id))
+    rows: list[tuple[HealthFinding, bool, int]] = []
+    for key, points in series.items():
+        if not points:
+            continue
+        latest = points[-1]
+        finding = _finding(latest, compute_trend(points), len(points), series_key=key)
+        rows.append((finding, _is_oor(latest), len(points)))
+    rows.sort(key=lambda r: (not r[1], -r[2]))  # out-of-range first, then more data
+    return [finding for finding, _oor, _n in rows]
+
+
 async def has_current_flags(session: AsyncSession, user_id: int, *, today: date) -> bool:
     """True iff any indicator is currently out of range AND not waved off — drives the proactive
     check-in. A finding the user dismissed ("Не турбує") no longer keeps the check-in alive."""

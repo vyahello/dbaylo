@@ -53,6 +53,23 @@ async def test_analyze_splits_current_and_resolved(async_session: AsyncSession) 
     assert "Холестерин" not in current_names
 
 
+async def test_list_indicators_returns_all_analytes_out_of_range_first(
+    async_session: AsyncSession,
+) -> None:
+    user = await ensure_user(async_session, 1)
+    # Глюкоза latest is out of range; Холестерин stays in range -> both listed, the OOR one first.
+    await _confirm(
+        async_session,
+        user,
+        day=date(2026, 6, 2),
+        analytes=[_analyte("Холестерин", 4.0, None, 5.2), _analyte("Глюкоза", 7.0, 3.9, 6.1)],
+    )
+    indicators = await health.list_indicators(async_session, user.id)
+    names = [f.name for f in indicators]
+    assert set(names) == {"Глюкоза", "Холестерин"}  # ALL analytes, not just the flagged one
+    assert names[0] == "Глюкоза"  # currently out of range -> sorted first
+
+
 async def test_watch_flags_an_in_range_value_trending_toward_a_bound(
     async_session: AsyncSession,
 ) -> None:

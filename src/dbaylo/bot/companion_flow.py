@@ -560,6 +560,13 @@ async def on_free_text(
         context = await _grounded_context(message)
         await _run_intake_turn(message, state, [{"role": "user", "text": text}], context=context)
         return
+    # Smart routing (#3): a QUESTION that names one of the user's own indicators ("чому залізо
+    # низьке?") opens a focused, indicator-grounded consult about THAT analyte — the deep expert
+    # answer + reminder/clinic affordances — instead of the general companion. Before the prime so a
+    # named OTHER analyte overrides a stale chart prime; a generic "що скажеш?" has no match and
+    # falls through to the prime.
+    if await consult_flow.start_data_question_consult(message, state, scheduler=reminder_scheduler):
+        return
     # If the user just opened a chart/indicator and is now writing about it (no «Запитати Дбайло»
     # tap), answer IN that grounded context instead of the contextless companion.
     if await consult_flow.start_primed_consult(message, state, scheduler=reminder_scheduler):

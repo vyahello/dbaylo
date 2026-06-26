@@ -70,6 +70,107 @@ async def test_start_primed_consult_skips_when_nothing_recent_is_primed() -> Non
     assert not await consult_flow.start_primed_consult(None, _FakeState(stale), scheduler=None)  # type: ignore[arg-type]
 
 
+# --- #3: smart routing of a data question into a focused indicator consult --------
+
+
+def _routing_message(text: str):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    message = AsyncMock()
+    message.text = text
+    message.from_user = SimpleNamespace(id=4242)
+    message.chat = SimpleNamespace(id=4242)
+    return message
+
+
+def _patch_routing(monkeypatch, *, indicators):
+    from contextlib import asynccontextmanager
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    @asynccontextmanager
+    async def _fake_session():
+        yield AsyncMock()
+
+    monkeypatch.setattr(consult_flow, "get_session", _fake_session)
+    monkeypatch.setattr(consult_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7)))
+    monkeypatch.setattr(consult_flow.health, "list_indicators", AsyncMock(return_value=indicators))
+    monkeypatch.setattr(consult_flow, "build_context", AsyncMock(return_value=("CTX", "Залізо")))
+    run = AsyncMock()
+    monkeypatch.setattr(consult_flow, "_run_consult_turn", run)
+    return run
+
+
+async def test_data_question_routes_to_a_focused_indicator_consult(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+    from dbaylo.companion.health import HealthFinding
+
+    finding = HealthFinding(
+        name="Залізо",
+        value="",
+        ref="",
+        flag_text="",
+        direction="STABLE",
+        last_date=None,
+        n_points=2,
+        series_key="blood\x1fзалізо",
+    )
+    run = _patch_routing(monkeypatch, indicators=[finding])
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={})
+
+    handled = await consult_flow.start_data_question_consult(
+        _routing_message("чому в мене низьке залізо?"), state, scheduler=AsyncMock()
+    )
+
+    assert handled is True
+    run.assert_awaited_once()  # the consult answered the question as its first turn
+    subject = state.update_data.await_args.kwargs["consult_subject"]
+    assert subject["key"] == "blood\x1fзалізо"  # anchored to THAT indicator
+
+
+async def test_non_question_is_not_routed(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    run = _patch_routing(monkeypatch, indicators=[])  # list_indicators must not even be needed
+    handled = await consult_flow.start_data_question_consult(
+        _routing_message("сьогодні приймав залізо"), AsyncMock(), scheduler=AsyncMock()
+    )
+    assert handled is False
+    run.assert_not_awaited()
+
+
+async def test_question_without_a_matching_indicator_is_not_routed(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+    from dbaylo.companion.health import HealthFinding
+
+    finding = HealthFinding(
+        name="Залізо",
+        value="",
+        ref="",
+        flag_text="",
+        direction="STABLE",
+        last_date=None,
+        n_points=1,
+        series_key="fe",
+    )
+    run = _patch_routing(monkeypatch, indicators=[finding])
+    handled = await consult_flow.start_data_question_consult(
+        _routing_message("чому я постійно втомлений?"), AsyncMock(), scheduler=AsyncMock()
+    )
+    assert handled is False  # a generic complaint with no named indicator -> ordinary chat
+    run.assert_not_awaited()
+
+
 def test_booking_lead_fires_well_before_a_far_visit_and_clamps_a_near_one() -> None:
     # A booking reminder fires several days before the visit (the slot isn't arranged yet — time to
     # call and agree); if the visit is too soon, it clamps to "soon", never after the visit.

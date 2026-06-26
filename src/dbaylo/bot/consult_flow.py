@@ -40,6 +40,8 @@ from dbaylo.companion import (
     cities,
     consult,
     consult_memory,
+    dataquery,
+    health,
     history,
     proactive,
     reminders,
@@ -219,20 +221,18 @@ def _primed_recent(ts: object) -> bool:
     return (_now() - when) <= _PRIME_TTL
 
 
-async def start_primed_consult(
-    message: Message, state: FSMContext, *, scheduler: ReminderScheduler
+async def _enter_consult(
+    message: Message,
+    state: FSMContext,
+    subject: Subject,
+    *,
+    tg: int,
+    scheduler: ReminderScheduler,
+    first_text: str,
 ) -> bool:
-    """If a chart/indicator was recently primed, enter a consult about it and answer the user's text
-    as its first turn. Returns True when it handled the message, False to fall back to ordinary chat
-    (no recent prime, or the subject no longer resolves)."""
-    data = await state.get_data()
-    primed = data.get("consult_primed")
-    if not primed or not _primed_recent(data.get("consult_primed_ts")):
-        return False
-    tg = _telegram_id(message)
-    if tg is None:
-        return False
-    subject = Subject.from_dict(dict(primed))
+    """Open a grounded consult on ``subject`` and answer ``first_text`` as its first turn. Returns
+    True when it handled the message, False when the subject no longer resolves (the caller falls
+    back to ordinary chat). Shared by the primed and the smart-routed (data-question) entries."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         built = await build_context(session, user.id, subject, today=date.today())
@@ -247,8 +247,56 @@ async def start_primed_consult(
         consult_primed=None,
         consult_primed_ts=None,
     )
-    await _run_consult_turn(message, state, message.text or "", tg=tg, scheduler=scheduler)
+    await _run_consult_turn(message, state, first_text, tg=tg, scheduler=scheduler)
     return True
+
+
+async def start_primed_consult(
+    message: Message, state: FSMContext, *, scheduler: ReminderScheduler
+) -> bool:
+    """If a chart/indicator was recently primed, enter a consult about it and answer the user's text
+    as its first turn. Returns True when it handled the message, False to fall back to ordinary chat
+    (no recent prime, or the subject no longer resolves)."""
+    data = await state.get_data()
+    primed = data.get("consult_primed")
+    if not primed or not _primed_recent(data.get("consult_primed_ts")):
+        return False
+    tg = _telegram_id(message)
+    if tg is None:
+        return False
+    subject = Subject.from_dict(dict(primed))
+    return await _enter_consult(
+        message, state, subject, tg=tg, scheduler=scheduler, first_text=message.text or ""
+    )
+
+
+async def start_data_question_consult(
+    message: Message, state: FSMContext, *, scheduler: ReminderScheduler
+) -> bool:
+    """Smart routing (#3): when the free-text turn is a QUESTION naming one of the indicators the
+    user actually has data for ('чому залізо низьке?'), enter a grounded consult anchored to THAT
+    indicator and answer it — so a data question gets the focused expert answer (its full history +
+    reminder/clinic affordances), not the general companion. Returns True when handled, False to
+    fall back to ordinary chat (not a data question, no matching indicator, or it no longer
+    resolves). The turn is still gate-screened inside ``consult`` — escalation is unaffected."""
+    text = message.text or ""
+    tg = _telegram_id(message)
+    if tg is None or not dataquery.is_data_question(text):
+        return False
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        match = dataquery.match_indicator(text, await health.list_indicators(session, user.id))
+    if match is None:
+        return False
+    subject = Subject(
+        kind=KIND_INDICATOR,
+        report_id=0,
+        analyte_key=match.series_key,
+        analyte_name=match.display_name,
+    )
+    return await _enter_consult(
+        message, state, subject, tg=tg, scheduler=scheduler, first_text=text
+    )
 
 
 @router.callback_query(F.data.startswith(callbacks.CONSULT_CHART + ":"))

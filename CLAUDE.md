@@ -420,6 +420,18 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   greeting/ack) is written back to the GENERAL memory bucket (`report_id=None`). Every reply still
   passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback (a non-`llm`
   reply is never persisted to memory).
+- **Smart routing of a data question** (#3, `companion/dataquery.py` pure + `health.list_indicators`
+  + `consult_flow.start_data_question_consult`): a free-text turn that reads like a QUESTION
+  (`dataquery.is_data_question`) AND names one of the indicators the user actually has data for
+  (`dataquery.match_indicator` — stem match tolerant of Ukrainian inflection + a few lay aliases,
+  e.g. цукор→глюкоза; over `health.list_indicators`, EVERY analyte not just the trending ones, most-
+  interesting first) is routed into a **focused, indicator-grounded consult** about THAT analyte —
+  the deep expert answer over its full history + the 🔔/🏥 affordances — instead of the general
+  companion. Wired in `on_free_text` **before** the chart-prime (a named OTHER analyte overrides a
+  stale prime; a generic "що скажеш?" has no match and falls through to the prime). The turn is
+  still gate-screened inside `consult` (escalation unaffected); `dataquery` is pure (no LLM/DB) so
+  the choke-point is untouched. `start_primed_consult`/`start_data_question_consult` share
+  `_enter_consult`.
 - **Symptom intake** (`companion/intake.py`, Stage 6B): a multi-turn **history-taking** interview —
   when a free-text turn is a symptom (gate→triage) or a broad physical complaint
   (`looks_like_complaint`, router-only), `companion_flow` starts a guided intake (FSM
