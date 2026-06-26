@@ -114,6 +114,12 @@ _PROBLEM_LINE = {
 }
 
 
+def _short(name: str, limit: int = 26) -> str:
+    """Trim a name for an inline button (so a long analyte still fits + stays distinct)."""
+    name = name.strip()
+    return name if len(name) <= limit else name[: limit - 1].rstrip() + "…"
+
+
 def _finding_line(finding: HealthFinding, *, name: str) -> str:
     template = _PROBLEM_LINE.get(finding.kind, locale.PROBLEM_LINE_FLAG)
     return template.format(name=name, value=finding.value, ref=finding.ref)
@@ -227,7 +233,7 @@ async def _category_detail(
         kb.append(
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_PROBLEM_TRACK,
+                    text=locale.BTN_PROBLEM_TRACK.format(name=_short(shown)),
                     callback_data=callbacks.problem_track(category, index),
                 ),
                 InlineKeyboardButton(

@@ -270,7 +270,8 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (`grouping.categorize` → `🩸 Кров — 3`, `🔬 Сеча — 2`, …, `CATEGORY_ORDER`), then `📈 На межі — N`
   (the `watch` findings in their own group, NOT mixed with problems), `✅ Вже відстежую — N`, and —
   only if any exist — `🙈 Приховані — N`, plus `➕ Своя проблема`. Tapping a category opens its
-  `_category_detail` (edit-in-place): each out-of-range finding as a line + `[👁 Відстежувати][✖]`,
+  `_category_detail` (edit-in-place): each out-of-range finding as a line + `[👁 <name>][✖]` (the
+  name is ON the track button — stacked rows must not read as identical "Відстежувати"),
   `[◀ Назад]`. **Track/dismiss callbacks carry `(category, flat-index)`** (`callbacks.problem_track`/
   `problem_dismiss` → `parse_*` returns a tuple) — the index addresses the finding in the
   freshly-derived **flat** `propose_problems` list (re-resolved on tap, like the charts picker); the

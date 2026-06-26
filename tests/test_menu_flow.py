@@ -373,6 +373,14 @@ async def test_category_detail_lists_findings_with_track_dismiss(monkeypatch) ->
     assert callbacks.problem_track("blood", 0) in datas  # 👁 / ✖ carry (category, flat index)
     assert callbacks.problem_dismiss("blood", 0) in datas
     assert callbacks.PROBLEM_BACK in datas  # ◀ back to the grouped top
+    # The track button names the finding so stacked rows aren't all identical "Відстежувати".
+    track_labels = [
+        b.text
+        for row in callback.message.edit_text.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+        if b.callback_data == callbacks.problem_track("blood", 0)
+    ]
+    assert track_labels and "Гемоглобін" in track_labels[0]
 
 
 def _patch_problems(monkeypatch, finding=None):
