@@ -140,3 +140,62 @@ async def test_suggested_goals_pass_the_guardrail(async_session: AsyncSession) -
     for text in goals_module.GENERIC_GOALS:
         result = await set_goal(async_session, user=user, text=text)
         assert result.saved, f"generic goal rejected: {text!r}"
+
+
+async def test_achieve_and_remove_change_status_and_stop_re_suggestion(
+    async_session: AsyncSession,
+) -> None:
+    from datetime import date
+
+    from dbaylo.companion import goals as goals_module
+    from dbaylo.db.models import GoalStatus
+
+    user = await _user(async_session)
+    await set_goal(async_session, user=user, text="Налагодити режим сну")
+    await set_goal(async_session, user=user, text="Пити достатньо води щодня")
+    active = await goals_module.list_active_goals(async_session, user_id=user.id)
+    assert len(active) == 2
+
+    # ✅ achieve one, 🗑 remove the other -> both leave the ACTIVE list.
+    achieved = await goals_module.achieve_goal(async_session, goal_id=active[0].id, user_id=user.id)
+    removed = await goals_module.remove_goal(async_session, goal_id=active[1].id, user_id=user.id)
+    assert achieved.status == GoalStatus.ACHIEVED and removed.status == GoalStatus.ABANDONED
+    assert await goals_module.list_active_goals(async_session, user_id=user.id) == []
+
+    # Neither an achieved nor a removed goal is re-suggested (known at any status).
+    again = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
+    assert not any("сну" in g or "води" in g for g in again)
+
+    # Guard: a goal that isn't this user's is never mutated.
+    assert await goals_module.remove_goal(async_session, goal_id=active[0].id, user_id=999) is None
+
+
+async def test_suggested_goal_name_is_specimen_disambiguated(async_session: AsyncSession) -> None:
+    # A urine finding's goal carries its specimen so it's never confused with the blood twin.
+    from datetime import date
+    from pathlib import Path
+
+    from dbaylo.companion import goals as goals_module
+    from dbaylo.labs.intake import create_pending_report, persist_confirmed
+    from dbaylo.labs.schema import ExtractedAnalyte
+
+    user = await _user(async_session)
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/u.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[
+            ExtractedAnalyte(
+                analyte="Еритроцити",
+                value=25,
+                unit="у п/з",
+                ref_low=0,
+                ref_high=20,
+                section="Загальний аналіз сечі",
+            )
+        ],
+        report_date=date(2026, 6, 2),
+        lab="Synevo",
+    )
+    proposed = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
+    assert any("Еритроцити (сеча)" in g for g in proposed)  # disambiguated, not bare "Еритроцити"

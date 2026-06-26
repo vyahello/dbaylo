@@ -366,6 +366,12 @@ BTN_GOAL_ADOPT = "🎯 {goal}"  # carries the goal text; tap = adopt
 BTN_GOAL_OWN = "➕ Своя ціль"
 GOAL_ADOPTED_TOAST = "Взяв у цілі! 🎯"
 GOAL_NOT_ADOPTED = "Цю ціль не вийшло взяти — спробуй сформулювати інакше."
+# Adopted goals are MANAGEABLE rows: ✅ achieved (a positive close) / 🗑 remove (undo an adopt).
+GOAL_TRACKED_HEADER = "🎯 Твої цілі — тисни ✅, коли досягнеш, або 🗑, щоб прибрати:"
+BTN_GOAL_ACHIEVE = "✅ {goal}"  # carries the goal text; tap = mark achieved
+BTN_GOAL_REMOVE = "🗑"
+GOAL_ACHIEVED_TOAST = "Вітаю — ціль досягнута! 🎉"
+GOAL_REMOVED_TOAST = "Прибрав ціль."
 
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",

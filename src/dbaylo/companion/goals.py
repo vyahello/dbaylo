@@ -138,30 +138,70 @@ def _norm(text: str) -> str:
 
 def _suggested_for(finding: object) -> str | None:
     """A neutral, data-framed goal for a currently out-of-range finding — "bring it back to range",
-    no method implied, no dose/diet (rail #1/#6). Watch/flag findings are Проблеми's job."""
+    no method implied, no dose/diet (rail #1/#6). The name is specimen-qualified (display_name) so a
+    urine 'Еритроцити (сеча)' goal is never confused with the blood one. Watch/flag → Проблеми."""
     kind = getattr(finding, "kind", "")
-    name = getattr(finding, "name", "")
+    name = getattr(finding, "display_name", None) or getattr(finding, "name", "")
     if kind in ("high", "low") and name:
         return locale.GOAL_SUGGEST_NORMALIZE.format(name=name)
     return None
 
 
 async def active_goal_texts(session: AsyncSession, *, user_id: int) -> list[str]:
-    """The targets of the user's active goals — so the agent never re-suggests one already set."""
+    """The targets of the user's ACTIVE goals (shown in the screen's 'your goals' section)."""
     rows = await session.scalars(
         select(Goal.target).where(Goal.user_id == user_id, Goal.status == GoalStatus.ACTIVE)
     )
     return [t for t in rows.all() if t]
 
 
+async def known_goal_texts(session: AsyncSession, *, user_id: int) -> list[str]:
+    """The targets of EVERY goal the user has — any status. The suggester excludes these, so a goal
+    you already adopted, achieved, or removed is never re-suggested at you."""
+    rows = await session.scalars(select(Goal.target).where(Goal.user_id == user_id))
+    return [t for t in rows.all() if t]
+
+
+async def list_active_goals(session: AsyncSession, *, user_id: int) -> list[Goal]:
+    """The user's ACTIVE goal rows (with ids), oldest first — for the manageable goals screen."""
+    rows = await session.scalars(
+        select(Goal)
+        .where(Goal.user_id == user_id, Goal.status == GoalStatus.ACTIVE)
+        .order_by(Goal.created_at)
+    )
+    return list(rows.all())
+
+
+async def achieve_goal(session: AsyncSession, *, goal_id: int, user_id: int) -> Goal | None:
+    """Mark a goal achieved (✅). Kept as a record; never re-suggested."""
+    return await _set_status(session, goal_id=goal_id, user_id=user_id, status=GoalStatus.ACHIEVED)
+
+
+async def remove_goal(session: AsyncSession, *, goal_id: int, user_id: int) -> Goal | None:
+    """Drop a goal (🗑) — undo an accidental adopt, or one you no longer want. Marked ABANDONED (a
+    record, so it isn't re-suggested), not deleted."""
+    return await _set_status(session, goal_id=goal_id, user_id=user_id, status=GoalStatus.ABANDONED)
+
+
+async def _set_status(
+    session: AsyncSession, *, goal_id: int, user_id: int, status: GoalStatus
+) -> Goal | None:
+    goal = await session.get(Goal, goal_id)
+    if goal is None or goal.user_id != user_id:
+        return None
+    goal.status = status
+    await session.flush()
+    return goal
+
+
 async def propose_goals(session: AsyncSession, user_id: int, *, today: date) -> list[str]:
     """What the agent suggests as goals: a "bring it to range" goal per currently out-of-range
-    finding, then generic wellness goals — EXCLUDING ones the user already has. Pure + deterministic
-    (the wellness guardrail still vets each on adopt via ``set_goal``)."""
+    finding, then generic wellness goals — EXCLUDING any goal the user already has (active,
+    achieved, OR removed). Pure + deterministic (the guardrail still vets each on adopt)."""
     from dbaylo.companion import health  # lazy import: avoid a module-load cycle
 
     picture = await health.analyze_health(session, user_id, today=today)
-    existing = [_norm(t) for t in await active_goal_texts(session, user_id=user_id)]
+    existing = [_norm(t) for t in await known_goal_texts(session, user_id=user_id)]
     candidates = [g for f in picture.current if (g := _suggested_for(f))]
     candidates.extend(GENERIC_GOALS)
     out: list[str] = []

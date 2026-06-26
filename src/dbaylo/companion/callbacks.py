@@ -20,8 +20,11 @@ PROBLEM_TRACKED = "prob_trkd"  # open the "вже відстежую" detail (st
 PROBLEM_DISMISSED = "prob_dmd"  # open the "приховані" restore detail (static)
 PROBLEM_RESTORE = "prob_rest"  # restore one dismissed finding (carries its condition_id)
 # AI-suggested goals: adopt one by its INDEX in the freshly-derived suggestion list (computed, not a
-# DB row; re-resolved on tap like the problems proposals).
+# DB row; re-resolved on tap like the problems proposals). Adopted goals are then manageable rows
+# addressed by their goal_id: ✅ achieved / 🗑 removed (undo an accidental adopt).
 GOAL_ADOPT = "goal_adopt"
+GOAL_ACHIEVE = "goal_done"  # mark an active goal achieved (carries the goal_id)
+GOAL_REMOVE = "goal_rm"  # drop an active goal (carries the goal_id)
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 # Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
@@ -125,6 +128,22 @@ def goal_adopt(index: int) -> str:
 
 def parse_goal_adopt(data: str) -> int | None:
     return _parse(GOAL_ADOPT, data)
+
+
+def goal_achieve(goal_id: int) -> str:
+    return _make(GOAL_ACHIEVE, goal_id)
+
+
+def parse_goal_achieve(data: str) -> int | None:
+    return _parse(GOAL_ACHIEVE, data)
+
+
+def goal_remove(goal_id: int) -> str:
+    return _make(GOAL_REMOVE, goal_id)
+
+
+def parse_goal_remove(data: str) -> int | None:
+    return _parse(GOAL_REMOVE, data)
 
 
 def reminder_off(reminder_id: int) -> str:

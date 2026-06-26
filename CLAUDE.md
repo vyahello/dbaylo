@@ -220,7 +220,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `assert_safe_output`.
 - **Goals** (`companion/goals.py`): a goal is validated through the guardrail **before** it is
   accepted — only an `OK` verdict persists a `Goal`; REDIRECT/SUPPORT returns guidance, stores
-  nothing.
+  nothing. **🎯 Цілі is an agent screen** (`companion_flow.open_goals_screen`, shared by the menu tap
+  and `/goals`): `propose_goals` suggests a `Привести <name> до норми` goal per current out-of-range
+  finding (name via `HealthFinding.display_name` — specimen-disambiguated) + generic wellness goals,
+  EXCLUDING any goal the user already has at ANY status (`known_goal_texts` — adopted/achieved/removed
+  are never re-suggested); each is a one-tap `[🎯 <goal>]` adopt (by index, re-derived on tap, guardrail
+  re-vets on `set_goal`). Adopted goals are then **manageable rows** `[✅ <goal>][🗑]`
+  (`list_active_goals`): ✅ = `achieve_goal` (`GoalStatus.ACHIEVED`), 🗑 = `remove_goal`
+  (`GoalStatus.ABANDONED`, the **undo for an accidental adopt**) — both by `goal_id`, edit-in-place.
+  No migration (reuses `GoalStatus`).
 - **Symptom handoff** (`companion/symptoms.py`): deterministic Ukrainian keyword → `Symptom`
   → `triage.evaluate`. The LLM never makes the escalation call. `SYMPTOM_KEYWORDS` is kept
   **disjoint** from the wellness purging signals (involuntary vs. self-induced vomiting) so

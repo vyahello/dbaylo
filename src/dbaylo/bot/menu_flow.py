@@ -218,7 +218,7 @@ async def cb_open_history(callback: CallbackQuery) -> None:
 async def cb_goals_list(callback: CallbackQuery) -> None:
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
-        await companion_flow.open_goals(callback.message, tg)
+        await companion_flow.open_goals_screen(callback.message, tg)  # the manageable agent screen
     await callback.answer()
 
 

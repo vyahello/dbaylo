@@ -94,24 +94,17 @@ async def _save_goal(message: Message, text: str) -> None:
     await message.answer(result.message)
 
 
-async def open_goals(message: Message, telegram_id: int) -> None:
-    """Render the user's goals as plain text (from /goals — a read-only list)."""
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=telegram_id)
-        text = await goals.list_goals(session, user=user)
-    await message.answer(text)
-
-
 def _short_goal(text: str, limit: int = 40) -> str:
     text = text.strip()
     return text if len(text) <= limit else text[: limit - 1] + "…"
 
 
 async def _goals_screen(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The agent's goals screen: suggested goals (one-tap adopt) + the user's current goals + a
+    """The agent's goals screen: suggested goals (one-tap adopt), then the user's CURRENT goals as
+    MANAGEABLE rows (✅ achieved / 🗑 remove — also the undo for an accidental adopt), then a
     manual-add fallback. The suggester is deterministic; each adopt re-runs the guardrail."""
     suggestions = await goals.propose_goals(session, user_id, today=date.today())
-    current = await goals.active_goal_texts(session, user_id=user_id)
+    current = await goals.list_active_goals(session, user_id=user_id)
     lines: list[str] = []
     kb: list[list[InlineKeyboardButton]] = []
     if suggestions:
@@ -128,8 +121,19 @@ async def _goals_screen(session: AsyncSession, *, user_id: int) -> tuple[str, In
     if current:
         if lines:
             lines.append("")
-        lines.append(locale.GOAL_LIST_HEADER)
-        lines.extend(f"• {text}" for text in current)
+        lines.append(locale.GOAL_TRACKED_HEADER)
+        for goal in current:
+            kb.append(
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_GOAL_ACHIEVE.format(goal=_short_goal(goal.target or "")),
+                        callback_data=callbacks.goal_achieve(goal.id),
+                    ),
+                    InlineKeyboardButton(
+                        text=locale.BTN_GOAL_REMOVE, callback_data=callbacks.goal_remove(goal.id)
+                    ),
+                ]
+            )
     if not suggestions and not current:
         lines.append(locale.GOAL_ALL_SET)
     kb.append(
@@ -179,12 +183,48 @@ async def on_goal_adopt(callback: CallbackQuery) -> None:
     await _edit_goals(callback)
 
 
+@router.callback_query(F.data.startswith(callbacks.GOAL_ACHIEVE + ":"))
+async def on_goal_achieve(callback: CallbackQuery) -> None:
+    """✅ Mark an active goal achieved, then re-render the screen in place."""
+    goal_id = callbacks.parse_goal_achieve(callback.data or "")
+    tg = callback.from_user.id if callback.from_user else None
+    if goal_id is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        if await goals.achieve_goal(session, goal_id=goal_id, user_id=user.id) is not None:
+            await session.commit()
+            toast = locale.GOAL_ACHIEVED_TOAST
+    await callback.answer(toast)
+    await _edit_goals(callback)
+
+
+@router.callback_query(F.data.startswith(callbacks.GOAL_REMOVE + ":"))
+async def on_goal_remove(callback: CallbackQuery) -> None:
+    """🗑 Drop an active goal (undo an accidental adopt), then re-render the screen in place."""
+    goal_id = callbacks.parse_goal_remove(callback.data or "")
+    tg = callback.from_user.id if callback.from_user else None
+    if goal_id is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        if await goals.remove_goal(session, goal_id=goal_id, user_id=user.id) is not None:
+            await session.commit()
+            toast = locale.GOAL_REMOVED_TOAST
+    await callback.answer(toast)
+    await _edit_goals(callback)
+
+
 @router.message(Command("goals"))
 async def cmd_goals(message: Message) -> None:
     tg_id = _telegram_id(message)
     if tg_id is None:
         return
-    await open_goals(message, tg_id)
+    await open_goals_screen(message, tg_id)  # the rich, manageable screen — same as the menu tap
 
 
 # --- Daily check-in -------------------------------------------------------------
