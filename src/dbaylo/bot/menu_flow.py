@@ -34,7 +34,7 @@ from dbaylo.bot import (
     prescription_flow,
     proactive_flow,
 )
-from dbaylo.bot.keyboards import clear_inline_keyboard, section_keyboard
+from dbaylo.bot.keyboards import clear_inline_keyboard, help_keyboard, section_keyboard
 from dbaylo.companion import callbacks
 from dbaylo.companion.scheduler import ReminderScheduler
 
@@ -162,7 +162,9 @@ async def menu_checkin(message: Message, state: FSMContext) -> None:
 
 @router.message(StateFilter(None), F.text == locale.MENU_HELP)
 async def menu_help(message: Message) -> None:
-    await message.answer(locale.HELP_TEXT)
+    # Actionable help: the orientation text + inline quick-jumps into the agent screens (the
+    # persistent reply keyboard stays below), not a list of "/" commands to memorise.
+    await message.answer(locale.HELP_TEXT, reply_markup=help_keyboard())
 
 
 # --- Section inline actions -> reused flow helpers ------------------------------
@@ -204,6 +206,15 @@ async def cb_open_reminders(callback: CallbackQuery, reminder_scheduler: Reminde
     if isinstance(callback.message, Message) and tg is not None:
         await proactive_flow.open_reminders(callback.message, tg, reminder_scheduler)
     await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.MENU_OPEN_MEMORY)
+async def cb_open_memory(callback: CallbackQuery) -> None:
+    """🧠 Памʼять quick-jump (from ❓ Довідка) — open the consult-memory view."""
+    await callback.answer()
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        await consult_flow.open_memory_view(callback.message, tg)
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_HISTORY)

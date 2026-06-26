@@ -545,6 +545,7 @@ MENU_OPEN_ANALYSES = "menu_analyses"  # post the "Аналізи" hub as a new m
 MENU_OPEN_GOALS = "menu_goals_sec"  # post the goals section (list + new)
 MENU_OPEN_CHECKIN = "menu_checkin"  # start the grounded check-in dialog
 MENU_OPEN_REMINDERS = "menu_reminders"  # open the reminders list
+MENU_OPEN_MEMORY = "menu_memory_o"  # open the consult-memory view (a quick-jump from ❓ Довідка)
 
 MENU_OPEN_LABS = "menu_labs_hub"  # back to the "Аналізи" hub (from the history list)
 MENU_OPEN_HISTORY = "menu_hist"

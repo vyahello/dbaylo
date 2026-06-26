@@ -95,3 +95,35 @@ def section_keyboard(*buttons: tuple[str, str]) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=label, callback_data=data)] for label, data in buttons
         ]
     )
+
+
+# ❓ Довідка quick-jumps: two per row, straight into the agent screens — so the help is actionable
+# ("tap a section"), not a list of "/" commands to memorise. Reuses the existing leaf callbacks.
+_HELP_JUMPS = (
+    (
+        (locale.BTN_MENU_ANALYSES, callbacks.MENU_OPEN_ANALYSES),
+        (locale.BTN_MENU_PROBLEMS, callbacks.MENU_PROB_LIST),
+    ),
+    (
+        (locale.BTN_MENU_GOALS, callbacks.MENU_OPEN_GOALS),
+        (locale.BTN_MENU_CHECKIN, callbacks.MENU_OPEN_CHECKIN),
+    ),
+    (
+        (locale.BTN_MENU_MED_LIST, callbacks.MENU_MED_LIST),
+        (locale.BTN_MENU_REMINDERS, callbacks.MENU_OPEN_REMINDERS),
+    ),
+    (
+        (locale.BTN_MENU_PRICE, callbacks.MENU_PRICE),
+        (locale.MENU_MEMORY, callbacks.MENU_OPEN_MEMORY),
+    ),
+)
+
+
+def help_keyboard() -> InlineKeyboardMarkup:
+    """Inline quick-jumps under ❓ Довідка: tap straight into a section's agent screen."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=label, callback_data=data) for label, data in row]
+            for row in _HELP_JUMPS
+        ]
+    )

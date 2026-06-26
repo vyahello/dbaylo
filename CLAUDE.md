@@ -381,7 +381,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   explicitly). The native "/" command
   menu is populated on startup (`app.apply_bot_commands` from `locale.BOT_COMMANDS`, `set_my_commands`)
   so **no command must be typed from memory** — a parity test (`tests/test_bot_commands.py`) fails if any
-  `Command(...)` handler lacks a "/" menu entry. Each label opens a section screen
+  `Command(...)` handler lacks a "/" menu entry. **❓ Довідка is agent-framed + actionable** (not a
+  wall of "/" commands): `HELP_TEXT` explains the paradigm (send photos · just chat · tap a section)
+  and points to the native "/" menu; `menu_help` attaches `keyboards.help_keyboard()` — inline
+  quick-jumps straight into the agent screens (reusing the existing leaf callbacks; `MENU_OPEN_MEMORY`
+  → `cb_open_memory` was added for the 🧠 Памʼять jump). Each label opens a section screen
   (message + inline actions) that **delegates to reused helpers** — the commands are aliases over
   the same `open_*` / `start_*_dialog` helpers (`companion_flow` · `proactive_flow` · `history_flow` ·
   `navigator_flow`). Menu labels are matched by **exact equality** (`F.text == locale.MENU_*`,

@@ -271,6 +271,37 @@ async def test_menu_checkin_starts_the_checkin_dialog(monkeypatch) -> None:
     assert seen["args"] == (message, state)
 
 
+async def test_menu_help_is_actionable_not_a_command_list() -> None:
+    # ❓ Довідка is agent-framed (send photos / chat / tap sections) with inline quick-jumps into
+    # the agent screens — not a wall of "/" commands.
+    message = AsyncMock()
+    await menu_flow.menu_help(message)
+    text = message.answer.call_args.args[0]
+    assert "/goal" not in text and "/medication" not in text  # no slash-command list
+    assert "Надсилай фото" in text  # the agent paradigm is explained
+    datas = [
+        b.callback_data
+        for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+    ]
+    # The quick-jumps go straight into the agent screens (reusing the existing leaf callbacks).
+    assert callbacks.MENU_OPEN_ANALYSES in datas and callbacks.MENU_PROB_LIST in datas
+    assert callbacks.MENU_OPEN_GOALS in datas and callbacks.MENU_MED_LIST in datas
+    assert callbacks.MENU_PRICE in datas and callbacks.MENU_OPEN_MEMORY in datas
+
+
+async def test_cb_open_memory_opens_the_memory_view(monkeypatch) -> None:
+    seen = {}
+
+    async def fake(message, tg):
+        seen["args"] = (message, tg)
+
+    monkeypatch.setattr(menu_flow.consult_flow, "open_memory_view", fake)
+    callback = _callback(callbacks.MENU_OPEN_MEMORY)
+    await menu_flow.cb_open_memory(callback)
+    assert seen["args"] == (callback.message, 4242)
+
+
 async def test_menu_reminders_delegates_to_open_reminders(monkeypatch) -> None:
     seen = {}
 
