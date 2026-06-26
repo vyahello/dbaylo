@@ -148,6 +148,7 @@ async def consult(
 
     body = locale.CONSULT_FALLBACK
     source = "fallback"
+    model = model or get_settings().claude_chat_model or None  # the (optional) sharper chat model
     try:
         result = await runner(
             _prompt(context, transcript, triage_level=triage_level),

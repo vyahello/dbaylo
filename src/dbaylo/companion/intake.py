@@ -25,6 +25,7 @@ import re
 from dataclasses import dataclass
 
 from dbaylo import locale, persona
+from dbaylo.config import get_settings
 from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import GateSource, screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
@@ -145,6 +146,7 @@ async def advance(
     lead = _safety_lead(decision.source, decision)
 
     body = locale.INTAKE_FALLBACK
+    model = model or get_settings().claude_chat_model or None  # the (optional) sharper chat model
     try:
         result = await runner(  # type: ignore[operator]
             _prompt(

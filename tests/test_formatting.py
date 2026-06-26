@@ -67,6 +67,20 @@ def test_companion_html_without_a_disclaimer_has_no_ps() -> None:
     assert locale.INTERPRET_DIVIDER not in out  # nothing to set off -> no stray divider
 
 
+def test_continuation_turn_uses_the_compact_disclaimer() -> None:
+    # The full disclaimer rides the FIRST turn; a continuation turn shows the short reminder, so a
+    # flowing thread doesn't repeat the whole paragraph every message (still not-a-doctor framed).
+    body = f"Твій *гемоглобін* трохи високий.\n\n{DISCLAIMER}"
+    full = render_companion_html(body)
+    short = render_companion_html(body, full_disclaimer=False)
+    assert f"<i>{DISCLAIMER}</i>" in full and DISCLAIMER not in short  # full vs compact
+    assert f"<i>{locale.DISCLAIMER_SHORT}</i>" in short
+    assert locale.INTERPRET_DIVIDER in short  # still the premium P.S. look, just shorter
+    # The interpretation renderer (consult) honours the same flag.
+    interp = render_interpretation_html(body, full_disclaimer=False)
+    assert f"<i>{locale.DISCLAIMER_SHORT}</i>" in interp and DISCLAIMER not in interp
+
+
 def test_companion_html_escapes_dangerous_chars() -> None:
     # A stray '<' / '&' must be escaped so it can never break Telegram's HTML parser.
     out = render_companion_html("показник < 5 і *важливо* & безпечно")

@@ -25,12 +25,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.companion import concerns, grouping
 from dbaylo.db.models import Condition, ResultFlag
+from dbaylo.labs.agerefs import describe_age
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.trends import (
     LabPoint,
+    TrendDirection,
     TrendSummary,
     build_series,
     compute_trend,
+    direction_phrase,
     is_out_of_range,
     specimen,
 )
@@ -338,6 +341,18 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
     if profile:
         parts.append(profile)
     picture = await analyze_health(session, user_id, today=today)
+
+    def _latest(f: HealthFinding) -> str:
+        # Pre-compute "how long ago" so the model judges recency reliably (it should nudge a re-test
+        # on a months-old flag) instead of having to do date arithmetic on an ISO string.
+        if f.last_date is None:
+            return "latest date unknown"
+        ago = describe_age(f.last_date, today=today)
+        return f"latest {f.last_date.isoformat()} ({ago})"
+
+    def _trend(f: HealthFinding) -> str:
+        return direction_phrase(TrendDirection[f.direction])  # human phrase, not the raw enum token
+
     if picture.current:
         lines = [
             "CURRENTLY out-of-range indicators (the LATEST measurement is outside its reference — "
@@ -345,8 +360,8 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
         ]
         for f in picture.current:
             lines.append(
-                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; trend {f.direction}; "
-                f"latest {f.last_date.isoformat() if f.last_date else '?'}."
+                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; trend: {_trend(f)}; "
+                f"{_latest(f)}."
             )
         parts.append("\n".join(lines))
     if picture.watch:
@@ -355,10 +370,7 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
             "problem; mention gently, never alarm or diagnose):"
         ]
         for f in picture.watch:
-            lines.append(
-                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; "
-                f"latest {f.last_date.isoformat() if f.last_date else '?'}."
-            )
+            lines.append(f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; {_latest(f)}.")
         parts.append("\n".join(lines))
     if picture.resolved:
         lines = [
@@ -366,9 +378,6 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
             "dwell on it unless asked):"
         ]
         for f in picture.resolved:
-            lines.append(
-                f"- {f.name}: now {f.value} (ref {f.ref}); "
-                f"latest {f.last_date.isoformat() if f.last_date else '?'}."
-            )
+            lines.append(f"- {f.name}: now {f.value} (ref {f.ref}); {_latest(f)}.")
         parts.append("\n".join(lines))
     return "\n\n".join(parts)

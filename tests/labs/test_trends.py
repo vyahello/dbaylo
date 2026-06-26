@@ -351,3 +351,14 @@ def test_latest_used_is_most_recent_by_date_not_insertion_order() -> None:
 )
 def test_polarity_mapping(direction, expected) -> None:
     assert polarity(direction) == expected
+
+
+def test_direction_phrase_is_human_and_never_the_raw_token() -> None:
+    from dbaylo.labs.trends import direction_phrase
+
+    # Every member maps to a readable, range-relative phrase (no "LEFT_RANGE" leaks to the prompt).
+    for direction in TrendDirection:
+        phrase = direction_phrase(direction)
+        assert phrase and phrase != direction.name
+    assert direction_phrase(TrendDirection.LEFT_RANGE) == "moved out of range"
+    assert direction_phrase(TrendDirection.RETURNED_TO_RANGE) == "came back into range"

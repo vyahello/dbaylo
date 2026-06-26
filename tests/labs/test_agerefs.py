@@ -6,7 +6,7 @@ from datetime import date
 
 import pytest
 
-from dbaylo.labs.agerefs import age_on, is_age_table, resolve_age_reference
+from dbaylo.labs.agerefs import age_on, describe_age, is_age_table, resolve_age_reference
 
 # The PSA table as a few labs print it (separators / wording vary).
 _TABLES = [
@@ -117,3 +117,14 @@ def test_age_on_computes_whole_years() -> None:
     assert age_on(date(1993, 3, 23), date(2023, 3, 23)) == 30  # on the birthday
     assert age_on(None, date(2023, 1, 1)) is None
     assert age_on(date(1993, 3, 23), None) is None
+
+
+def test_describe_age_is_a_short_human_recency() -> None:
+    today = date(2026, 6, 25)
+    assert describe_age(None, today=today) == ""
+    assert describe_age(today, today=today) == "today"
+    assert describe_age(date(2026, 6, 20), today=today) == "5 days ago"
+    assert describe_age(date(2026, 6, 4), today=today) == "~3 weeks ago"
+    assert describe_age(date(2026, 3, 25), today=today) == "~3 months ago"  # ~92 days
+    assert describe_age(date(2024, 6, 25), today=today) == "~2 years ago"
+    assert describe_age(date(2027, 1, 1), today=today) == "in the future"

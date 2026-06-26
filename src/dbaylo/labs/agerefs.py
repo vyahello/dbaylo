@@ -139,3 +139,25 @@ def age_on(birth_date: date | None, on: date | None) -> int | None:
         return None
     years = on.year - birth_date.year - ((on.month, on.day) < (birth_date.month, birth_date.day))
     return years if years >= 0 else None
+
+
+def describe_age(d: date | None, *, today: date) -> str:
+    """A short, human 'how long ago' for a measurement/report date — so the chat/consult LLM judges
+    recency reliably (e.g. nudges re-testing a months-old flag) instead of eyeballing ISO dates.
+    ``""`` when the date is unknown. Approximate by design (weeks/months/years)."""
+    if d is None:
+        return ""
+    days = (today - d).days
+    if days < 0:
+        return "in the future"
+    if days == 0:
+        return "today"
+    if days < 14:
+        return f"{days} days ago"
+    if days < 56:
+        return f"~{round(days / 7)} weeks ago"
+    months = round(days / 30)
+    if months < 24:
+        return f"~{months} month{'s' if months != 1 else ''} ago"
+    years = round(days / 365)
+    return f"~{years} year{'s' if years != 1 else ''} ago"

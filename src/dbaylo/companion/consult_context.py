@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.companion import concerns, consult_memory, history, notecache
-from dbaylo.labs.agerefs import age_on
+from dbaylo.labs.agerefs import age_on, describe_age
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import load_series_points
@@ -23,6 +23,7 @@ from dbaylo.labs.trends import (
     LabPoint,
     build_series,
     compute_trend,
+    direction_phrase,
     is_out_of_range,
     specimen,
 )
@@ -105,7 +106,7 @@ def _value_str(point: LabPoint) -> str:
 
 
 async def _indicator_context(
-    session: AsyncSession, user_id: int, subject: Subject
+    session: AsyncSession, user_id: int, subject: Subject, *, today: date
 ) -> tuple[str, str] | None:
     series = build_series(await load_series_points(session, user_id))
     pts = series.get(subject.analyte_key)
@@ -121,10 +122,14 @@ async def _indicator_context(
     for p in pts:
         ref = _ref_text(p.ref_low, p.ref_high)
         lines.append(f"- {p.taken_on.isoformat()} | {_value_str(p)} | {ref} | {_status(p)}")
-    lines.append(f"Range-relative trend across these points: {summary.direction.name}.")
+    lines.append(
+        f"Range-relative trend across these points: {direction_phrase(summary.direction)}."
+    )
     if summary.last_date is not None:
+        ago = describe_age(summary.last_date, today=today)
         lines.append(
-            f"Most recent measurement: {_value_str(pts[-1])} on {summary.last_date.isoformat()}."
+            f"Most recent measurement: {_value_str(pts[-1])} on "
+            f"{summary.last_date.isoformat()} ({ago})."
         )
     # General (value-independent) note about this marker, if we have one cached — extra grounding.
     note = (await notecache.fetch_cached(session, [note_cache_key(spec, name)])).get(
@@ -205,10 +210,11 @@ async def patient_profile(session: AsyncSession, user_id: int, today: date) -> s
         lines.append("- Recent reports (most recent first):")
         for r in reports[:8]:
             d = r.report_date.isoformat() if r.report_date else "?"
+            ago = f" ({describe_age(r.report_date, today=today)})" if r.report_date else ""
             what = r.report_type or normalize_lab(r.lab) or "аналіз"
             n_flag = sum(1 for x in r.results if x.flagged)
             flag = f" — {n_flag} поза нормою" if n_flag else ""
-            lines.append(f"  · {d}: {what}{flag}")
+            lines.append(f"  · {d}{ago}: {what}{flag}")
     lines.append(
         "Use these dates to judge how recent each exam is, and tailor your questions and advice to "
         "this person."
@@ -230,7 +236,7 @@ async def build_context(
     what was discussed before. ``recall_exclude`` drops memory turns already in the live FSM
     transcript (no duplication mid-conversation). Re-derived from the DB on every turn."""
     if subject.kind == KIND_INDICATOR:
-        built = await _indicator_context(session, user_id, subject)
+        built = await _indicator_context(session, user_id, subject, today=today)
     elif subject.kind == KIND_REPORT:
         built = await _report_context(session, user_id, subject.report_id)
     elif subject.kind == KIND_SECTION:

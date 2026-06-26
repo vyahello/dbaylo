@@ -413,6 +413,7 @@ async def _run_consult_turn(
     data = await state.get_data()
     subject = Subject.from_dict(dict(data.get("consult_subject") or {}))
     transcript: list[consult.Turn] = list(data.get("consult_transcript") or [])
+    continuation = bool(transcript)  # the full disclaimer rides only the FIRST turn of a consult
     # The live transcript already carries this session's turns to the model — exclude them from the
     # recalled cross-session memory so the same line is never shown twice mid-conversation.
     recall_exclude = frozenset(t["text"].strip() for t in transcript if t.get("text"))
@@ -441,7 +442,7 @@ async def _run_consult_turn(
     # disclaimer becomes an italic P.S. (the engine already dropped any model-added duplicate).
     await answer_chunked(
         message,
-        render_interpretation_html(reply.text),
+        render_interpretation_html(reply.text, full_disclaimer=not continuation),
         parse_mode=ParseMode.HTML,
         reply_markup=_reply_keyboard(),
     )

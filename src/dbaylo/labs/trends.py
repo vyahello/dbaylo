@@ -84,6 +84,28 @@ def polarity(direction: TrendDirection) -> Polarity:
     return _POLARITY[direction]
 
 
+# Short, range-relative human phrasing of a direction — for GROUNDING the chat/consult LLM (so it
+# reads "moved out of range" instead of reasoning over the raw enum token "LEFT_RANGE"). This is the
+# SAME range-relative meaning as the enum, just readable; never a health verdict (rail #4 — the
+# IMPROVING/WORSENING polarity stays internal).
+_DIRECTION_PHRASE: dict[TrendDirection, str] = {
+    TrendDirection.INSUFFICIENT_DATA: "only one measurement so far — no trend yet",
+    TrendDirection.UNKNOWN_RANGE: "no numeric reference, so a trend can't be judged",
+    TrendDirection.STABLE_IN_RANGE: "holding steady within range",
+    TrendDirection.STABLE_OUT_OF_RANGE: "holding steady, but out of range",
+    TrendDirection.RETURNED_TO_RANGE: "came back into range",
+    TrendDirection.LEFT_RANGE: "moved out of range",
+    TrendDirection.APPROACHING_RANGE: "moving back toward its range",
+    TrendDirection.MOVING_AWAY: "moving further from its range",
+}
+
+
+def direction_phrase(direction: TrendDirection) -> str:
+    """A short, range-relative human phrase for a trend direction (for the LLM prompt), never a
+    verdict. Falls back to the lowercased token name for an unmapped member."""
+    return _DIRECTION_PHRASE.get(direction, direction.name.lower().replace("_", " "))
+
+
 @dataclass(frozen=True)
 class TrendSummary:
     """The computed verdict for one analyte's series."""

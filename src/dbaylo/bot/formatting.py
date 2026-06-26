@@ -95,11 +95,19 @@ def _companion_inline(escaped: str) -> str:
     return _MD_LINK_RE.sub(r'<a href="\2">\1</a>', out)
 
 
-def render_companion_html(text: str) -> str:
+def _disclaimer_ps(*, full: bool) -> str:
+    """The italic P.S. under a divider: the full disclaimer (first turn / one-shot) or the compact
+    reminder (a continuation turn — the not-a-doctor framing stays, just shorter)."""
+    text = DISCLAIMER if full else locale.DISCLAIMER_SHORT
+    return f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(text)}</i>"
+
+
+def render_companion_html(text: str, *, full_disclaimer: bool = True) -> str:
     """Render a companion / intake reply as Telegram HTML, tidying any markdown: bold/italic become
     tags, a '# heading' becomes bold, '-' bullets become '•', and '---' rules / backticks are
     dropped. The trailing disclaimer is set off as the same italic P.S. under a divider as the lab
-    reading (premium look). Escapes first, so a stray '<' can never break Telegram's parser."""
+    reading (premium look) — compact when ``full_disclaimer`` is False (a continuation turn).
+    Escapes first, so a stray '<' can never break Telegram's parser."""
     body = text
     if body.endswith(DISCLAIMER):
         body = body[: -len(DISCLAIMER)].rstrip()
@@ -115,15 +123,15 @@ def render_companion_html(text: str) -> str:
     out = "\n".join(lines).rstrip()
     if not text.endswith(DISCLAIMER):  # no disclaimer to set off
         return out
-    ps = f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(DISCLAIMER)}</i>"
-    return f"{out}\n\n{ps}"
+    return f"{out}\n\n{_disclaimer_ps(full=full_disclaimer)}"
 
 
-def render_interpretation_html(text: str) -> str:
+def render_interpretation_html(text: str, *, full_disclaimer: bool = True) -> str:
     """Render the plain ``interpret()`` output (body + trailing ``DISCLAIMER``) as Telegram HTML.
 
-    Section headers become bold + emoji; inline *bold*/_italic_ markers become tags; the disclaimer
-    is set off as an italic P.S. under a divider (a single disclaimer — the model adds none).
+    Section headers become bold + emoji; inline *bold*/_italic_ markers become tags. The disclaimer
+    is set off as an italic P.S. under a divider (one disclaimer; the model adds none) — compact
+    when ``full_disclaimer`` is False (a continuation turn).
     """
     body = text
     if body.endswith(DISCLAIMER):
@@ -144,8 +152,7 @@ def render_interpretation_html(text: str) -> str:
             rendered.append(_inline_markup(_escape(line)))
 
     out = "\n".join(rendered).rstrip()
-    ps = f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(DISCLAIMER)}</i>"
-    return f"{out}\n\n{ps}"
+    return f"{out}\n\n{_disclaimer_ps(full=full_disclaimer)}"
 
 
 # Stable order of the interpretation's sections, for navigable (drill-down) delivery.

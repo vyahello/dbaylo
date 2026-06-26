@@ -526,6 +526,7 @@ async def _run_companion_turn(message: Message, state: FSMContext, text: str) ->
     history: list[Turn] = (
         list(data.get("chat_transcript") or []) if _thread_fresh(data.get("chat_ts")) else []
     )
+    continuation = bool(history)  # the full disclaimer rides only the FIRST turn of a thread
     exclude = frozenset(t["text"].strip() for t in history if t.get("text"))
     context = await _grounded_context(message, exclude=exclude)
     async with keep_typing(message):  # 'typing…' covers the whole multi-second LLM call
@@ -541,7 +542,11 @@ async def _run_companion_turn(message: Message, state: FSMContext, text: str) ->
     tg = _telegram_id(message)
     if tg is not None and reply.source == "llm" and _worth_remembering(text):
         await _remember_general(tg, text, reply.text)
-    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)
+    await answer_chunked(
+        message,
+        render_companion_html(reply.text, full_disclaimer=not continuation),
+        parse_mode=ParseMode.HTML,
+    )
 
 
 @router.message(StateFilter(None), F.text & ~F.text.startswith("/"))

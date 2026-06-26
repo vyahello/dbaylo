@@ -57,6 +57,10 @@ class Settings:
     claude_bin: str = "claude"
     # Default model alias for extraction; escalates to "opus" on failure (Stage 2).
     claude_model: str = "sonnet"
+    # Model for the interactive EXPERT chat (companion / consult / symptom intake). Empty -> use
+    # ``claude_model``; set CLAUDE_CHAT_MODEL=opus to trade latency/cost for a sharper reading where
+    # precision matters most. Default keeps behaviour unchanged.
+    claude_chat_model: str = ""
     # Hard timeout (seconds) for a single `claude` subprocess call (chat / humanize).
     claude_timeout_s: int = 180
     # Extraction reads whole documents by vision — a big multi-page panel (e.g. an
@@ -96,6 +100,7 @@ class Settings:
             fsm_db_path=Path(_get("FSM_DB_PATH", str(cls.fsm_db_path))),
             claude_bin=_get("CLAUDE_BIN", "claude"),
             claude_model=_get("CLAUDE_MODEL", "sonnet"),
+            claude_chat_model=_get("CLAUDE_CHAT_MODEL", ""),
             claude_timeout_s=int(_get("CLAUDE_TIMEOUT_S", "180")),
             claude_extract_timeout_s=int(_get("CLAUDE_EXTRACT_TIMEOUT_S", "600")),
             claude_extract_concurrency=int(_get("CLAUDE_EXTRACT_CONCURRENCY", "2")),

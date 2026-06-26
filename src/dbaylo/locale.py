@@ -22,6 +22,11 @@ DISCLAIMER = (
     "не відкладай візит до лікаря. 🩺"
 )
 
+# A compact reminder for CONTINUATION turns of a live chat/consult thread — the full disclaimer is
+# shown once (the first turn / any escalation); repeating the whole paragraph every turn reads like
+# a bot. The not-a-doctor framing still rides every message, just shorter.
+DISCLAIMER_SHORT = "Нагадую: я не лікар, це не діагноз. 🩺"
+
 # --- Triage: care-oriented floor when no red flag matches -----------------------
 
 FLOOR_MESSAGE = (

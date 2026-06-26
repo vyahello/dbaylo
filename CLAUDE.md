@@ -432,6 +432,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   still gate-screened inside `consult` (escalation unaffected); `dataquery` is pure (no LLM/DB) so
   the choke-point is untouched. `start_primed_consult`/`start_data_question_consult` share
   `_enter_consult`.
+- **Precision levers** (#5): four small, low-risk sharpeners of the grounded answer.
+  (1) **Humanized trends** — the grounding feeds `trends.direction_phrase(...)` ("moved out of
+  range") instead of the raw enum token (`LEFT_RANGE`); still range-relative, never a verdict.
+  (2) **Recency pre-computed** — `agerefs.describe_age(date, today)` annotates every grounded date
+  with "~3 months ago" so the model reliably nudges re-testing an old flag instead of doing date
+  math (in `health.build_health_context` + `consult_context`). (3) **Disclaimer dedup** — the full
+  P.S. disclaimer rides only the FIRST turn of a chat/consult thread; continuation turns show
+  `locale.DISCLAIMER_SHORT` (`render_*_html(..., full_disclaimer=...)`, flag set from
+  `bool(history)`/`bool(transcript)`), so a flowing thread isn't stamped with the whole paragraph
+  every message (still not-a-doctor framed; escalations from the gate keep the full text). (4)
+  **Config-gated chat model** — `CLAUDE_CHAT_MODEL` (`settings.claude_chat_model`, default empty =
+  unchanged) lets the EXPERT chat (companion / consult / intake resolve `model or chat_model or
+  None`) use a sharper model than extraction without touching extraction/humanize.
 - **Symptom intake** (`companion/intake.py`, Stage 6B): a multi-turn **history-taking** interview —
   when a free-text turn is a symptom (gate→triage) or a broad physical complaint
   (`looks_like_complaint`, router-only), `companion_flow` starts a guided intake (FSM

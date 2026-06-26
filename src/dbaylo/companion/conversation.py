@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from dbaylo import locale, persona
+from dbaylo.config import get_settings
 from dbaylo.labs.extraction import Runner
 from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import screen
@@ -111,6 +112,7 @@ async def generate_reply(
         text=_finalize(assert_safe_output(locale.COMPANION_FALLBACK)), source="fallback"
     )
     prompt = _build_prompt(text, context=context, history=history or [])
+    model = model or get_settings().claude_chat_model or None  # the (optional) sharper chat model
     try:
         result = await runner(prompt, append_system_prompt=COMPANION_PERSONA, model=model)
     except ClaudeUnavailable:

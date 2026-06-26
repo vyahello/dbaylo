@@ -108,3 +108,38 @@ async def test_llm_unavailable_falls_back() -> None:
 
     reply = await generate_reply("привіт", runner=unavailable)
     assert reply.source == "fallback"
+
+
+def _model_capturing_runner():
+    captured: dict[str, object] = {}
+
+    async def run(prompt: str, *, append_system_prompt: str, model=None, **kw) -> ClaudeResult:
+        captured["model"] = model
+        return ClaudeResult(ok=True, text="ок", raw_stdout="ок", exit_code=0)
+
+    run.captured = captured  # type: ignore[attr-defined]
+    return run
+
+
+async def test_chat_model_is_used_when_configured(monkeypatch) -> None:
+    # Precision lever #5: CLAUDE_CHAT_MODEL lets the expert chat use a sharper model.
+    from types import SimpleNamespace
+
+    import dbaylo.companion.conversation as conv
+
+    monkeypatch.setattr(conv, "get_settings", lambda: SimpleNamespace(claude_chat_model="opus"))
+    runner = _model_capturing_runner()
+    await generate_reply("як краще висипатися?", runner=runner)
+    assert runner.captured["model"] == "opus"  # type: ignore[attr-defined]
+
+
+async def test_chat_model_defaults_to_none_when_unset(monkeypatch) -> None:
+    # Default (empty) keeps behaviour unchanged: model=None -> run_claude uses the default alias.
+    from types import SimpleNamespace
+
+    import dbaylo.companion.conversation as conv
+
+    monkeypatch.setattr(conv, "get_settings", lambda: SimpleNamespace(claude_chat_model=""))
+    runner = _model_capturing_runner()
+    await generate_reply("привіт", runner=runner)
+    assert runner.captured["model"] is None  # type: ignore[attr-defined]
