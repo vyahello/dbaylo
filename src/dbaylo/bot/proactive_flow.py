@@ -149,7 +149,9 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
     current, watch = _split_proposals(proposals)
     counts = _category_counts(current)
     active = await concerns.list_active(session, user_id=user_id)
-    dismissed = await concerns.list_dismissed(session, user_id=user_id)
+    # Only dismissals that are STILL off — a waved-off finding that returned to range is not shown
+    # (restoring it would do nothing), so 🙈 Приховані appears only with something real to restore.
+    dismissed = await health.list_relevant_dismissed(session, user_id, today=date.today())
 
     kb: list[list[InlineKeyboardButton]] = []
     for cat in grouping.CATEGORY_ORDER:
@@ -276,8 +278,8 @@ async def _tracked_detail(
 async def _dismissed_detail(
     session: AsyncSession, *, user_id: int
 ) -> tuple[str, InlineKeyboardMarkup] | None:
-    """The waved-off findings, each with ↩️ to restore it under watch. ``None`` when none remain."""
-    dismissed = await concerns.list_dismissed(session, user_id=user_id)
+    """The still-off waved-off findings, each with ↩️ to restore it. ``None`` when none remain."""
+    dismissed = await health.list_relevant_dismissed(session, user_id, today=date.today())
     if not dismissed:
         return None
     kb: list[list[InlineKeyboardButton]] = [

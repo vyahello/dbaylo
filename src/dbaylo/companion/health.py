@@ -24,7 +24,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.companion import concerns, grouping
-from dbaylo.db.models import ResultFlag
+from dbaylo.db.models import Condition, ResultFlag
 from dbaylo.labs.pipeline import load_series_points
 from dbaylo.labs.trends import (
     LabPoint,
@@ -243,6 +243,20 @@ async def has_current_flags(session: AsyncSession, user_id: int, *, today: date)
         return False
     dismissed = await concerns.names_dismissed(session, user_id=user_id)
     return any(not _already_known(f, dismissed) for f in picture.current)
+
+
+async def list_relevant_dismissed(
+    session: AsyncSession, user_id: int, *, today: date
+) -> list[Condition]:
+    """Dismissed concerns that STILL match a currently-off finding (current/watch), so restoring one
+    would actually re-propose it. A dismissal whose analyte has since returned to range is stale and
+    omitted — so «🙈 Приховані» shows only when there is really something to bring back."""
+    rows = await concerns.list_dismissed(session, user_id=user_id)
+    if not rows:
+        return []
+    picture = await analyze_health(session, user_id, today=today)
+    candidates = [*picture.current, *picture.watch]
+    return [c for c in rows if c.name and any(_already_known(f, [c.name]) for f in candidates)]
 
 
 async def should_have_checkin(session: AsyncSession, user_id: int, *, today: date) -> bool:

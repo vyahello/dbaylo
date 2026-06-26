@@ -171,6 +171,25 @@ async def test_dismissed_flag_stops_the_data_driven_checkin(async_session: Async
     assert not await health.should_have_checkin(async_session, user.id, today=_TODAY)
 
 
+async def test_relevant_dismissed_drops_a_resolved_dismissal(async_session: AsyncSession) -> None:
+    # «🙈 Приховані» must only list dismissals that are STILL off — a waved-off finding whose value
+    # has since returned to range is stale (restoring it would do nothing), so it is omitted.
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session, user, day=date(2026, 6, 2), analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)]
+    )
+    await concerns.dismiss(async_session, user=user, name="Глюкоза")
+    relevant = await health.list_relevant_dismissed(async_session, user.id, today=_TODAY)
+    assert [c.name for c in relevant] == ["Глюкоза"]  # still off -> shown
+
+    # A newer in-range result -> the dismissal is now stale and no longer listed.
+    await _confirm(
+        async_session, user, day=date(2026, 6, 20), analytes=[_analyte("Глюкоза", 5.0, 3.9, 6.1)]
+    )
+    relevant = await health.list_relevant_dismissed(async_session, user.id, today=_TODAY)
+    assert relevant == []  # returned to range -> not shown
+
+
 async def test_build_health_context_lists_current_and_resolved(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     await _confirm(

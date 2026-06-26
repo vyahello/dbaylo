@@ -326,7 +326,9 @@ async def test_open_problems_groups_by_category(monkeypatch) -> None:
         "list_active",
         AsyncMock(return_value=[SimpleNamespace(id=1, name="Болить спина")]),
     )
-    monkeypatch.setattr(proactive_flow.concerns, "list_dismissed", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
+    )
     message = AsyncMock()
     await proactive_flow.open_problems(message, telegram_id=4242)
     message.answer.assert_awaited_once()  # ONE digest message
@@ -400,7 +402,9 @@ def _patch_problems(monkeypatch, finding=None):
         AsyncMock(return_value=[finding or _finding("Глюкоза", category="biochem")]),
     )
     monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=[]))
-    monkeypatch.setattr(proactive_flow.concerns, "list_dismissed", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
+    )
 
 
 async def test_problem_track_creates_concern_by_index_and_refreshes(monkeypatch) -> None:
@@ -445,7 +449,9 @@ async def test_problem_restore_undismisses(monkeypatch) -> None:
     _patch_problems(monkeypatch)
     restore = AsyncMock(return_value=SimpleNamespace(id=5, name="Глюкоза"))
     monkeypatch.setattr(proactive_flow.proactive, "restore_problem", restore)
-    monkeypatch.setattr(proactive_flow.concerns, "list_dismissed", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
+    )
     callback = _callback(callbacks.problem_restore(5))
     callback.message.edit_text = AsyncMock()
     await proactive_flow.on_problem_restore(callback, reminder_scheduler=object())

@@ -279,7 +279,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `add_problem`; ✖ = `dismiss_problem` → a `ConditionStatus.DISMISSED` row (migration 0017), no longer
   re-proposed nor keeping the data-driven check-in alive (`has_current_flags` skips dismissed).
   **✖ is reversible**: a dismissed finding lives under `🙈 Приховані` with `[↩️ <name>]` →
-  `proactive.restore_problem` (`concerns.undismiss` + reconcile) re-proposes it. **Names are
+  `proactive.restore_problem` (`concerns.undismiss` + reconcile) re-proposes it. The `🙈` section
+  shows ONLY dismissals that are STILL off (`health.list_relevant_dismissed` — a waved-off finding
+  that returned to range is stale and omitted, so the section appears only with something real to
+  restore). **Names are
   specimen-disambiguated**: a finding carries `category` + `specimen` (`trends.specimen`); the
   persisted/shown name uses `HealthFinding.display_name` so a urine `Еритроцити (сеча)` is never
   confused with the blood one, and `health._already_known` is **specimen-aware** (tracking blood
