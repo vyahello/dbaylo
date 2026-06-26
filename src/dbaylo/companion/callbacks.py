@@ -32,6 +32,8 @@ GOAL_REMOVE = "goal_rm"  # drop an active goal (carries the goal_id)
 GOAL_VIEW_SUG = "goal_vsug"  # open a SUGGESTION's detail by its index in the proposal list
 GOAL_VIEW = "goal_view"  # open an adopted goal's detail by its goal_id
 GOAL_BACK = "goal_gback"  # back to the goals master (static, edit-in-place)
+GOAL_ARCHIVE = "goal_arch"  # open the «🗄 Закриті цілі» archive (static)
+GOAL_REOPEN = "goal_reop"  # restore a closed goal → ACTIVE (carries the goal_id)
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 # Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
@@ -163,6 +165,14 @@ def goal_remove(goal_id: int) -> str:
 
 def parse_goal_remove(data: str) -> int | None:
     return _parse(GOAL_REMOVE, data)
+
+
+def goal_reopen(goal_id: int) -> str:
+    return _make(GOAL_REOPEN, goal_id)
+
+
+def parse_goal_reopen(data: str) -> int | None:
+    return _parse(GOAL_REOPEN, data)
 
 
 def goal_view_sug(index: int) -> str:

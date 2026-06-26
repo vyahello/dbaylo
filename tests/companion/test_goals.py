@@ -93,6 +93,26 @@ async def test_list_goals(async_session: AsyncSession) -> None:
     assert "краще спати" in listed
 
 
+async def test_closed_goal_archives_and_reactivates(async_session: AsyncSession) -> None:
+    # Achieving/removing a goal closes it into the 🗄 archive; reactivate restores it to ACTIVE.
+    from dbaylo.companion import goals as g
+
+    user = await _user(async_session)
+    await set_goal(async_session, user=user, text="краще спати")
+    goal = (await g.list_active_goals(async_session, user_id=user.id))[0]
+    assert not await g.list_closed_goals(async_session, user_id=user.id)
+
+    await g.achieve_goal(async_session, goal_id=goal.id, user_id=user.id)
+    closed = await g.list_closed_goals(async_session, user_id=user.id)
+    assert [c.id for c in closed] == [goal.id]  # achieved -> archived
+    assert not await g.list_active_goals(async_session, user_id=user.id)
+
+    reopened = await g.reactivate_goal(async_session, goal_id=goal.id, user_id=user.id)
+    assert reopened is not None
+    assert [a.id for a in await g.list_active_goals(async_session, user_id=user.id)] == [goal.id]
+    assert not await g.list_closed_goals(async_session, user_id=user.id)  # left the archive
+
+
 async def test_propose_goals_suggests_from_data_and_excludes_existing(
     async_session: AsyncSession,
 ) -> None:

@@ -94,10 +94,9 @@ def _sug(text, subject, series_key=""):
     return GoalSuggestion(text=text, subject=subject, series_key=series_key)
 
 
-async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) -> None:
-    # Цілі folded into ⚕️ Проблеми: only WELLNESS suggestions (no series_key) are shown — a
-    # finding-derived goal is redundant (track it on Проблеми). A tap opens the detail; «◀» goes
-    # back to the unified screen.
+async def test_goals_master_proposes_from_problems_and_shows_the_archive(monkeypatch) -> None:
+    # The goals screen SUGGESTS goals from problems ("Привести X до норми") + generic wellness,
+    # lists adopted goals, and offers a 🗄 archive of closed goals. «◀» returns to the unified view.
     from dbaylo.companion import callbacks as cb
 
     monkeypatch.setattr(companion_flow, "get_session", _fake_session)
@@ -106,11 +105,11 @@ async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) 
     )
     monkeypatch.setattr(
         companion_flow.goals,
-        "propose_goals",  # a generic wellness suggestion (no series_key) + a finding one (filtered)
+        "propose_goals",  # finding-derived + generic — BOTH shown in the goals screen now
         AsyncMock(
             return_value=[
-                _sug("Налагодити режим сну", "Сон"),
                 _sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза"),
+                _sug("Налагодити режим сну", "Сон"),
             ]
         ),
     )
@@ -119,6 +118,11 @@ async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) 
         "list_active_goals",
         AsyncMock(return_value=[SimpleNamespace(id=3, target="Більше рухатися")]),
     )
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "list_closed_goals",
+        AsyncMock(return_value=[SimpleNamespace(id=9, target="Привести Залізо до норми")]),
+    )
     monkeypatch.setattr(companion_flow.goals, "target_subject", lambda t: "")
     message = AsyncMock()
     await companion_flow.open_goals_screen(message, telegram_id=4242)
@@ -126,13 +130,12 @@ async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) 
         b for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard for b in row
     ]
     datas = [b.callback_data for b in flat]
-    assert cb.goal_view_sug(0) in datas  # the wellness suggestion opens its detail
-    assert cb.goal_view_sug(1) not in datas  # the finding-derived suggestion is filtered out
+    assert cb.goal_view_sug(0) in datas  # the finding-derived suggestion (from a problem)
+    assert cb.goal_view_sug(1) in datas  # the generic wellness suggestion
     assert cb.goal_view(3) in datas  # an adopted goal opens its detail
+    assert cb.GOAL_ARCHIVE in datas  # the 🗄 closed-goals archive button
     assert cb.MENU_GOAL_NEW in datas
     assert cb.MENU_PROB_LIST in datas  # «◀» back to the unified problems-and-goals screen
-    sug_btn = next(b for b in flat if b.callback_data == cb.goal_view_sug(0))
-    assert "Сон" in sug_btn.text  # short subject on the button
 
 
 async def test_suggestion_detail_shows_the_goal_and_adopt(monkeypatch) -> None:
@@ -207,6 +210,7 @@ async def test_on_goal_adopt_sets_the_goal_by_index(monkeypatch) -> None:
     set_goal = AsyncMock(return_value=SimpleNamespace(saved=True))
     monkeypatch.setattr(companion_flow.goals, "set_goal", set_goal)
     monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
+    monkeypatch.setattr(companion_flow.goals, "list_closed_goals", AsyncMock(return_value=[]))
     monkeypatch.setattr(companion_flow.proactive, "reconcile_checkin", AsyncMock())
 
     callback = _goal_cb(cb.goal_adopt(0))
@@ -227,6 +231,7 @@ async def test_on_goal_achieve_and_remove(monkeypatch) -> None:
     )
     monkeypatch.setattr(companion_flow.goals, "propose_goals", AsyncMock(return_value=[]))
     monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
+    monkeypatch.setattr(companion_flow.goals, "list_closed_goals", AsyncMock(return_value=[]))
     achieve = AsyncMock(return_value=SimpleNamespace(id=3))
     remove = AsyncMock(return_value=SimpleNamespace(id=3))
     monkeypatch.setattr(companion_flow.goals, "achieve_goal", achieve)

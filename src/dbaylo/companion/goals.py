@@ -235,6 +235,31 @@ async def remove_goal(session: AsyncSession, *, goal_id: int, user_id: int) -> G
     return await _set_status(session, goal_id=goal_id, user_id=user_id, status=GoalStatus.ABANDONED)
 
 
+async def list_closed_goals(session: AsyncSession, *, user_id: int) -> list[Goal]:
+    """The user's CLOSED goals — achieved (🎉) or abandoned (🗑) — newest first, for the «🗄 Закриті»
+    archive so a closed goal can be reviewed and restored."""
+    rows = await session.scalars(
+        select(Goal)
+        .where(
+            Goal.user_id == user_id,
+            Goal.status.in_([GoalStatus.ACHIEVED, GoalStatus.ABANDONED]),
+        )
+        .order_by(Goal.created_at.desc())
+    )
+    return list(rows.all())
+
+
+async def reactivate_goal(session: AsyncSession, *, goal_id: int, user_id: int) -> Goal | None:
+    """Restore a CLOSED goal from the archive (↩️) — set it back to ACTIVE. Returns the row (for the
+    toast + a check-in reconcile), or ``None`` if it is not this user's closed goal."""
+    goal = await session.get(Goal, goal_id)
+    if goal is None or goal.user_id != user_id or goal.status == GoalStatus.ACTIVE:
+        return None
+    goal.status = GoalStatus.ACTIVE
+    await session.flush()
+    return goal
+
+
 async def _set_status(
     session: AsyncSession, *, goal_id: int, user_id: int, status: GoalStatus
 ) -> Goal | None:

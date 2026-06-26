@@ -389,6 +389,15 @@ BTN_GOAL_ACHIEVE_DETAIL = "✅ Досягнута"
 BTN_GOAL_REMOVE_DETAIL = "🗑 Прибрати"
 BTN_GOAL_BACK = "◀ Назад"
 BTN_GOAL_BACK_TO_HEALTH = "◀ До проблем і цілей"  # goals view → the unified screen
+# Closed-goals archive (achieved / abandoned), with restore.
+BTN_GOAL_ARCHIVE = "🗄 Закриті цілі — {n}"
+GOAL_ARCHIVE_HEADER = (
+    "🗄 Закриті цілі — досягнуті (🎉) і прибрані (🗑). Натисни, щоб повернути ціль у роботу:"
+)
+BTN_GOAL_REOPEN = "↩️ {mark} {subject}"  # mark = 🎉 / 🗑 (the closed status)
+GOAL_REOPEN_TOAST = "Повернув ціль у роботу. ↩️"
+GOAL_ARCHIVE_MARK_ACHIEVED = "🎉"
+GOAL_ARCHIVE_MARK_ABANDONED = "🗑"
 
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",

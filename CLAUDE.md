@@ -399,10 +399,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми й цілі ·
   📝 Чек-ін — **Цілі were FOLDED INTO ⚕️ Проблеми**: they proposed the same out-of-range findings, so
   it is now ONE screen; the unified Проблеми screen carries a `🎯 Мої цілі — N` group
-  (`callbacks.MENU_OPEN_GOALS`) → the goals view, whose «◀» returns via `MENU_PROB_LIST`. Finding-
-  derived goal suggestions are dropped — `companion_flow._wellness_suggestions` filters
-  `propose_goals` to the generic wellness ones (no `series_key`) since a finding is tracked as a
-  problem now. The unified screen is laid out as **visual GROUPS, not a flat pile** (`_problems_top`):
+  (`callbacks.MENU_OPEN_GOALS`) → the goals view, whose «◀» returns via `MENU_PROB_LIST`. The goals
+  view (`_goals_master`) is a full screen (the owner: "хочу окрему кнопку"): it SUGGESTS goals from
+  your problems (`propose_goals` — "Привести X до норми" per out-of-range finding + generic wellness;
+  the only menu-level de-dup is that the suggestions live here, not at the top), lists your adopted
+  goals, and offers a `🗄 Закриті цілі — N` archive (`goals.list_closed_goals` = ACHIEVED/ABANDONED,
+  `_goals_archive`) where `[↩️ <subject>]` → `goals.reactivate_goal` (→ ACTIVE + check-in reconcile)
+  RESTORES a closed goal. The unified screen is laid out as **visual GROUPS, not a flat pile**
+  (`_problems_top`):
   out-of-range categories two-per-row, then 📈 на межі, then the management pair `[✅ Під наглядом]
   [🙈 Відкладені]` on one row, then a separated `🎯 Мої цілі` row, then ➕; a legend header
   (`PROBLEM_GROUP_HEADER`) labels the ⚕️-problems vs 🎯-goals split. "Вже відстежую"→"Під наглядом",

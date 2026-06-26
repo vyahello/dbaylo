@@ -37,6 +37,7 @@ from dbaylo.companion.conversation import Turn, generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
+from dbaylo.db.models import GoalStatus
 from dbaylo.labs.intake import ensure_user
 from dbaylo.safety import GateSource, screen
 
@@ -102,20 +103,14 @@ def _short_goal(text: str, limit: int = 32) -> str:
     return text if len(text) <= limit else text[: limit - 1].rstrip() + "…"
 
 
-async def _wellness_suggestions(session: AsyncSession, user_id: int) -> list[goals.GoalSuggestion]:
-    """Generic WELLNESS goal suggestions only (sleep, movement, …). A finding-derived goal is now
-    redundant — an out-of-range indicator is tracked on the unified ⚕️ Проблеми screen — so those
-    (the ones carrying a ``series_key``) are dropped from the goals view to kill the duplication."""
-    proposed = await goals.propose_goals(session, user_id, today=date.today())
-    return [s for s in proposed if not s.series_key]
-
-
 async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The goals view (reached from ⚕️ Проблеми → 🎯 Мої цілі): short subject buttons — wellness
-    suggestions (🎯) then adopted goals (📌). A tap opens that goal's detail where the action lives;
-    «◀ Назад» returns to the unified problems-and-goals screen."""
-    suggestions = await _wellness_suggestions(session, user_id)
+    """The goals view (⚕️ Проблеми → 🎯 Мої цілі): the agent SUGGESTS goals from your problems
+    ("Привести X до норми") + generic wellness ones (🎯), then your adopted goals (📌), then a 🗄
+    archive of closed goals you can restore. A tap opens a goal's detail where the action lives;
+    «◀» returns to the unified problems-and-goals screen."""
+    suggestions = await goals.propose_goals(session, user_id, today=date.today())
     current = await goals.list_active_goals(session, user_id=user_id)
+    closed = await goals.list_closed_goals(session, user_id=user_id)
     lines: list[str] = [locale.GOAL_MASTER_HEADER]
     kb: list[list[InlineKeyboardButton]] = []
     if suggestions:
@@ -143,6 +138,15 @@ async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, In
             )
     if not suggestions and not current:
         lines = [locale.GOAL_ALL_SET]
+    if closed:  # the archive of achieved/abandoned goals — review & restore
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_GOAL_ARCHIVE.format(n=len(closed)),
+                    callback_data=callbacks.GOAL_ARCHIVE,
+                )
+            ]
+        )
     kb.append(
         [InlineKeyboardButton(text=locale.BTN_GOAL_OWN, callback_data=callbacks.MENU_GOAL_NEW)]
     )
@@ -154,6 +158,34 @@ async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, In
         ]
     )
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
+
+
+async def _goals_archive(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """The 🗄 archive of CLOSED goals (achieved 🎉 / abandoned 🗑), each `[↩️ subject]` → restore to
+    ACTIVE. ``None`` when none — so the «🗄 Закриті» button shows only with something inside."""
+    closed = await goals.list_closed_goals(session, user_id=user_id)
+    if not closed:
+        return None
+    kb: list[list[InlineKeyboardButton]] = []
+    for goal in closed:
+        mark = (
+            locale.GOAL_ARCHIVE_MARK_ACHIEVED
+            if goal.status == GoalStatus.ACHIEVED
+            else locale.GOAL_ARCHIVE_MARK_ABANDONED
+        )
+        subject = goals.target_subject(goal.target or "") or (goal.target or "")
+        kb.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_GOAL_REOPEN.format(mark=mark, subject=_short_goal(subject)),
+                    callback_data=callbacks.goal_reopen(goal.id),
+                )
+            ]
+        )
+    kb.append([InlineKeyboardButton(text=locale.BTN_GOAL_BACK, callback_data=callbacks.GOAL_BACK)])
+    return locale.GOAL_ARCHIVE_HEADER, InlineKeyboardMarkup(inline_keyboard=kb)
 
 
 def _direction_word(finding: health.HealthFinding) -> str:
@@ -196,7 +228,7 @@ async def _suggestion_detail(
     """A suggestion's detail: full title + a 🎯 Взяти ціль action. ``None`` when the index no longer
     resolves (caller falls back). Only wellness suggestions are shown now (findings live in
     ⚕️ Проблеми)."""
-    suggestions = await _wellness_suggestions(session, user_id)
+    suggestions = await goals.propose_goals(session, user_id, today=date.today())
     if not 0 <= index < len(suggestions):
         return None
     sug = suggestions[index]
@@ -281,6 +313,41 @@ async def on_goal_back(callback: CallbackQuery) -> None:
     await callback.answer()
 
 
+@router.callback_query(F.data == callbacks.GOAL_ARCHIVE)
+async def on_goal_archive(callback: CallbackQuery) -> None:
+    """🗄 Закриті цілі — open the closed-goals archive (each re-openable)."""
+    tg = callback.from_user.id if callback.from_user else None
+    if tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        built = await _goals_archive(session, user_id=user.id)
+    await _edit_to_detail(callback, built)  # None -> back to master (archive emptied meanwhile)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.GOAL_REOPEN + ":"))
+async def on_goal_reopen(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """↩️ Restore a closed goal → ACTIVE (check-in reconciled), then re-render the archive (or back
+    to the master when it is now empty)."""
+    goal_id = callbacks.parse_goal_reopen(callback.data or "")
+    tg = callback.from_user.id if callback.from_user else None
+    if goal_id is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        if await goals.reactivate_goal(session, goal_id=goal_id, user_id=user.id) is not None:
+            await proactive.reconcile_checkin(session, user=user, scheduler=reminder_scheduler)
+            toast = locale.GOAL_REOPEN_TOAST
+        await session.commit()
+        built = await _goals_archive(session, user_id=user.id)
+    await callback.answer(toast)
+    await _edit_to_detail(callback, built)
+
+
 @router.callback_query(F.data.startswith(callbacks.GOAL_VIEW_SUG + ":"))
 async def on_goal_view_sug(callback: CallbackQuery) -> None:
     """Open a suggestion's detail (full title + indicator history + 🎯 Взяти ціль)."""
@@ -324,7 +391,7 @@ async def on_goal_adopt(callback: CallbackQuery, reminder_scheduler: ReminderSch
     toast = ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        suggestions = await _wellness_suggestions(session, user.id)
+        suggestions = await goals.propose_goals(session, user.id, today=date.today())
         if 0 <= index < len(suggestions):
             result = await goals.set_goal(session, user=user, text=suggestions[index].text)
             if result.saved:
