@@ -214,9 +214,10 @@ async def test_on_goal_adopt_sets_the_goal_by_index(monkeypatch) -> None:
     set_goal = AsyncMock(return_value=SimpleNamespace(saved=True))
     monkeypatch.setattr(companion_flow.goals, "set_goal", set_goal)
     monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
+    monkeypatch.setattr(companion_flow.proactive, "reconcile_checkin", AsyncMock())
 
     callback = _goal_cb(cb.goal_adopt(0))
-    await companion_flow.on_goal_adopt(callback)
+    await companion_flow.on_goal_adopt(callback, AsyncMock())  # reminder_scheduler injected
     set_goal.assert_awaited_once()
     assert (
         set_goal.await_args.kwargs["text"] == "Привести Глюкоза до норми"
@@ -237,6 +238,7 @@ async def test_on_goal_achieve_and_remove(monkeypatch) -> None:
     remove = AsyncMock(return_value=SimpleNamespace(id=3))
     monkeypatch.setattr(companion_flow.goals, "achieve_goal", achieve)
     monkeypatch.setattr(companion_flow.goals, "remove_goal", remove)
+    monkeypatch.setattr(companion_flow.proactive, "reconcile_checkin", AsyncMock())
 
     def _cb(data):
         callback = AsyncMock()
@@ -246,7 +248,7 @@ async def test_on_goal_achieve_and_remove(monkeypatch) -> None:
         callback.message.edit_text = AsyncMock()
         return callback
 
-    await companion_flow.on_goal_achieve(_cb(cb.goal_achieve(3)))
+    await companion_flow.on_goal_achieve(_cb(cb.goal_achieve(3)), AsyncMock())
     assert achieve.await_args.kwargs["goal_id"] == 3
-    await companion_flow.on_goal_remove(_cb(cb.goal_remove(3)))
+    await companion_flow.on_goal_remove(_cb(cb.goal_remove(3)), AsyncMock())
     assert remove.await_args.kwargs["goal_id"] == 3  # 🗑 undoes an accidental adopt

@@ -134,6 +134,17 @@ async def test_has_current_flags_and_should_have_checkin(async_session: AsyncSes
     assert await health.should_have_checkin(async_session, user.id, today=_TODAY)
 
 
+async def test_should_have_checkin_true_for_an_active_goal(async_session: AsyncSession) -> None:
+    # Goals are functional: an active goal alone turns ON the daily check-in (Дбайло follows up on
+    # how it's going) — even with no flags and no tracked concern.
+    from dbaylo.companion import goals
+
+    user = await ensure_user(async_session, 1)
+    assert not await health.should_have_checkin(async_session, user.id, today=_TODAY)
+    await goals.set_goal(async_session, user=user, text="Більше рухатися щодня")
+    assert await health.should_have_checkin(async_session, user.id, today=_TODAY)
+
+
 async def test_should_have_checkin_true_for_a_tracked_concern_without_labs(
     async_session: AsyncSession,
 ) -> None:

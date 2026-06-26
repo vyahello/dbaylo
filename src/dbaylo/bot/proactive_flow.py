@@ -308,8 +308,9 @@ async def open_problems(message: Message, telegram_id: int) -> None:
     await message.answer(text, reply_markup=keyboard)
 
 
-async def _edit_to_top(callback: CallbackQuery) -> None:
-    """Re-render the grouped top level in place (after an action / «Назад»)."""
+async def _edit_to_top(callback: CallbackQuery, *, note: str = "") -> None:
+    """Re-render the grouped top level in place (after an action / «Назад»). ``note`` is a
+    persistent confirmation line prepended when the acted-on group became empty and we fell here."""
     tg = _telegram_id(callback)
     if tg is None or not isinstance(callback.message, Message):
         return
@@ -317,7 +318,7 @@ async def _edit_to_top(callback: CallbackQuery) -> None:
         user = await ensure_user(session, telegram_id=tg)
         text, keyboard = await _problems_top(session, user_id=user.id)
     with contextlib.suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.edit_text(note + text, reply_markup=keyboard)
 
 
 async def _edit_to_detail(
@@ -325,8 +326,10 @@ async def _edit_to_detail(
     builder: str,
     *,
     category: str = "",
+    note: str = "",
 ) -> None:
-    """Edit the message into a detail view; fall back to the top level when the detail is empty."""
+    """Edit the message into a detail view; fall back to the top level when the detail is empty.
+    ``note`` is a persistent confirmation line prepended above the view (after a 👁/✖ tap)."""
     tg = _telegram_id(callback)
     if tg is None or not isinstance(callback.message, Message):
         return
@@ -339,11 +342,11 @@ async def _edit_to_detail(
         else:  # tracked
             built = await _tracked_detail(session, user_id=user.id)
     if built is None:
-        await _edit_to_top(callback)
+        await _edit_to_top(callback, note=note)
         return
     text, keyboard = built
     with contextlib.suppress(TelegramBadRequest):
-        await callback.message.edit_text(text, reply_markup=keyboard)
+        await callback.message.edit_text(note + text, reply_markup=keyboard)
 
 
 @router.callback_query(F.data == callbacks.PROBLEM_BACK)
@@ -382,42 +385,47 @@ async def _act_on_proposal(
     index: int,
     scheduler: ReminderScheduler,
     track: bool,
-) -> str:
-    """Track (👁) or dismiss (✖) the proposal at ``index`` in the freshly-derived flat list. The
-    DISPLAY name (specimen-qualified) is persisted so a urine/blood twin is never confused."""
+) -> tuple[str, str]:
+    """Track (👁) or dismiss (✖) the proposal at ``index`` in the freshly-derived flat list. Returns
+    ``(toast, note)`` — a brief toast AND a persistent line prepended to the re-rendered view so the
+    user SEES what happened and where the finding went. The DISPLAY name (specimen-qualified) is
+    persisted so a urine/blood twin is never confused."""
     tg = _telegram_id(callback)
     if tg is None:
-        return ""
+        return "", ""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         proposals = await health.propose_problems(session, user.id, today=date.today())
         if not 0 <= index < len(proposals):
-            return ""
+            return "", ""
         name = proposals[index].display_name
         if track:
             await proactive.add_problem(session, user=user, name=name, scheduler=scheduler)
-            toast = locale.PROBLEM_TRACK_TOAST
+            toast, note = locale.PROBLEM_TRACK_TOAST, locale.PROBLEM_TRACK_NOTE.format(name=name)
         else:
             await proactive.dismiss_problem(session, user=user, name=name, scheduler=scheduler)
-            toast = locale.PROBLEM_DISMISS_TOAST
+            toast, note = (
+                locale.PROBLEM_DISMISS_TOAST,
+                locale.PROBLEM_DISMISS_NOTE.format(name=name),
+            )
         await session.commit()
-    return toast
+    return toast, note
 
 
 @router.callback_query(F.data.startswith(callbacks.PROBLEM_TRACK + ":"))
 async def on_problem_track(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
     """Track an AI-proposed finding (👁): create the concern + schedule the daily check-in, then
-    re-render the same detail (or the top when that group is now empty)."""
+    re-render the same detail (or the top when that group is now empty), led by a confirmation."""
     parsed = callbacks.parse_problem_track(callback.data or "")
     if parsed is None:
         await callback.answer()
         return
     category, index = parsed
-    toast = await _act_on_proposal(
+    toast, note = await _act_on_proposal(
         callback, category=category, index=index, scheduler=reminder_scheduler, track=True
     )
     await callback.answer(toast)
-    await _edit_to_detail(callback, "category", category=category)
+    await _edit_to_detail(callback, "category", category=category, note=note)
 
 
 @router.callback_query(F.data.startswith(callbacks.PROBLEM_DISMISS + ":"))
@@ -425,17 +433,17 @@ async def on_problem_dismiss(
     callback: CallbackQuery, reminder_scheduler: ReminderScheduler
 ) -> None:
     """Wave off an AI-proposed finding (✖): remember it DISMISSED (reversible from 🙈 Приховані),
-    then re-render the same detail (or the top when that group is now empty)."""
+    then re-render the detail (or the top when that group is now empty), led by a confirmation."""
     parsed = callbacks.parse_problem_dismiss(callback.data or "")
     if parsed is None:
         await callback.answer()
         return
     category, index = parsed
-    toast = await _act_on_proposal(
+    toast, note = await _act_on_proposal(
         callback, category=category, index=index, scheduler=reminder_scheduler, track=False
     )
     await callback.answer(toast)
-    await _edit_to_detail(callback, "category", category=category)
+    await _edit_to_detail(callback, "category", category=category, note=note)
 
 
 @router.callback_query(F.data.startswith(callbacks.PROBLEM_RESTORE + ":"))

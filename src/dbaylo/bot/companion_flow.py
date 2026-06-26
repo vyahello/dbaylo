@@ -32,7 +32,7 @@ from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, checkin, consult_memory, goals, health, intake
+from dbaylo.companion import callbacks, checkin, consult_memory, goals, health, intake, proactive
 from dbaylo.companion.conversation import Turn, generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
@@ -296,9 +296,10 @@ async def on_goal_view(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith(callbacks.GOAL_ADOPT + ":"))
-async def on_goal_adopt(callback: CallbackQuery) -> None:
+async def on_goal_adopt(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
     """🎯 Взяти ціль (from a suggestion detail): adopt by index (re-derived), guardrail vets it,
-    then back to the master (the suggestion is now an adopted goal)."""
+    then back to the master (the suggestion is now an adopted goal). Adopting a goal turns ON the
+    daily check-in so Дбайло proactively follows up on it."""
     index = callbacks.parse_goal_adopt(callback.data or "")
     tg = callback.from_user.id if callback.from_user else None
     if index is None or tg is None:
@@ -310,6 +311,8 @@ async def on_goal_adopt(callback: CallbackQuery) -> None:
         suggestions = await goals.propose_goals(session, user.id, today=date.today())
         if 0 <= index < len(suggestions):
             result = await goals.set_goal(session, user=user, text=suggestions[index].text)
+            if result.saved:
+                await proactive.reconcile_checkin(session, user=user, scheduler=reminder_scheduler)
             await session.commit()
             toast = locale.GOAL_ADOPTED_TOAST if result.saved else locale.GOAL_NOT_ADOPTED
     await callback.answer(toast)
@@ -317,8 +320,9 @@ async def on_goal_adopt(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith(callbacks.GOAL_ACHIEVE + ":"))
-async def on_goal_achieve(callback: CallbackQuery) -> None:
-    """✅ Mark a goal achieved (from its detail), then back to the master."""
+async def on_goal_achieve(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """✅ Mark a goal achieved (from its detail), then back to the master. Reconcile so a
+    now-pointless daily check-in retires when this was the last reason for it."""
     goal_id = callbacks.parse_goal_achieve(callback.data or "")
     tg = callback.from_user.id if callback.from_user else None
     if goal_id is None or tg is None:
@@ -328,6 +332,7 @@ async def on_goal_achieve(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         if await goals.achieve_goal(session, goal_id=goal_id, user_id=user.id) is not None:
+            await proactive.reconcile_checkin(session, user=user, scheduler=reminder_scheduler)
             await session.commit()
             toast = locale.GOAL_ACHIEVED_TOAST
     await callback.answer(toast)
@@ -335,8 +340,9 @@ async def on_goal_achieve(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data.startswith(callbacks.GOAL_REMOVE + ":"))
-async def on_goal_remove(callback: CallbackQuery) -> None:
-    """🗑 Drop a goal (undo an accidental adopt, from its detail), then back to the master."""
+async def on_goal_remove(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """🗑 Drop a goal (undo an accidental adopt, from its detail), then back to the master. Reconcile
+    the check-in (it may have been the only reason for it)."""
     goal_id = callbacks.parse_goal_remove(callback.data or "")
     tg = callback.from_user.id if callback.from_user else None
     if goal_id is None or tg is None:
@@ -346,6 +352,7 @@ async def on_goal_remove(callback: CallbackQuery) -> None:
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         if await goals.remove_goal(session, goal_id=goal_id, user_id=user.id) is not None:
+            await proactive.reconcile_checkin(session, user=user, scheduler=reminder_scheduler)
             await session.commit()
             toast = locale.GOAL_REMOVED_TOAST
     await callback.answer(toast)

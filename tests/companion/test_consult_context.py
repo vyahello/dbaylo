@@ -61,6 +61,20 @@ def test_section_label_maps_index_to_name() -> None:
     assert section_label(99) == "" and section_label(-1) == ""
 
 
+async def test_patient_profile_includes_active_goals(async_session: AsyncSession) -> None:
+    # Goals are now FUNCTIONAL: an active goal is grounded into the profile, so Дбайло references &
+    # supports it everywhere (chat / consult / check-in), not just stores a dead row.
+    from dbaylo.companion import goals
+    from dbaylo.companion.consult_context import patient_profile
+
+    user = await ensure_user(async_session, 1)
+    result = await goals.set_goal(async_session, user=user, text="Налагодити режим сну")
+    assert result.saved  # a benign wellness goal passes the guardrail
+    profile = await patient_profile(async_session, user.id, _TODAY)
+    assert "Goals the user is actively working toward" in profile
+    assert "Налагодити режим сну" in profile
+
+
 async def test_general_context_grounds_a_whole_picture_consult(async_session: AsyncSession) -> None:
     # #6: a general consultation (entered from chat's affordances) grounds in the indicator picture.
     user = await ensure_user(async_session, 1)

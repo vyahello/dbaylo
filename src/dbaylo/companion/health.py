@@ -319,11 +319,18 @@ async def indicator_history(
 
 
 async def should_have_checkin(session: AsyncSession, user_id: int, *, today: date) -> bool:
-    """Whether the user should get a daily check-in: they track an active concern, OR the data shows
-    a currently out-of-range indicator (so Дбайло proactively checks in on a real problem even with
-    no concern added manually). Lives here so both ``proactive`` and ``scheduler`` can use it (the
-    scheduler must not import ``proactive`` — that would be a cycle)."""
+    """Whether the user should get a daily check-in: they track an active concern, OR they have an
+    ACTIVE goal (Дбайло checks in on how it's going), OR the data shows a currently out-of-range
+    indicator (so it proactively checks in on a real problem even with no concern added manually).
+    Lives here so both ``proactive`` and ``scheduler`` can use it (the scheduler must not import
+    ``proactive`` — that would be a cycle)."""
+    from dbaylo.companion import (
+        goals,
+    )  # local import: goals is a heavier leaf; avoid load-time cost
+
     if await concerns.count_active(session, user_id=user_id) > 0:
+        return True
+    if await goals.active_goal_texts(session, user_id=user_id):
         return True
     return await has_current_flags(session, user_id, today=today)
 

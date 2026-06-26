@@ -57,6 +57,21 @@ async def test_no_concern_means_no_checkin_job(
     assert _count(scheduler, "checkin") == 0
 
 
+async def test_an_active_goal_schedules_the_checkin(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # Goals are functional: an active goal alone turns ON the daily check-in (Дбайло follows up).
+    from dbaylo.companion import goals
+
+    user = await _user(async_session)
+    assert _count(scheduler, "checkin") == 0
+    result = await goals.set_goal(async_session, user=user, text="Більше рухатися щодня")
+    assert result.saved
+    await proactive.reconcile_checkin(async_session, user=user, scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 1  # a goal alone is reason enough to check in
+
+
 async def test_first_problem_schedules_checkin_then_last_resolve_removes_it(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

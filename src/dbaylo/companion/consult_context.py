@@ -14,7 +14,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import concerns, consult_memory, health, history, notecache
+from dbaylo.companion import concerns, consult_memory, goals, health, history, notecache
 from dbaylo.labs.agerefs import age_on, describe_age
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
@@ -198,13 +198,14 @@ async def patient_profile(session: AsyncSession, user_id: int, today: date) -> s
     Shared by the consult and the general companion / symptom intake."""
     reports = await history.list_confirmed(session, user_id=user_id, limit=8)
     conditions = await concerns.list_active(session, user_id=user_id)
+    goal_texts = await goals.active_goal_texts(session, user_id=user_id)
     age = sex = None
     for r in reports:  # newest first — take the first report that printed each
         if age is None and r.birth_date is not None:
             age = age_on(r.birth_date, today)
         if sex is None and r.sex:
             sex = r.sex
-    if age is None and sex is None and not conditions and not reports:
+    if age is None and sex is None and not conditions and not goal_texts and not reports:
         return ""  # nothing to personalise from -> a general (non-grounded) reply
     lines = [f"PATIENT PROFILE (personalise to THIS patient; today is {today.isoformat()}):"]
     who = []
@@ -217,6 +218,15 @@ async def patient_profile(session: AsyncSession, user_id: int, today: date) -> s
     names = "; ".join(c.name for c in conditions if c.name)
     if names:
         lines.append(f"- Health concerns the user is currently tracking: {names}.")
+    if goal_texts:
+        # The user's ACTIVE goals — Дбайло should support them: ask how they're going, encourage
+        # progress, weave them in. Never prescribe restrictive numbers toward a goal (the rails).
+        lines.append(
+            "- Goals the user is actively working toward (support these — ask how it's going and "
+            "cheer real progress, but never prescribe doses, calories, or crash targets): "
+            + "; ".join(goal_texts)
+            + "."
+        )
     if reports:
         lines.append("- Recent reports (most recent first):")
         for r in reports[:8]:

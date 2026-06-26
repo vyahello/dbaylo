@@ -234,7 +234,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `[🎯 Взяти ціль]` (`set_goal`, guardrail re-vets), an adopted goal has `[✅ Досягнута]`
   (`achieve_goal`→ACHIEVED) `[🗑 Прибрати]` (`remove_goal`→ABANDONED, the **undo for an accidental
   adopt**); every detail has `[◀ Назад]`, every action edits back to the master. No migration (reuses
-  `GoalStatus`).
+  `GoalStatus`). **Goals are FUNCTIONAL, not a dead list** (the owner found them inert): an active
+  goal is grounded into `consult_context.patient_profile` ("Goals the user is actively working
+  toward — support these…") so the companion / consult / intake / check-in all REFERENCE and support
+  it; and `health.should_have_checkin` returns True for an active goal (a goal alone turns ON the
+  daily check-in), with `on_goal_adopt`/`achieve`/`remove` calling `proactive.reconcile_checkin` so
+  the job appears/retires immediately. The check-in persona asks how a goal is going (no numeric
+  targets, the rails hold).
 - **Symptom handoff** (`companion/symptoms.py`): deterministic Ukrainian keyword → `Symptom`
   → `triage.evaluate`. The LLM never makes the escalation call. `SYMPTOM_KEYWORDS` is kept
   **disjoint** from the wellness purging signals (involuntary vs. self-induced vomiting) so
@@ -292,6 +298,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   category is only so the SAME detail re-renders after the action (empty → falls back to top). 👁 =
   `add_problem`; ✖ = `dismiss_problem` → a `ConditionStatus.DISMISSED` row (migration 0017), no longer
   re-proposed nor keeping the data-driven check-in alive (`has_current_flags` skips dismissed).
+  **The screens EXPLAIN the benefit + give persistent feedback** (the owner found tracking opaque —
+  items vanished with no destination, the value unclear): the headers (`PROBLEM_CAT_HEADER`,
+  `PROBLEM_TRACKED_HEADER`, `PROBLEM_GROUP_HEADER`) spell out what 👁 does (nags in the daily check-in
+  + grounds the chat); `_act_on_proposal` returns a persistent `note` (`PROBLEM_TRACK_NOTE`/
+  `PROBLEM_DISMISS_NOTE`, prepended by `_edit_to_detail`/`_edit_to_top`) so a tapped finding shows
+  "взяв «X» під нагляд → у ✅ Вже відстежую" in-message, not just a flash toast; the broken resolve
+  message is fixed (`PROBLEM_RESOLVED`).
   **✖ is reversible**: a dismissed finding lives under `🙈 Приховані` with `[↩️ <name>]` →
   `proactive.restore_problem` (`concerns.undismiss` + reconcile) re-proposes it. The `🙈` section
   shows ONLY dismissals that are STILL off (`health.list_relevant_dismissed` — a waved-off finding

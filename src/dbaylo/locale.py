@@ -359,14 +359,17 @@ GOAL_ALL_SET = (
 # Neutral, data-framed goal for an out-of-range finding (no method/dose/diet implied).
 GOAL_SUGGEST_NORMALIZE = "Привести {name} до норми"
 BTN_GOAL_OWN = "➕ Своя ціль"
-GOAL_ADOPTED_TOAST = "Взяв у цілі! 🎯"
+GOAL_ADOPTED_TOAST = "Взяв у цілі! 🎯 Питатиму, як просувається."
 GOAL_NOT_ADOPTED = "Цю ціль не вийшло взяти — спробуй сформулювати інакше."
 GOAL_ACHIEVED_TOAST = "Вітаю — ціль досягнута! 🎉"
 GOAL_REMOVED_TOAST = "Прибрав ціль."
 # --- Goals master-detail: short subjects in the list, full title + history in the detail ----------
-GOAL_MASTER_HEADER = "🎯 Цілі. Тисни ціль, щоб переглянути й вирішити:"
-GOAL_MASTER_SUGGEST_LABEL = "Пропоную:"
-GOAL_MASTER_MINE_LABEL = "Твої цілі:"
+GOAL_MASTER_HEADER = (
+    "🎯 Цілі — над чим ти працюєш. Я памʼятаю їх, згадую в розмові та в щоденному чек-іні "
+    "й питаю, як просувається. Тисни ціль, щоб глянути чи відмітити:"
+)
+GOAL_MASTER_SUGGEST_LABEL = "💡 Пропоную взяти:"
+GOAL_MASTER_MINE_LABEL = "📌 Твої активні цілі:"
 BTN_GOAL_VIEW_SUG = "🎯 {subject}"  # a suggestion in the master (tap -> its detail)
 BTN_GOAL_VIEW = "📌 {subject}"  # an adopted goal in the master (tap -> its detail)
 GOAL_DETAIL_SUG_TITLE = "🎯 <b>{goal}</b>"  # suggestion detail
@@ -433,7 +436,7 @@ PROBLEM_ADDED = (
 )
 PROBLEM_LIST_HEADER = "Ось що зараз актуально:"
 PROBLEM_LIST_EMPTY = "Зараз немає активних проблем — і я нічим не турбуватиму. Додати: /problem"
-PROBLEM_RESOLVED = "Радий це чути! Познач було вирішено. 💚"
+PROBLEM_RESOLVED = "Готово 💚 Прибрав з-під нагляду — більше не нагадуватиму про це."
 PROBLEM_ASK_RENAME = "Введи нову назву для цієї проблеми:"
 PROBLEM_RENAMED = "Готово, оновив назву."
 BTN_PROBLEM_RESOLVED = "✅ Вирішено"
@@ -447,7 +450,10 @@ PROBLEM_LAB_DRAFT = "{analyte} поза нормою"
 # of typing problems by hand.
 # Grouped problems screen (category master-detail): a top-level digest of what's off, grouped by
 # clinical category, then drill into one group. Keeps the screen from being a scary wall.
-PROBLEM_GROUP_HEADER = "🔎 Переглянув усі твої аналізи. Ось що поза нормою — обери, щоб глянути:"
+PROBLEM_GROUP_HEADER = (
+    "🔎 Переглянув усі твої аналізи. Ось що поза нормою — обери категорію, щоб глянути.\n"
+    "Що візьмеш 👁 під нагляд — я нагадуватиму про це в щоденному чек-іні та згадуватиму в розмові."
+)
 PROBLEM_GROUP_NOTHING_OFF = "🔎 Зараз нічого поза нормою."  # header when only watch/tracked remain
 BTN_PROBLEM_CATEGORY = "{label} — {n}"  # label already carries an emoji (CATEGORY_NAMES)
 BTN_PROBLEM_WATCH = "📈 На межі — {n}"
@@ -455,11 +461,18 @@ BTN_PROBLEM_TRACKED = "✅ Вже відстежую — {n}"
 BTN_PROBLEM_DISMISSED = "🙈 Приховані — {n}"
 BTN_PROBLEM_BACK = "◀ Назад"
 # Category / watch / tracked / dismissed detail headers.
-PROBLEM_CAT_HEADER = "{label} — поза нормою. Тисни 👁, щоб я відстежував, або ✖, якщо не турбує:"
+PROBLEM_CAT_HEADER = (
+    "{label} — поза нормою.\n"
+    "👁 — взяти під нагляд: нагадаю про це в щоденному чек-іні й питатиму, як воно.\n"
+    "✖ — приховати, не турбувати (повернути завжди можна)."
+)
 PROBLEM_WATCH_HEADER = (
     "📈 На межі норми — ще в нормі, але повзе до краю. Я пильную; взяти під нагляд (👁) чи ні (✖)?"
 )
-PROBLEM_TRACKED_HEADER = "✅ Вже відстежую — тисни, щоб позначити вирішеним, або ✏️ перейменувати:"
+PROBLEM_TRACKED_HEADER = (
+    "✅ Тримаю під наглядом — нагадую про це в щоденному чек-іні й згадую в розмові.\n"
+    "Тисни на показник, щоб позначити ВИРІШЕНИМ (прибрати з нагляду), або ✏️ — перейменувати."
+)
 PROBLEM_DISMISSED_HEADER = "🙈 Приховані — ти позначив, що не турбує. Натисни ↩️, щоб повернути:"
 PROBLEM_ALL_CLEAR = (
     "Зараз усе в межах норми, активних проблем немає. Я сам пригляну за новими аналізами "
@@ -474,9 +487,16 @@ BTN_PROBLEM_TRACK = "👁 {name}"  # the button carries the finding's name so ro
 BTN_PROBLEM_DISMISS = "✖"
 BTN_PROBLEM_RESTORE = "↩️ {name}"
 BTN_PROBLEM_ADD_MANUAL = "➕ Своя проблема"
-PROBLEM_TRACK_TOAST = "Відстежую — нагадаю й перепитаю. 👁"
+PROBLEM_TRACK_TOAST = "Взяв під нагляд 👁 — шукай у «✅ Вже відстежую»."
 PROBLEM_DISMISS_TOAST = "Гаразд, не турбуватиму цим. Передумаєш — поверну з «🙈 Приховані». ✖"
 PROBLEM_RESTORE_TOAST = "Повернув під нагляд. ↩️"
+# Persistent confirmation lines prepended to the re-rendered detail after a 👁/✖ tap, so the user
+# SEES where the finding went (it was vanishing silently). {name} is the finding's display name.
+PROBLEM_TRACK_NOTE = (
+    "✅ Взяв «{name}» під нагляд — тепер він у «✅ Вже відстежую». "
+    "Нагадаю про нього в щоденному чек-іні.\n\n"
+)
+PROBLEM_DISMISS_NOTE = "🙈 Приховав «{name}» — не турбуватиму. Повернути: «🙈 Приховані».\n\n"
 
 # --- Tier 1.1: lab-flag concern offer + repeat-lab offer ------------------------
 
