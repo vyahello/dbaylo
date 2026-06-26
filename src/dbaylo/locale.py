@@ -415,6 +415,11 @@ CHECKIN_PROMPT = (
     "приблизно випив(-ла) води, чи був рух/тренування, який настрій (1–5) і чи турбує "
     "щось у самопочутті."
 )
+# Shown the moment you tap 📝 Чек-ін, while the grounded prompt (a multi-second LLM call) is built —
+# so the wait is explained, not blank. Edited into the real check-in question when ready.
+CHECKIN_ANALYZING = (
+    "🔎 Хвилинку, готую персональний чек-ін — переглядаю твої аналізи й самопочуття за останні дні…"
+)
 CHECKIN_SAVED = "Дякую, що поділився(-лась) 💚 Занотував."
 # The single, gentle follow-up — sent once if no check-in arrived; never nags.
 CHECKIN_NUDGE = "Я тут, якщо захочеш розповісти, як минув день. Без поспіху 🌿"
@@ -465,6 +470,7 @@ BTN_PROBLEM_WATCH = "📈 На межі — {n}"
 BTN_PROBLEM_TRACKED = "✅ Під наглядом — {n}"
 BTN_PROBLEM_GOALS = "🎯 Мої цілі — {n}"  # the goals group, folded into the unified screen (#merge)
 BTN_PROBLEM_DISMISSED = "🙈 Відкладені — {n}"
+BTN_PROBLEM_RESOLVED_LIST = "✔️ Вирішені — {n}"  # the closed-concerns archive (re-openable)
 BTN_PROBLEM_BACK = "◀ Назад"
 # Category / watch / tracked / dismissed detail headers.
 PROBLEM_CAT_HEADER = (
@@ -484,6 +490,12 @@ PROBLEM_DISMISSED_HEADER = (
     "🙈 Відкладені — це показники з аналізів, які ти відклав (✖ «не турбує»). Я про них не "
     "нагадую й не пропоную. Натисни ↩️, щоб повернути показник під нагляд:"
 )
+PROBLEM_RESOLVED_HEADER = (
+    "✔️ Вирішені — те, що ти вже закрив. Я про них не нагадую, але памʼятаю. "
+    "Натисни ↩️, щоб знову взяти під нагляд:"
+)
+BTN_PROBLEM_REOPEN = "↩️ {name}"
+PROBLEM_REOPEN_TOAST = "Повернув під нагляд — знову нагадуватиму. ↩️"
 PROBLEM_ALL_CLEAR = (
     "Зараз усе в межах норми, активних проблем немає. Я сам пригляну за новими аналізами "
     "й підкажу, якщо щось зміниться. 💚"

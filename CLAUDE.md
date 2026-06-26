@@ -249,7 +249,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   to triage. One follow-up only, never nags (`should_send_nudge`). The firing prompt is now
   **GROUNDED + proactive** (`build_grounded_prompt`, LLM + `assert_safe_output`, deterministic
   fallback to the static `build_prompt`): it opens by asking about the user's ACTUAL current
-  concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt.
+  concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt. The MANUAL
+  📝 Чек-ін (`companion_flow.start_checkin_dialog`) shows a `CHECKIN_ANALYZING` placeholder the moment
+  it is tapped and EDITS it into the grounded prompt when ready (the multi-second LLM call otherwise
+  reads as "waiting for nothing"); the grounded prompt now also references the user's active GOALS.
 - **Health analyzer** (`companion/health.py`, the "big idea" foundation): **deterministic, NO LLM,
   NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine into `current` (latest
   out of range), `watch` (still in range but trending toward — within 15% of — a bound: an EARLY
@@ -305,11 +308,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `PROBLEM_DISMISS_NOTE`, prepended by `_edit_to_detail`/`_edit_to_top`) so a tapped finding shows
   "взяв «X» під нагляд → у ✅ Вже відстежую" in-message, not just a flash toast; the broken resolve
   message is fixed (`PROBLEM_RESOLVED`).
-  **✖ is reversible**: a dismissed finding lives under `🙈 Приховані` with `[↩️ <name>]` →
+  **✖ is reversible**: a dismissed finding lives under `🙈 Відкладені` with `[↩️ <name>]` →
   `proactive.restore_problem` (`concerns.undismiss` + reconcile) re-proposes it. The `🙈` section
   shows ONLY dismissals that are STILL off (`health.list_relevant_dismissed` — a waved-off finding
   that returned to range is stale and omitted, so the section appears only with something real to
-  restore). **Names are
+  restore). **✅ resolve is also reversible** (the owner: "якщо жму галочку він пропадає"): resolving
+  a tracked concern (`concerns.resolve` → RESOLVED) lands it in a `✔️ Вирішені — N` archive
+  (`concerns.list_resolved`, `_resolved_detail`), each row `[↩️ <name>]` → `proactive.reopen_problem`
+  (`concerns.reopen` → ACTIVE + reconcile) puts it back under nadhliad — so a closed concern is never
+  lost. The 📈 **На межі list MIXES specimens**, so it tags every item with its sample via
+  `HealthFinding.specimen_name` (blood→`(кров)` too, not just urine/semen) — "Базофіли" / "ГГТ"
+  aren't ambiguous next to "Неплаский епітелій (сеча)". **Names are
   specimen-disambiguated**: a finding carries `category` + `specimen` (`trends.specimen`); the
   persisted/shown name uses `HealthFinding.display_name` so a urine `Еритроцити (сеча)` is never
   confused with the blood one, and `health._already_known` is **specimen-aware** (tracking blood

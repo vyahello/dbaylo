@@ -98,6 +98,32 @@ async def resolve(session: AsyncSession, condition_id: int) -> Condition | None:
     return condition
 
 
+async def list_resolved(session: AsyncSession, *, user_id: int) -> list[Condition]:
+    """The user's RESOLVED concerns (the «✔️ Вирішені» archive) — most recently resolved first, so a
+    closed concern can be reviewed or re-opened. Read-only."""
+    rows = await session.scalars(
+        select(Condition)
+        .where(Condition.user_id == user_id, Condition.status == ConditionStatus.RESOLVED)
+        .order_by(Condition.created_at.desc())
+    )
+    return list(rows.all())
+
+
+async def reopen(session: AsyncSession, *, user_id: int, condition_id: int) -> Condition | None:
+    """Re-open a RESOLVED concern ("знову під нагляд"): set it back to ACTIVE. Returns the row (for
+    the toast + a check-in reconcile), or ``None`` if it is not this user's resolved concern."""
+    condition = await session.get(Condition, condition_id)
+    if (
+        condition is None
+        or condition.user_id != user_id
+        or condition.status != ConditionStatus.RESOLVED
+    ):
+        return None
+    condition.status = ConditionStatus.ACTIVE
+    await session.flush()
+    return condition
+
+
 async def rename(session: AsyncSession, condition_id: int, new_name: str) -> Condition | None:
     condition = await session.get(Condition, condition_id)
     if condition is not None:

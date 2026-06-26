@@ -395,15 +395,24 @@ async def start_checkin_dialog(
     the bot, not the owner) so the grounding still loads the right user."""
     await state.set_state(CheckinStates.waiting_for_answer)
     tg = telegram_id if telegram_id is not None else _telegram_id(message)
-    prompt = checkin.build_prompt()
-    if tg is not None:
-        async with get_session() as session:
-            user = await ensure_user(session, telegram_id=tg)
-            context = await checkin.grounded_context(session, user_id=user.id, today=date.today())
-        if context:
-            async with keep_typing(message):
-                prompt = await checkin.build_grounded_prompt(context)
-    await message.answer(prompt, reply_markup=cancel_keyboard())
+    if tg is None:
+        await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        context = await checkin.grounded_context(session, user_id=user.id, today=date.today())
+    if not context:  # nothing to ground in -> the gentle generic prompt, instantly
+        await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+        return
+    # The grounded prompt is a multi-second claude call. Tell the user what we're doing (a bare
+    # "typing…" reads as "waiting for unknown") with a placeholder we then EDIT into the prompt.
+    placeholder = await message.answer(locale.CHECKIN_ANALYZING)
+    async with keep_typing(message):
+        prompt = await checkin.build_grounded_prompt(context)
+    try:
+        await placeholder.edit_text(prompt, reply_markup=cancel_keyboard())
+    except TelegramBadRequest:  # a stale/uneditable placeholder -> just send the prompt
+        await message.answer(prompt, reply_markup=cancel_keyboard())
 
 
 @router.message(Command("checkin"))

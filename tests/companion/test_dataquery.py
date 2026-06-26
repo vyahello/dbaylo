@@ -20,6 +20,16 @@ def _f(name: str, *, series_key: str = "k", specimen: str = "blood") -> HealthFi
     )
 
 
+def test_specimen_name_tags_blood_too() -> None:
+    # display_name leaves blood bare (in a single-specimen view); specimen_name tags it "(кров)" for
+    # a MIXED list (📈 На межі) so "Базофіли" isn't ambiguous next to "… (сеча)".
+    blood = _f("Базофіли", specimen="blood")
+    assert blood.display_name == "Базофіли"  # bare in a blood-only context
+    assert blood.specimen_name == "Базофіли (кров)"  # tagged in a mixed list
+    urine = _f("Еритроцити", specimen="urine")
+    assert urine.display_name == "Еритроцити (сеча)" == urine.specimen_name
+
+
 def test_is_data_question() -> None:
     assert dataquery.is_data_question("чому залізо низьке?")
     assert dataquery.is_data_question("що з моїми аналізами")

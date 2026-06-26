@@ -72,6 +72,36 @@ async def test_an_active_goal_schedules_the_checkin(
     assert _count(scheduler, "checkin") == 1  # a goal alone is reason enough to check in
 
 
+async def test_resolve_then_reopen_restores_the_concern_and_checkin(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # ✅ resolve closes a concern (it leaves «під наглядом»), but it is NOT gone: it lands in the
+    # «✔️ Вирішені» archive and ↩️ re-opens it (back under nadhliad, check-in back on).
+    from dbaylo.companion import concerns
+
+    user = await _user(async_session)
+    c = await proactive.add_problem(async_session, user=user, name="залізо", scheduler=scheduler)
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 1
+
+    await proactive.resolve_problem(
+        async_session, user_id=user.id, condition_id=c.id, scheduler=scheduler
+    )
+    await async_session.commit()
+    assert _count(scheduler, "checkin") == 0  # nothing active -> retired
+    resolved = await concerns.list_resolved(async_session, user_id=user.id)
+    assert [r.id for r in resolved] == [c.id]  # archived, not gone
+
+    reopened = await proactive.reopen_problem(
+        async_session, user_id=user.id, condition_id=c.id, scheduler=scheduler
+    )
+    await async_session.commit()
+    assert reopened is not None
+    assert _count(scheduler, "checkin") == 1  # back under watch -> check-in back on
+    assert not await concerns.list_resolved(async_session, user_id=user.id)  # left the archive
+    assert [a.id for a in await concerns.list_active(async_session, user_id=user.id)] == [c.id]
+
+
 async def test_first_problem_schedules_checkin_then_last_resolve_removes_it(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

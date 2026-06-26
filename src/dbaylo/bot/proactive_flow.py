@@ -154,6 +154,7 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
     counts = _category_counts(current)
     active = await concerns.list_active(session, user_id=user_id)
     active_goals = await goals.list_active_goals(session, user_id=user_id)
+    resolved = await concerns.list_resolved(session, user_id=user_id)
     # Only dismissals that are STILL off — a waved-off finding that returned to range is not shown
     # (restoring it would do nothing), so 🙈 Приховані appears only with something real to restore.
     dismissed = await health.list_relevant_dismissed(session, user_id, today=date.today())
@@ -184,18 +185,26 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
                 )
             ]
         )
-    # Problem MANAGEMENT — tracked + set-aside on one row (visually a pair, distinct from findings).
-    management = []
+    # Problem MANAGEMENT: the LIVE tracked on its own row, then the ARCHIVES (set-aside + closed)
+    # paired below — so a resolved concern is reviewable / re-openable, not gone forever.
     if active:
-        management.append(
-            _ib(locale.BTN_PROBLEM_TRACKED.format(n=len(active)), callbacks.PROBLEM_TRACKED)
+        kb.append(
+            [_ib(locale.BTN_PROBLEM_TRACKED.format(n=len(active)), callbacks.PROBLEM_TRACKED)]
         )
+    archive = []
     if dismissed:
-        management.append(
+        archive.append(
             _ib(locale.BTN_PROBLEM_DISMISSED.format(n=len(dismissed)), callbacks.PROBLEM_DISMISSED)
         )
-    if management:
-        kb.append(management)
+    if resolved:
+        archive.append(
+            _ib(
+                locale.BTN_PROBLEM_RESOLVED_LIST.format(n=len(resolved)),
+                callbacks.PROBLEM_RESOLVED_LIST,
+            )
+        )
+    if archive:
+        kb.append(archive)
     # 🎯 ЦІЛІ — its OWN row, clearly separated from the problems above (folded in, not mixed).
     kb.append(
         [_ib(locale.BTN_PROBLEM_GOALS.format(n=len(active_goals)), callbacks.MENU_OPEN_GOALS)]
@@ -226,11 +235,12 @@ async def _category_detail(
     if not items:
         return None
     # In a single-category detail the header already says the specimen, so show the bare name; the
-    # watch list can mix specimens, so qualify there (Еритроцити (сеча)).
+    # 📈 watch list MIXES specimens, so tag every item with its sample (incl. blood → "(кров)") so
+    # "Базофіли" / "ГГТ" aren't ambiguous next to "Неплаский епітелій (сеча)".
     lines = [header, ""]
     kb: list[list[InlineKeyboardButton]] = []
     for index, finding in items:
-        shown = finding.display_name if qualify else finding.name
+        shown = finding.specimen_name if qualify else finding.name
         lines.append(_finding_line(finding, name=shown))
         kb.append(
             [
@@ -297,6 +307,29 @@ async def _dismissed_detail(
     return locale.PROBLEM_DISMISSED_HEADER, InlineKeyboardMarkup(inline_keyboard=kb)
 
 
+async def _resolved_detail(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup] | None:
+    """The ✔️ closed-concerns archive: each resolved concern with ↩️ to re-open it (put back under
+    nadhliad). ``None`` when none — so the «✔️ Вирішені» button shows only with something inside."""
+    resolved = await concerns.list_resolved(session, user_id=user_id)
+    if not resolved:
+        return None
+    kb: list[list[InlineKeyboardButton]] = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_PROBLEM_REOPEN.format(name=_short(condition.name)),
+                callback_data=callbacks.problem_reopen(condition.id),
+            )
+        ]
+        for condition in resolved
+    ]
+    kb.append(
+        [InlineKeyboardButton(text=locale.BTN_PROBLEM_BACK, callback_data=callbacks.PROBLEM_BACK)]
+    )
+    return locale.PROBLEM_RESOLVED_HEADER, InlineKeyboardMarkup(inline_keyboard=kb)
+
+
 async def open_problems(message: Message, telegram_id: int) -> None:
     """The agent's read of your problems, grouped by category (drill into one), plus what you
     already track and what you waved off. Propose-then-confirm — the agent never decides."""
@@ -337,6 +370,8 @@ async def _edit_to_detail(
             built = await _category_detail(session, user_id=user.id, category=category)
         elif builder == "dismissed":
             built = await _dismissed_detail(session, user_id=user.id)
+        elif builder == "resolved":
+            built = await _resolved_detail(session, user_id=user.id)
         else:  # tracked
             built = await _tracked_detail(session, user_id=user.id)
     if built is None:
@@ -374,6 +409,35 @@ async def on_problem_tracked(callback: CallbackQuery) -> None:
 async def on_problem_dismissed(callback: CallbackQuery) -> None:
     await _edit_to_detail(callback, "dismissed")
     await callback.answer()
+
+
+@router.callback_query(F.data == callbacks.PROBLEM_RESOLVED_LIST)
+async def on_problem_resolved_list(callback: CallbackQuery) -> None:
+    """✔️ Вирішені — open the closed-concerns archive (each re-openable)."""
+    await _edit_to_detail(callback, "resolved")
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.PROBLEM_REOPEN + ":"))
+async def on_problem_reopen(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """↩️ Re-open a resolved concern: set it ACTIVE again (back under nadhliad, check-in reconciled),
+    then re-render the archive (or the top when it is now empty)."""
+    condition_id = callbacks.parse_problem_reopen(callback.data or "")
+    tg = _telegram_id(callback)
+    if condition_id is None or tg is None:
+        await callback.answer()
+        return
+    toast = ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        reopened = await proactive.reopen_problem(
+            session, user_id=user.id, condition_id=condition_id, scheduler=reminder_scheduler
+        )
+        await session.commit()
+        if reopened is not None:
+            toast = locale.PROBLEM_REOPEN_TOAST
+    await callback.answer(toast)
+    await _edit_to_detail(callback, "resolved")
 
 
 async def _act_on_proposal(

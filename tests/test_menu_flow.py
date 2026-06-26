@@ -376,6 +376,7 @@ async def test_open_problems_groups_by_category(monkeypatch) -> None:
         AsyncMock(return_value=[SimpleNamespace(id=1, name="Болить спина")]),
     )
     monkeypatch.setattr(proactive_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
+    monkeypatch.setattr(proactive_flow.concerns, "list_resolved", AsyncMock(return_value=[]))
     monkeypatch.setattr(
         proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])
     )
@@ -453,6 +454,7 @@ def _patch_problems(monkeypatch, finding=None):
         AsyncMock(return_value=[finding or _finding("Глюкоза", category="biochem")]),
     )
     monkeypatch.setattr(proactive_flow.concerns, "list_active", AsyncMock(return_value=[]))
+    monkeypatch.setattr(proactive_flow.concerns, "list_resolved", AsyncMock(return_value=[]))
     monkeypatch.setattr(proactive_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
     monkeypatch.setattr(
         proactive_flow.health, "list_relevant_dismissed", AsyncMock(return_value=[])

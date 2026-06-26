@@ -102,6 +102,20 @@ async def restore_problem(
     return condition
 
 
+async def reopen_problem(
+    session: AsyncSession, *, user_id: int, condition_id: int, scheduler: ReminderScheduler
+) -> Condition | None:
+    """Re-open a RESOLVED concern ("знову під нагляд") from the «✔️ Вирішені» archive: set it ACTIVE
+    again, then reconcile so the daily check-in turns back on for it."""
+    condition = await concerns.reopen(session, user_id=user_id, condition_id=condition_id)
+    if condition is None:
+        return None
+    user = await session.get(User, user_id)
+    if user is not None:
+        await reconcile_checkin(session, user=user, scheduler=scheduler)
+    return condition
+
+
 async def add_medication(
     session: AsyncSession,
     *,

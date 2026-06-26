@@ -16,9 +16,11 @@ PROBLEM_TRACK = "prob_track"
 PROBLEM_DISMISS = "prob_dismiss"
 PROBLEM_CAT = "prob_cat"  # open one category's out-of-range detail (carries the category key)
 PROBLEM_BACK = "prob_pback"  # back to the grouped top level (static, edit-in-place)
-PROBLEM_TRACKED = "prob_trkd"  # open the "вже відстежую" detail (static)
-PROBLEM_DISMISSED = "prob_dmd"  # open the "приховані" restore detail (static)
+PROBLEM_TRACKED = "prob_trkd"  # open the "під наглядом" detail (static)
+PROBLEM_DISMISSED = "prob_dmd"  # open the "відкладені" restore detail (static)
 PROBLEM_RESTORE = "prob_rest"  # restore one dismissed finding (carries its condition_id)
+PROBLEM_RESOLVED_LIST = "prob_rslvd"  # open the "✔️ Вирішені" archive (static)
+PROBLEM_REOPEN = "prob_reopen"  # re-open one resolved concern → ACTIVE (carries its condition_id)
 # AI-suggested goals: adopt one by its INDEX in the freshly-derived suggestion list (computed, not a
 # DB row; re-resolved on tap like the problems proposals). Adopted goals are then manageable rows
 # addressed by their goal_id: ✅ achieved / 🗑 removed (undo an accidental adopt).
@@ -129,6 +131,14 @@ def problem_restore(condition_id: int) -> str:
 
 def parse_problem_restore(data: str) -> int | None:
     return _parse(PROBLEM_RESTORE, data)
+
+
+def problem_reopen(condition_id: int) -> str:
+    return _make(PROBLEM_REOPEN, condition_id)
+
+
+def parse_problem_reopen(data: str) -> int | None:
+    return _parse(PROBLEM_REOPEN, data)
 
 
 def goal_adopt(index: int) -> str:

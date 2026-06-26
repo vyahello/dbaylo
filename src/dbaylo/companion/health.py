@@ -42,6 +42,9 @@ from dbaylo.labs.trends import (
 # already keeps them as separate series; we surface that to the UI so a finding name is never
 # ambiguous. Blood is the implicit default (untagged); urine/semen carry a short qualifier.
 _SPECIMEN_TAG = {"urine": "сеча", "semen": "еякулят"}
+# Like ``_SPECIMEN_TAG`` but blood is tagged too — for a list that MIXES specimens (📈 На межі),
+# where an untagged blood name ("Базофіли") is ambiguous. Biochem/hormones are blood-derived → кров.
+_SPECIMEN_TAG_FULL = {"blood": "кров", "urine": "сеча", "semen": "еякулят"}
 
 _FLAG_TEXT = {
     ResultFlag.HIGH: "above its reference (HIGH)",
@@ -75,6 +78,13 @@ class HealthFinding:
         """The unambiguous name to SHOW / persist: a urine/semen analyte carries its specimen so
         'Еритроцити (сеча)' is never confused with the blood one; blood stays bare."""
         tag = _SPECIMEN_TAG.get(self.specimen)
+        return f"{self.name} ({tag})" if tag else self.name
+
+    @property
+    def specimen_name(self) -> str:
+        """Like ``display_name`` but ALSO tags blood ('(кров)') — for a MIXED list (📈 На межі spans
+        blood/urine/semen/biochem) where a bare name leaves the user guessing the sample."""
+        tag = _SPECIMEN_TAG_FULL.get(self.specimen)
         return f"{self.name} ({tag})" if tag else self.name
 
 
