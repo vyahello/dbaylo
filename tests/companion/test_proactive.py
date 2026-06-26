@@ -395,3 +395,51 @@ async def test_empty_reminders_list_has_no_keyboard(
         async_session, user_id=user.id, scheduler=scheduler
     )
     assert text == locale.REMINDERS_EMPTY and keyboard is None
+
+
+async def test_medications_list_taps_open_a_card_not_a_turn_off(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # The fix: tapping a medication must OPEN its card (read), never destructively turn it off.
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    user = await _user(async_session)
+    med, _created = await proactive.add_medication(
+        async_session, user=user, name="Метформін", times=[time(9, 0)], scheduler=scheduler
+    )
+    await async_session.commit()
+    text, keyboard = await proactive_flow._medications_payload(async_session, user_id=user.id)
+    assert keyboard is not None
+    datas = [b.callback_data for row in keyboard.inline_keyboard for b in row]
+    assert datas == [callbacks.medication_view(med.id, "m")]  # opens the card (origin = meds list)
+    assert not any(d.startswith(callbacks.MEDICATION_OFF + ":") for d in datas)  # never a turn-off
+
+    # A turned-off medication leaves the list (its record + dose are kept elsewhere).
+    await proactive.turn_off_medication(async_session, medication_id=med.id, scheduler=scheduler)
+    await async_session.commit()
+    text2, keyboard2 = await proactive_flow._medications_payload(async_session, user_id=user.id)
+    assert keyboard2 is None and text2 == locale.MED_LIST_EMPTY
+
+
+def test_med_card_shows_the_dose_as_a_record() -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.db.models import Medication
+
+    med = Medication(name="Метформін", dose="850 мг", schedule="09:00, 21:00")
+    card = proactive_flow._med_card(med, when="2026-06-27 09:00")
+    assert "Метформін" in card and "850 мг" in card  # the dose is visible as a record
+    assert "09:00, 21:00" in card  # the times are shown
+
+
+def test_med_card_keyboard_back_follows_the_origin() -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    from_meds = proactive_flow._med_card_keyboard(5, "m")
+    from_rems = proactive_flow._med_card_keyboard(5, "r")
+    meds_datas = [b.callback_data for row in from_meds.inline_keyboard for b in row]
+    rems_datas = [b.callback_data for row in from_rems.inline_keyboard for b in row]
+    # Both offer a deliberate turn-off; back returns to the list the card was opened from.
+    assert meds_datas == [callbacks.medication_off(5, "m"), callbacks.MED_LIST_BACK]
+    assert rems_datas == [callbacks.medication_off(5, "r"), callbacks.REMINDERS_BACK]

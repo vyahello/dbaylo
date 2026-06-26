@@ -37,6 +37,10 @@ MEDICATION_OFF = "med_off"
 REMINDER_VIEW = "rem_view"
 MEDICATION_VIEW = "med_view"
 REMINDERS_BACK = "rem_back"  # back to the reminders list (static, edit-in-place)
+MED_LIST_BACK = "med_lback"  # back to the medications list (static, edit-in-place)
+# A medication card is reachable from the 💊 meds list AND the 🔔 reminders list; medication_view /
+# medication_off carry an ORIGIN ('m' meds list, 'r' reminders list) so «Назад» / a turn-off return
+# the user to the list they came from.
 
 # Tier 1.2 — history & retrieval. All carry only ids/indices (well within the 64-byte
 # callback-data limit); analyte names are looked up by index, never embedded.
@@ -175,12 +179,22 @@ def parse_reminder_off(data: str) -> int | None:
     return _parse(REMINDER_OFF, data)
 
 
-def medication_off(medication_id: int) -> str:
-    return _make(MEDICATION_OFF, medication_id)
+def _make_origin(prefix: str, ident: int, origin: str) -> str:
+    return f"{prefix}{_SEP}{ident}{_SEP}{origin}"
 
 
-def parse_medication_off(data: str) -> int | None:
-    return _parse(MEDICATION_OFF, data)
+def _parse_origin(prefix: str, data: str) -> tuple[int, str] | None:
+    head, _, rest = data.partition(_SEP)
+    ident, _, origin = rest.partition(_SEP)
+    return (int(ident), origin) if head == prefix and ident.isdigit() and origin else None
+
+
+def medication_off(medication_id: int, origin: str = "r") -> str:
+    return _make_origin(MEDICATION_OFF, medication_id, origin)
+
+
+def parse_medication_off(data: str) -> tuple[int, str] | None:
+    return _parse_origin(MEDICATION_OFF, data)
 
 
 def reminder_view(reminder_id: int) -> str:
@@ -191,12 +205,12 @@ def parse_reminder_view(data: str) -> int | None:
     return _parse(REMINDER_VIEW, data)
 
 
-def medication_view(medication_id: int) -> str:
-    return _make(MEDICATION_VIEW, medication_id)
+def medication_view(medication_id: int, origin: str = "r") -> str:
+    return _make_origin(MEDICATION_VIEW, medication_id, origin)
 
 
-def parse_medication_view(data: str) -> int | None:
-    return _parse(MEDICATION_VIEW, data)
+def parse_medication_view(data: str) -> tuple[int, str] | None:
+    return _parse_origin(MEDICATION_VIEW, data)
 
 
 # Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's

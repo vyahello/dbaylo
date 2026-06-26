@@ -303,8 +303,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   Еритроцити no longer suppresses proposing the urine one). Tracked concerns sit behind `✅ Вже
   відстежую` (`[✅ <name>][✏️]` resolve/rename). Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
-  `Reminder.medication_id`; turning a medication off removes *all* its jobs), `/reminders`
-  (list + turn off, next_run from the scheduler). **💊 з фото рецепта** (`labs/prescription.py`
+  `Reminder.medication_id`), `/reminders` (list, next_run from the scheduler). **💊 Список ліків is a
+  master-detail** (`_medications_payload`): a short `💊 <name>` button per LIVE medication (one with
+  an active reminder) OPENS its card (`medication_view`, never a destructive turn-off tap); the card
+  (`_med_card`, HTML) shows name · **dose** (record-keeping, escaped) · times · next run, and the
+  ACTION is a deliberate `[🔕 Вимкнути нагадування]` (`turn_off_medication` — keeps the Medication row
+  + dose, just deactivates the jobs) `[◀ Назад]`. The med card is shared by the 💊 meds list and the
+  🔔 reminders list, so `medication_view`/`medication_off` carry an **origin** ('m'/'r') and «Назад» /
+  the turn-off return to the list it was opened from (`MED_LIST_BACK` vs `REMINDERS_BACK`). **💊 з
+  фото рецепта** (`labs/prescription.py`
   extractor + `bot/prescription_flow.py`, the 📷 button): a prescription photo/PDF is OCR'd to
   drug · dose · times (claude, defensive parser, like lab extraction), shown for confirmation
   (rail #5; nothing persists until confirm, rail #2), then a `Medication`+reminders per timed drug.

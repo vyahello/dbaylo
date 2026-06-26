@@ -9,9 +9,11 @@ schedule immediately (no restart).
 from __future__ import annotations
 
 import contextlib
+import html
 from datetime import date, datetime
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
@@ -567,27 +569,65 @@ async def on_medication_times(
     await message.answer(locale.MED_ADDED.format(name=name, times=pretty))
 
 
-async def open_medications(message: Message, telegram_id: int) -> None:
-    """List the user's medications in ONE message — a tappable turn-off per medication (the name is
-    in the button, so turning one off removes just that row) instead of a message each."""
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=telegram_id)
-        meds = await medications.list_medications(session, user_id=user.id)
-    if not meds:
-        await message.answer(locale.MED_LIST_EMPTY)
-        return
+async def _live_medications(session: AsyncSession, *, user_id: int) -> list[Medication]:
+    """The medications with at least one ACTIVE reminder (a turned-off med leaves the list, though
+    its record + dose are kept), in their reminder order."""
+    rows = await reminders.active_reminders_for_user(session, user_id=user_id)
+    order: list[int] = []
+    seen: set[int] = set()
+    for reminder in rows:
+        mid = reminder.medication_id
+        if reminder.type == reminders.TYPE_MEDICATION and mid is not None and mid not in seen:
+            seen.add(mid)
+            order.append(mid)
+    meds = {m.id: m for m in await medications.list_medications(session, user_id=user_id)}
+    return [meds[mid] for mid in order if mid in meds]
+
+
+async def _medications_payload(
+    session: AsyncSession, *, user_id: int
+) -> tuple[str, InlineKeyboardMarkup | None]:
+    """The medications MASTER: one short `💊 <name>` button per live medication — a tap OPENS its
+    card (read), it never destructively turns it off (that's a deliberate button in the card)."""
+    live = await _live_medications(session, user_id=user_id)
+    if not live:
+        return locale.MED_LIST_EMPTY, None
     rows = [
         [
             InlineKeyboardButton(
-                text=locale.BTN_MED_OFF_NAMED.format(name=med.name, times=med.schedule or "?"),
-                callback_data=callbacks.medication_off(med.id),
+                text=locale.BTN_MED_VIEW.format(name=_short(med.name)),
+                callback_data=callbacks.medication_view(med.id, "m"),
             )
         ]
-        for med in meds
+        for med in live
     ]
-    await message.answer(
-        locale.MED_LIST_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
-    )
+    return locale.MED_LIST_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def open_medications(message: Message, telegram_id: int) -> None:
+    """The medications list (💊 Список ліків) — short names, tap one to read its card."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        text, keyboard = await _medications_payload(session, user_id=user.id)
+    await message.answer(text, reply_markup=keyboard)
+
+
+async def _edit_to_meds(callback: CallbackQuery) -> None:
+    """Edit the current message back into the (refreshed) medications list."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        text, keyboard = await _medications_payload(session, user_id=user.id)
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(text, reply_markup=keyboard)
+
+
+@router.callback_query(F.data == callbacks.MED_LIST_BACK)
+async def on_med_list_back(callback: CallbackQuery) -> None:
+    await _edit_to_meds(callback)
+    await callback.answer()
 
 
 # --- Reminder management --------------------------------------------------------
@@ -642,7 +682,7 @@ async def _reminders_payload(
                 continue  # one row per medication; its card turns off all its times
             shown_medications.add(reminder.medication_id)
             label = _reminder_label(reminder, meds.get(reminder.medication_id), when)
-            data = callbacks.medication_view(reminder.medication_id)
+            data = callbacks.medication_view(reminder.medication_id, "r")
         else:
             label = _reminder_label(reminder, None, when)
             data = callbacks.reminder_view(reminder.id)
@@ -726,15 +766,47 @@ async def on_reminder_view(callback: CallbackQuery, reminder_scheduler: Reminder
     await callback.answer()
 
 
+def _med_card(med: Medication, *, when: str) -> str:
+    """The medication card (escaped HTML): name · dose (a record) · times · next run · hint."""
+    lines = [locale.MED_CARD_TITLE.format(name=html.escape(med.name))]
+    if med.dose:
+        lines.append(locale.MED_CARD_DOSE.format(dose=html.escape(med.dose)))
+    lines.append(locale.MED_CARD_TIMES.format(times=html.escape(med.schedule or "?")))
+    lines.append(locale.MED_CARD_NEXT.format(when=when))
+    lines.append("")
+    lines.append(locale.MED_CARD_HINT)
+    return "\n".join(lines)
+
+
+def _med_card_keyboard(medication_id: int, origin: str) -> InlineKeyboardMarkup:
+    """The med card's actions: turn the reminders off (deliberate), or back to the list it came from
+    (the 💊 meds list or the 🔔 reminders list)."""
+    back = callbacks.MED_LIST_BACK if origin == "m" else callbacks.REMINDERS_BACK
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_MED_TURN_OFF,
+                    callback_data=callbacks.medication_off(medication_id, origin),
+                ),
+                InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
+            ]
+        ]
+    )
+
+
 @router.callback_query(F.data.startswith(callbacks.MEDICATION_VIEW + ":"))
 async def on_medication_view(
     callback: CallbackQuery, reminder_scheduler: ReminderScheduler
 ) -> None:
-    medication_id = callbacks.parse_medication_view(callback.data or "")
+    """Open a medication's card (read): name · DOSE (record) · times · next run. Turning the
+    reminders off is a deliberate button — not this tap."""
+    parsed = callbacks.parse_medication_view(callback.data or "")
     tg = _telegram_id(callback)
-    if medication_id is None or tg is None or not isinstance(callback.message, Message):
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
+    medication_id, origin = parsed
     next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
@@ -744,17 +816,21 @@ async def on_medication_view(
             for r in await reminders.active_reminders_for_user(session, user_id=user.id)
             if r.medication_id == medication_id
         ]
-    if med is None or not rems:
-        await _edit_to_list(callback, reminder_scheduler)  # gone meanwhile — show the fresh list
+    if med is None or not rems:  # gone meanwhile — show the fresh list it came from
+        await (
+            _edit_to_meds(callback)
+            if origin == "m"
+            else _edit_to_list(callback, reminder_scheduler)
+        )
         await callback.answer()
         return
     times = [w for r in rems if (w := next_run.get(f"reminder:{r.id}")) is not None]
     when = _fmt_when(min(times) if times else None)
-    label = locale.REMINDER_ITEM_MEDICATION.format(name=med.name, times=med.schedule, when=when)
     with contextlib.suppress(TelegramBadRequest):
         await callback.message.edit_text(
-            _render_card(label, when),
-            reply_markup=_card_keyboard(callbacks.medication_delete(medication_id)),
+            _med_card(med, when=when),
+            reply_markup=_med_card_keyboard(medication_id, origin),
+            parse_mode=ParseMode.HTML,
         )
     await callback.answer()
 
@@ -800,18 +876,20 @@ async def on_medication_delete(
 
 @router.callback_query(F.data.startswith(callbacks.MEDICATION_OFF + ":"))
 async def on_medication_off(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
-    """Turn a medication's reminders off from the /medication list (its own message) — drop just the
-    tapped row; the Medication record stays. (The reminder CARD uses MEDICATION_DELETE instead.)"""
-    medication_id = callbacks.parse_medication_off(callback.data or "")
-    if medication_id is None:
+    """🔕 Turn a medication's reminders off from its card (deliberate) — the Medication row + dose
+    stay (a record, not a wipe), then return to the list the card was opened from."""
+    parsed = callbacks.parse_medication_off(callback.data or "")
+    if parsed is None:
         await callback.answer()
         return
-    await remove_button_row(callback)  # consume just this medication's row in the /medication list
+    medication_id, origin = parsed
     async with get_session() as session:
         await proactive.turn_off_medication(
             session, medication_id=medication_id, scheduler=reminder_scheduler
         )
         await session.commit()
-    if isinstance(callback.message, Message):
-        await callback.message.answer(locale.REMINDER_TURNED_OFF)
-    await callback.answer()
+    await callback.answer(locale.MED_TURNED_OFF_TOAST)
+    if origin == "m":
+        await _edit_to_meds(callback)
+    else:
+        await _edit_to_list(callback, reminder_scheduler)

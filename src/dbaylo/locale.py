@@ -1223,9 +1223,22 @@ BTN_DIALOG_CANCEL = "✖️ Скасувати"
 DIALOG_CANCELLED = "Скасовано — нічого не зберіг."
 
 # "Мої ліки" list view (reuses the per-medication turn-off button).
-MED_LIST_HEADER = "Твої ліки (натисни, щоб вимкнути нагадування):"
+MED_LIST_HEADER = "💊 Твої ліки. Натисни, щоб переглянути:"
 MED_LIST_EMPTY = (
     "Ліків поки немає. Тисни «➕ Додати» — назви ліки й час прийому, і я нагадуватиму. 💊"
 )
 MED_LIST_ITEM = "💊 {name} ({times})"
-BTN_MED_OFF_NAMED = "🔕 {name} ({times})"  # tap to turn this medication's reminders off
+BTN_MED_VIEW = (
+    "💊 {name}"  # a medication in the list -> opens its card (read, not a destructive tap)
+)
+# Medication card (master-detail): name + dose (record-keeping) + times + next run. The dose is a
+# record here only — a REMINDER never carries a dose (rail #1).
+MED_CARD_TITLE = "💊 <b>{name}</b>"
+MED_CARD_DOSE = "Доза: {dose}"
+MED_CARD_TIMES = "Час прийому: {times}"
+MED_CARD_NEXT = "🗓 Наступне нагадування: {when}"
+MED_CARD_HINT = (
+    "Нагадаю тобі вчасно. Дозу тримаю як запис — у самих нагадуваннях її немає (так безпечніше)."
+)
+BTN_MED_TURN_OFF = "🔕 Вимкнути нагадування"
+MED_TURNED_OFF_TOAST = "Вимкнув нагадування про ці ліки."
