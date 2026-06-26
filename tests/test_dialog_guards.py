@@ -88,7 +88,15 @@ async def _fake_session():
     yield AsyncMock()  # has an awaitable .commit()
 
 
-async def test_open_goals_screen_proposes_goals_with_adopt_buttons(monkeypatch) -> None:
+def _sug(text, subject, series_key=""):
+    from dbaylo.companion.goals import GoalSuggestion
+
+    return GoalSuggestion(text=text, subject=subject, series_key=series_key)
+
+
+async def test_goals_master_lists_short_subjects_that_open_details(monkeypatch) -> None:
+    # The master is short SUBJECT buttons (long "Привести … до норми" would be cut off on mobile);
+    # a tap opens the detail. Suggestions -> goal_view_sug, adopted goals -> goal_view.
     from dbaylo.companion import callbacks as cb
 
     monkeypatch.setattr(companion_flow, "get_session", _fake_session)
@@ -98,18 +106,97 @@ async def test_open_goals_screen_proposes_goals_with_adopt_buttons(monkeypatch) 
     monkeypatch.setattr(
         companion_flow.goals,
         "propose_goals",
-        AsyncMock(return_value=["Привести Глюкоза до норми", "Налагодити режим сну"]),
+        AsyncMock(return_value=[_sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза")]),
     )
-    monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "list_active_goals",
+        AsyncMock(return_value=[SimpleNamespace(id=3, target="Налагодити режим сну")]),
+    )
+    monkeypatch.setattr(companion_flow.goals, "target_subject", lambda t: "")
     message = AsyncMock()
     await companion_flow.open_goals_screen(message, telegram_id=4242)
-    message.answer.assert_awaited_once()
-    rows = message.answer.call_args.kwargs["reply_markup"].inline_keyboard
-    datas = [b.callback_data for row in rows for b in row]
-    assert (
-        cb.goal_adopt(0) in datas and cb.goal_adopt(1) in datas
-    )  # one adopt button per suggestion
-    assert cb.MENU_GOAL_NEW in datas  # manual "➕ Своя ціль" fallback
+    flat = [
+        b for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard for b in row
+    ]
+    datas = [b.callback_data for b in flat]
+    assert cb.goal_view_sug(0) in datas  # a suggestion opens its detail
+    assert cb.goal_view(3) in datas  # an adopted goal opens its detail
+    assert cb.MENU_GOAL_NEW in datas
+    sug_btn = next(b for b in flat if b.callback_data == cb.goal_view_sug(0))
+    assert "Глюкоза" in sug_btn.text  # short subject on the button, not the long full sentence
+
+
+async def test_suggestion_detail_shows_history_and_adopt(monkeypatch) -> None:
+    from dbaylo.companion import callbacks as cb
+    from dbaylo.companion.health import HistoryPoint
+
+    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "propose_goals",
+        AsyncMock(return_value=[_sug("Привести Глюкоза до норми", "Глюкоза", "blood\x1fглюкоза")]),
+    )
+    finding = SimpleNamespace(
+        kind="high", value="7 ммоль/л", ref="3.9–6.1", series_key="blood\x1fг"
+    )
+    monkeypatch.setattr(companion_flow.goals, "goal_analyte", AsyncMock(return_value=finding))
+    monkeypatch.setattr(
+        companion_flow.health,
+        "indicator_history",
+        AsyncMock(
+            return_value=[
+                HistoryPoint(date=None, value="7 ммоль/л", ref="3.9–6.1", out_of_range=True)
+            ]
+        ),
+    )
+    callback = _goal_cb(cb.goal_view_sug(0))
+    await companion_flow.on_goal_view_sug(callback)
+    text = callback.message.edit_text.call_args.args[0]
+    datas = [
+        b.callback_data
+        for row in callback.message.edit_text.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+    ]
+    assert "Привести Глюкоза до норми" in text  # the FULL title (not cut off) is in the detail
+    assert "7 ммоль/л" in text  # the indicator history is shown ("коли були проблеми")
+    assert cb.goal_adopt(0) in datas and cb.GOAL_BACK in datas  # adopt + back live in the detail
+
+
+async def test_goal_detail_shows_achieve_remove(monkeypatch) -> None:
+    from dbaylo.companion import callbacks as cb
+
+    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        companion_flow.goals,
+        "list_active_goals",
+        AsyncMock(return_value=[SimpleNamespace(id=3, target="Налагодити режим сну")]),
+    )
+    monkeypatch.setattr(companion_flow.goals, "goal_analyte", AsyncMock(return_value=None))
+    callback = _goal_cb(cb.goal_view(3))
+    await companion_flow.on_goal_view(callback)
+    datas = [
+        b.callback_data
+        for row in callback.message.edit_text.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+    ]
+    # The adopted goal's detail is where it's resolved/removed — achieve + remove + back.
+    assert cb.goal_achieve(3) in datas and cb.goal_remove(3) in datas and cb.GOAL_BACK in datas
+
+
+def _goal_cb(data):
+    callback = AsyncMock()
+    callback.data = data
+    callback.from_user = SimpleNamespace(id=4242)
+    callback.message = AsyncMock(spec=Message)
+    callback.message.edit_text = AsyncMock()
+    return callback
 
 
 async def test_on_goal_adopt_sets_the_goal_by_index(monkeypatch) -> None:
@@ -122,45 +209,19 @@ async def test_on_goal_adopt_sets_the_goal_by_index(monkeypatch) -> None:
     monkeypatch.setattr(
         companion_flow.goals,
         "propose_goals",
-        AsyncMock(return_value=["Привести Глюкоза до норми"]),
+        AsyncMock(return_value=[_sug("Привести Глюкоза до норми", "Глюкоза")]),
     )
-    monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
     set_goal = AsyncMock(return_value=SimpleNamespace(saved=True))
     monkeypatch.setattr(companion_flow.goals, "set_goal", set_goal)
+    monkeypatch.setattr(companion_flow.goals, "list_active_goals", AsyncMock(return_value=[]))
 
-    callback = AsyncMock()
-    callback.data = cb.goal_adopt(0)
-    callback.from_user = SimpleNamespace(id=4242)
-    callback.message = AsyncMock(spec=Message)
-    callback.message.edit_text = AsyncMock()
+    callback = _goal_cb(cb.goal_adopt(0))
     await companion_flow.on_goal_adopt(callback)
     set_goal.assert_awaited_once()
-    assert set_goal.await_args.kwargs["text"] == "Привести Глюкоза до норми"  # adopted by index 0
-    callback.message.edit_text.assert_awaited()  # refreshed in place, no new message
-
-
-async def test_open_goals_screen_lists_active_goals_as_manageable_rows(monkeypatch) -> None:
-    from dbaylo.companion import callbacks as cb
-
-    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
-    monkeypatch.setattr(
-        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
-    )
-    monkeypatch.setattr(companion_flow.goals, "propose_goals", AsyncMock(return_value=[]))
-    monkeypatch.setattr(
-        companion_flow.goals,
-        "list_active_goals",
-        AsyncMock(return_value=[SimpleNamespace(id=3, target="Налагодити режим сну")]),
-    )
-    message = AsyncMock()
-    await companion_flow.open_goals_screen(message, telegram_id=4242)
-    rows = message.answer.call_args.kwargs["reply_markup"].inline_keyboard
-    flat = [b for row in rows for b in row]
-    datas = [b.callback_data for b in flat]
-    # An adopted goal is a manageable row: ✅ achieve (named) + 🗑 remove (undo).
-    assert cb.goal_achieve(3) in datas and cb.goal_remove(3) in datas
-    achieve = next(b for b in flat if b.callback_data == cb.goal_achieve(3))
-    assert "Налагодити" in achieve.text  # the goal is named on the ✅ button, rows aren't identical
+    assert (
+        set_goal.await_args.kwargs["text"] == "Привести Глюкоза до норми"
+    )  # the .text, by index 0
+    callback.message.edit_text.assert_awaited()  # back to the master in place
 
 
 async def test_on_goal_achieve_and_remove(monkeypatch) -> None:

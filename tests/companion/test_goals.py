@@ -106,7 +106,7 @@ async def test_propose_goals_suggests_from_data_and_excludes_existing(
     user = await _user(async_session)
     # No labs yet -> only the generic wellness goals are proposed.
     generic = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
-    assert any("сну" in g for g in generic)
+    assert any("сну" in g.text for g in generic)
 
     report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/g.png"))
     await persist_confirmed(
@@ -121,14 +121,15 @@ async def test_propose_goals_suggests_from_data_and_excludes_existing(
         lab="Synevo",
     )
     proposed = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
-    assert any("Глюкоза" in g for g in proposed)  # a data-derived goal for the out-of-range value
+    assert any("Глюкоза" in g.text for g in proposed)  # a data-derived goal for the out-of-range
+    glucose = next(g for g in proposed if "Глюкоза" in g.text)
+    assert glucose.subject == "Глюкоза" and glucose.series_key  # carries the analyte for the detail
 
     # Adopting it removes it from future suggestions (and it persisted as a real goal).
-    glucose_goal = next(g for g in proposed if "Глюкоза" in g)
-    result = await set_goal(async_session, user=user, text=glucose_goal)
+    result = await set_goal(async_session, user=user, text=glucose.text)
     assert result.saved
     again = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
-    assert not any("Глюкоза" in g for g in again)  # not re-proposed once it's a goal
+    assert not any("Глюкоза" in g.text for g in again)  # not re-proposed once it's a goal
 
 
 async def test_suggested_goals_pass_the_guardrail(async_session: AsyncSession) -> None:
@@ -164,7 +165,7 @@ async def test_achieve_and_remove_change_status_and_stop_re_suggestion(
 
     # Neither an achieved nor a removed goal is re-suggested (known at any status).
     again = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
-    assert not any("сну" in g or "води" in g for g in again)
+    assert not any("сну" in g.text or "води" in g.text for g in again)
 
     # Guard: a goal that isn't this user's is never mutated.
     assert await goals_module.remove_goal(async_session, goal_id=active[0].id, user_id=999) is None
@@ -198,4 +199,4 @@ async def test_suggested_goal_name_is_specimen_disambiguated(async_session: Asyn
         lab="Synevo",
     )
     proposed = await goals_module.propose_goals(async_session, user.id, today=date(2026, 6, 25))
-    assert any("Еритроцити (сеча)" in g for g in proposed)  # disambiguated, not bare "Еритроцити"
+    assert any("Еритроцити (сеча)" in g.text for g in proposed)  # disambiguated, not bare

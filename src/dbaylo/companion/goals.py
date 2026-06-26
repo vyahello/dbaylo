@@ -15,6 +15,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import date
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,6 +24,9 @@ from dbaylo import locale
 from dbaylo.db.models import Goal, GoalStatus, User
 from dbaylo.safety import GateSource, screen
 from dbaylo.wellness import Concern, GoalSpec
+
+if TYPE_CHECKING:
+    from dbaylo.companion.health import HealthFinding
 
 # Always-safe generic wellness goals — no numbers, so they never trip the dose/diet guard, and they
 # encode "beauty via health / habits", never a crash protocol (rail #6). Offered alongside the
@@ -136,14 +140,62 @@ def _norm(text: str) -> str:
     return " ".join(text.casefold().split())
 
 
-def _suggested_for(finding: object) -> str | None:
+@dataclass(frozen=True)
+class GoalSuggestion:
+    """A proposed goal: the ``text`` to persist, a SHORT ``subject`` for the master button (so a
+    long 'Привести … до норми' isn't cut off on mobile), and the analyte ``series_key`` for the
+    detail's history ('' for a generic wellness goal that maps to no indicator)."""
+
+    text: str
+    subject: str
+    series_key: str = ""
+
+
+def _suggestion_for_finding(finding: object) -> GoalSuggestion | None:
     """A neutral, data-framed goal for a currently out-of-range finding — "bring it back to range",
     no method implied, no dose/diet (rail #1/#6). The name is specimen-qualified (display_name) so a
     urine 'Еритроцити (сеча)' goal is never confused with the blood one. Watch/flag → Проблеми."""
     kind = getattr(finding, "kind", "")
     name = getattr(finding, "display_name", None) or getattr(finding, "name", "")
     if kind in ("high", "low") and name:
-        return locale.GOAL_SUGGEST_NORMALIZE.format(name=name)
+        return GoalSuggestion(
+            text=locale.GOAL_SUGGEST_NORMALIZE.format(name=name),
+            subject=name,
+            series_key=getattr(finding, "series_key", ""),
+        )
+    return None
+
+
+# The "Привести {name} до норми" wrapper, split so a stored goal target can be mapped back to its
+# analyte subject (for the goal detail's history).
+_GOAL_PREFIX, _GOAL_SUFFIX = locale.GOAL_SUGGEST_NORMALIZE.split("{name}")
+
+
+def target_subject(target: str) -> str:
+    """The analyte subject inside a data goal's target ('Привести Еритроцити (сеча) до норми' ->
+    'Еритроцити (сеча)'), or '' for a generic goal that names no indicator."""
+    s = (target or "").strip()
+    if s.startswith(_GOAL_PREFIX) and (not _GOAL_SUFFIX or s.endswith(_GOAL_SUFFIX)):
+        end = len(s) - len(_GOAL_SUFFIX) if _GOAL_SUFFIX else len(s)
+        return s[len(_GOAL_PREFIX) : end].strip()
+    return ""
+
+
+async def goal_analyte(
+    session: AsyncSession, user_id: int, *, target: str, today: date
+) -> HealthFinding | None:
+    """The :class:`health.HealthFinding` a stored goal target refers to (matched by its exact
+    specimen-qualified name), or ``None`` for a generic goal. Used to render the goal detail's
+    history — searches current, watch AND resolved (a goal's analyte may have normalised)."""
+    subject = target_subject(target)
+    if not subject:
+        return None
+    from dbaylo.companion import health  # lazy import: avoid a module-load cycle
+
+    picture = await health.analyze_health(session, user_id, today=today)
+    for finding in (*picture.current, *picture.watch, *picture.resolved):
+        if finding.display_name == subject:
+            return finding
     return None
 
 
@@ -194,7 +246,9 @@ async def _set_status(
     return goal
 
 
-async def propose_goals(session: AsyncSession, user_id: int, *, today: date) -> list[str]:
+async def propose_goals(
+    session: AsyncSession, user_id: int, *, today: date
+) -> list[GoalSuggestion]:
     """What the agent suggests as goals: a "bring it to range" goal per currently out-of-range
     finding, then generic wellness goals — EXCLUDING any goal the user already has (active,
     achieved, OR removed). Pure + deterministic (the guardrail still vets each on adopt)."""
@@ -202,12 +256,12 @@ async def propose_goals(session: AsyncSession, user_id: int, *, today: date) -> 
 
     picture = await health.analyze_health(session, user_id, today=today)
     existing = [_norm(t) for t in await known_goal_texts(session, user_id=user_id)]
-    candidates = [g for f in picture.current if (g := _suggested_for(f))]
-    candidates.extend(GENERIC_GOALS)
-    out: list[str] = []
+    candidates = [s for f in picture.current if (s := _suggestion_for_finding(f))]
+    candidates.extend(GoalSuggestion(text=g, subject=g) for g in GENERIC_GOALS)
+    out: list[GoalSuggestion] = []
     seen: set[str] = set()
     for candidate in candidates:
-        key = _norm(candidate)
+        key = _norm(candidate.text)
         if key in seen or any(key in e or e in key for e in existing):
             continue
         seen.add(key)

@@ -64,6 +64,8 @@ class HealthFinding:
     category: str = "other"
     # Body fluid (trends.specimen: blood/urine/semen) — disambiguates same-named analytes.
     specimen: str = "blood"
+    # The trend-series key (trends.series_key) — lets a caller pull this analyte's full history.
+    series_key: str = ""
 
     @property
     def display_name(self) -> str:
@@ -139,7 +141,9 @@ def _value_text(point: LabPoint) -> str:
 _FLAG_KIND = {ResultFlag.HIGH: "high", ResultFlag.LOW: "low"}
 
 
-def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFinding:
+def _finding(
+    latest: LabPoint, summary: TrendSummary, n_points: int, *, series_key: str = ""
+) -> HealthFinding:
     flag_text = _FLAG_TEXT.get(summary.latest_flag, "flagged by the lab")
     name = summary.analyte or latest.analyte
     return HealthFinding(
@@ -153,6 +157,7 @@ def _finding(latest: LabPoint, summary: TrendSummary, n_points: int) -> HealthFi
         kind=_FLAG_KIND.get(summary.latest_flag, "flag"),
         category=grouping.categorize(latest.section, name),
         specimen=specimen(latest.section, name),
+        series_key=series_key,
     )
 
 
@@ -168,11 +173,11 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
     current: list[HealthFinding] = []
     watch: list[HealthFinding] = []
     resolved: list[HealthFinding] = []
-    for points in series.values():
+    for key, points in series.items():
         if not points:
             continue
         latest = points[-1]  # build_series sorts ascending by date
-        finding = _finding(latest, compute_trend(points), len(points))
+        finding = _finding(latest, compute_trend(points), len(points), series_key=key)
         if _is_oor(latest):
             current.append(finding)
             continue
@@ -257,6 +262,39 @@ async def list_relevant_dismissed(
     picture = await analyze_health(session, user_id, today=today)
     candidates = [*picture.current, *picture.watch]
     return [c for c in rows if c.name and any(_already_known(f, [c.name]) for f in candidates)]
+
+
+@dataclass(frozen=True)
+class HistoryPoint:
+    """One measurement of an analyte over time, in data terms — for the goal detail's "when were
+    there problems" timeline. Never a verdict."""
+
+    date: date | None
+    value: str  # "6.5 млн/мкл" / qualitative text
+    ref: str  # "4–5.5" / "≤ 20" / "—"
+    out_of_range: bool
+
+
+async def indicator_history(
+    session: AsyncSession, user_id: int, *, series_key: str, limit: int = 8
+) -> list[HistoryPoint]:
+    """One analyte's measurements over time (most recent first, capped) — so the goal detail shows
+    WHEN and at what value it was out of range. Deterministic, no verdict."""
+    if not series_key:
+        return []
+    series = build_series(await load_series_points(session, user_id))
+    points = series.get(series_key) or []
+    history = [
+        HistoryPoint(
+            date=p.taken_on,
+            value=_value_text(p),
+            ref=_ref_text(p.ref_low, p.ref_high),
+            out_of_range=_is_oor(p),
+        )
+        for p in points
+    ]
+    history.reverse()  # most recent first
+    return history[:limit]
 
 
 async def should_have_checkin(session: AsyncSession, user_id: int, *, today: date) -> bool:

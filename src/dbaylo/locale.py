@@ -362,16 +362,33 @@ GOAL_ALL_SET = (
 )
 # Neutral, data-framed goal for an out-of-range finding (no method/dose/diet implied).
 GOAL_SUGGEST_NORMALIZE = "Привести {name} до норми"
-BTN_GOAL_ADOPT = "🎯 {goal}"  # carries the goal text; tap = adopt
 BTN_GOAL_OWN = "➕ Своя ціль"
 GOAL_ADOPTED_TOAST = "Взяв у цілі! 🎯"
 GOAL_NOT_ADOPTED = "Цю ціль не вийшло взяти — спробуй сформулювати інакше."
-# Adopted goals are MANAGEABLE rows: ✅ achieved (a positive close) / 🗑 remove (undo an adopt).
-GOAL_TRACKED_HEADER = "🎯 Твої цілі — тисни ✅, коли досягнеш, або 🗑, щоб прибрати:"
-BTN_GOAL_ACHIEVE = "✅ {goal}"  # carries the goal text; tap = mark achieved
-BTN_GOAL_REMOVE = "🗑"
 GOAL_ACHIEVED_TOAST = "Вітаю — ціль досягнута! 🎉"
 GOAL_REMOVED_TOAST = "Прибрав ціль."
+# --- Goals master-detail: short subjects in the list, full title + history in the detail ----------
+GOAL_MASTER_HEADER = "🎯 Цілі. Тисни ціль, щоб переглянути й вирішити:"
+GOAL_MASTER_SUGGEST_LABEL = "Пропоную:"
+GOAL_MASTER_MINE_LABEL = "Твої цілі:"
+BTN_GOAL_VIEW_SUG = "🎯 {subject}"  # a suggestion in the master (tap -> its detail)
+BTN_GOAL_VIEW = "📌 {subject}"  # an adopted goal in the master (tap -> its detail)
+GOAL_DETAIL_SUG_TITLE = "🎯 <b>{goal}</b>"  # suggestion detail
+GOAL_DETAIL_MINE_TITLE = "📌 <b>{goal}</b>"  # adopted-goal detail
+GOAL_DETAIL_CURRENT = "Зараз: {value} (норма {ref}) — {direction}"
+GOAL_DETAIL_DIR_HIGH = "вище норми"
+GOAL_DETAIL_DIR_LOW = "нижче норми"
+GOAL_DETAIL_DIR_OOR = "поза нормою"
+GOAL_DETAIL_HISTORY_HEADER = "Коли були поза нормою:"
+GOAL_HISTORY_LINE = "• {date}: {value} (норма {ref}) {mark}"
+GOAL_HISTORY_MARK_OOR = "⚠️"
+GOAL_HISTORY_MARK_OK = "✓"
+GOAL_DETAIL_GENERIC = "Гарна звичка для щоденного самопочуття — без чисел і поспіху."
+GOAL_DETAIL_NO_HISTORY = "Поки немає виміряної динаміки по цьому показнику."
+BTN_GOAL_ADOPT_DETAIL = "🎯 Взяти ціль"
+BTN_GOAL_ACHIEVE_DETAIL = "✅ Досягнута"
+BTN_GOAL_REMOVE_DETAIL = "🗑 Прибрати"
+BTN_GOAL_BACK = "◀ Назад"
 
 GOAL_STATUS_LABELS: dict[str, str] = {
     "active": "активна",

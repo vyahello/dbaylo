@@ -224,11 +224,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   and `/goals`): `propose_goals` suggests a `Привести <name> до норми` goal per current out-of-range
   finding (name via `HealthFinding.display_name` — specimen-disambiguated) + generic wellness goals,
   EXCLUDING any goal the user already has at ANY status (`known_goal_texts` — adopted/achieved/removed
-  are never re-suggested); each is a one-tap `[🎯 <goal>]` adopt (by index, re-derived on tap, guardrail
-  re-vets on `set_goal`). Adopted goals are then **manageable rows** `[✅ <goal>][🗑]`
-  (`list_active_goals`): ✅ = `achieve_goal` (`GoalStatus.ACHIEVED`), 🗑 = `remove_goal`
-  (`GoalStatus.ABANDONED`, the **undo for an accidental adopt**) — both by `goal_id`, edit-in-place.
-  No migration (reuses `GoalStatus`).
+  are never re-suggested). `propose_goals` returns `GoalSuggestion(text, subject, series_key)`.
+  **The screen is a MASTER-DETAIL** (long "Привести … до норми" was cut off on mobile): the master
+  (`_goals_master`) lists SHORT subject buttons — 🎯 suggestions (`goal_view_sug` by index) then 📌
+  adopted goals (`goal_view` by id) — and a tap opens that goal's **detail**, which shows the FULL
+  title + (for a data goal) the indicator's history "коли були поза нормою"
+  (`health.indicator_history` over `HealthFinding.series_key`; a goal target is mapped back to its
+  finding by `goals.goal_analyte`/`target_subject`). The ACTION lives in the detail: a suggestion has
+  `[🎯 Взяти ціль]` (`set_goal`, guardrail re-vets), an adopted goal has `[✅ Досягнута]`
+  (`achieve_goal`→ACHIEVED) `[🗑 Прибрати]` (`remove_goal`→ABANDONED, the **undo for an accidental
+  adopt**); every detail has `[◀ Назад]`, every action edits back to the master. No migration (reuses
+  `GoalStatus`).
 - **Symptom handoff** (`companion/symptoms.py`): deterministic Ukrainian keyword → `Symptom`
   → `triage.evaluate`. The LLM never makes the escalation call. `SYMPTOM_KEYWORDS` is kept
   **disjoint** from the wellness purging signals (involuntary vs. self-induced vomiting) so

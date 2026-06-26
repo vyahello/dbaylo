@@ -25,6 +25,11 @@ PROBLEM_RESTORE = "prob_rest"  # restore one dismissed finding (carries its cond
 GOAL_ADOPT = "goal_adopt"
 GOAL_ACHIEVE = "goal_done"  # mark an active goal achieved (carries the goal_id)
 GOAL_REMOVE = "goal_rm"  # drop an active goal (carries the goal_id)
+# Goals are a master-detail: the master lists short subjects, a tap opens the detail (full title +
+# the indicator's problem history) where the action lives.
+GOAL_VIEW_SUG = "goal_vsug"  # open a SUGGESTION's detail by its index in the proposal list
+GOAL_VIEW = "goal_view"  # open an adopted goal's detail by its goal_id
+GOAL_BACK = "goal_gback"  # back to the goals master (static, edit-in-place)
 REMINDER_OFF = "rem_off"
 MEDICATION_OFF = "med_off"
 # Reminders master-detail: a list tap OPENS the item (read) instead of deleting it; turning it
@@ -144,6 +149,22 @@ def goal_remove(goal_id: int) -> str:
 
 def parse_goal_remove(data: str) -> int | None:
     return _parse(GOAL_REMOVE, data)
+
+
+def goal_view_sug(index: int) -> str:
+    return _make(GOAL_VIEW_SUG, index)
+
+
+def parse_goal_view_sug(data: str) -> int | None:
+    return _parse(GOAL_VIEW_SUG, data)
+
+
+def goal_view(goal_id: int) -> str:
+    return _make(GOAL_VIEW, goal_id)
+
+
+def parse_goal_view(data: str) -> int | None:
+    return _parse(GOAL_VIEW, data)
 
 
 def reminder_off(reminder_id: int) -> str:
