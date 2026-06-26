@@ -26,7 +26,6 @@ from dbaylo.bot.keyboards import cancel_keyboard, remove_button_row
 from dbaylo.companion import (
     callbacks,
     concerns,
-    goals,
     grouping,
     health,
     medications,
@@ -175,14 +174,13 @@ def _category_counts(current: list[tuple[int, HealthFinding]]) -> dict[str, int]
 
 
 async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The unified top level, laid out as VISUAL GROUPS (not a flat pile): the out-of-range
-    categories two-per-row, then 📈 на межі, then the management pair (під наглядом + відкладені),
-    then a clearly-separated 🎯 Мої цілі row, then ➕. A structured digest, not a wall."""
+    """The problems top level, laid out as VISUAL GROUPS (not a flat pile): the out-of-range
+    categories two-per-row, then 📈 на межі, then the management (під наглядом) + archives
+    (відкладені/вирішені), then ➕. Goals are their OWN hub button now. A structured digest."""
     proposals = await health.propose_problems(session, user_id, today=date.today())
     current, watch = _split_proposals(proposals)
     counts = _category_counts(current)
     active = await concerns.list_active(session, user_id=user_id)
-    active_goals = await goals.list_active_goals(session, user_id=user_id)
     resolved = await concerns.list_resolved(session, user_id=user_id)
     # Only dismissals that are STILL off — a waved-off finding that returned to range is not shown
     # (restoring it would do nothing), so 🙈 Приховані appears only with something real to restore.
@@ -191,9 +189,9 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
     def _ib(label: str, data: str) -> InlineKeyboardButton:
         return InlineKeyboardButton(text=label, callback_data=data)
 
-    # Laid out as VISUAL GROUPS (not a flat pile), top → bottom:
-    #   ⚕️ ПРОБЛЕМИ: out-of-range categories (2 per row) · 📈 на межі · [під наглядом][відкладені]
-    #   🎯 ЦІЛІ: a separate row · then ➕ add.
+    # Laid out as VISUAL GROUPS (not a flat pile), top → bottom: out-of-range categories (2 per row)
+    # · 📈 на межі · [під наглядом] · [відкладені][вирішені] archives · ➕ add. (Goals are their own
+    # hub button now, not on this screen.)
     kb: list[list[InlineKeyboardButton]] = []
     cat_buttons = [
         _ib(
@@ -234,10 +232,6 @@ async def _problems_top(session: AsyncSession, *, user_id: int) -> tuple[str, In
         )
     if archive:
         kb.append(archive)
-    # 🎯 ЦІЛІ — its OWN row, clearly separated from the problems above (folded in, not mixed).
-    kb.append(
-        [_ib(locale.BTN_PROBLEM_GOALS.format(n=len(active_goals)), callbacks.MENU_OPEN_GOALS)]
-    )
     kb.append([_ib(locale.BTN_PROBLEM_ADD_MANUAL, callbacks.MENU_PROB_NEW)])
     if counts:
         text = locale.PROBLEM_GROUP_HEADER

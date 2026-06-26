@@ -104,10 +104,10 @@ def _short_goal(text: str, limit: int = 32) -> str:
 
 
 async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, InlineKeyboardMarkup]:
-    """The goals view (⚕️ Проблеми → 🎯 Мої цілі): the agent SUGGESTS goals from your problems
-    ("Привести X до норми") + generic wellness ones (🎯), then your adopted goals (📌), then a 🗄
-    archive of closed goals you can restore. A tap opens a goal's detail where the action lives;
-    «◀» returns to the unified problems-and-goals screen."""
+    """The goals screen (🩺 Моє здоровʼя → 🎯 Мої цілі — its own hub button): SUGGESTS goals
+    from your problems ("Привести X до норми") + generic wellness ones (🎯), then your adopted goals
+    (📌), then a 🗄 archive of closed goals you can restore. A tap opens a goal's detail (action
+    there)."""
     suggestions = await goals.propose_goals(session, user_id, today=date.today())
     current = await goals.list_active_goals(session, user_id=user_id)
     closed = await goals.list_closed_goals(session, user_id=user_id)
@@ -149,13 +149,6 @@ async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, In
         )
     kb.append(
         [InlineKeyboardButton(text=locale.BTN_GOAL_OWN, callback_data=callbacks.MENU_GOAL_NEW)]
-    )
-    kb.append(  # back to the unified ⚕️ Проблеми й цілі screen (goals live inside it now)
-        [
-            InlineKeyboardButton(
-                text=locale.BTN_GOAL_BACK_TO_HEALTH, callback_data=callbacks.MENU_PROB_LIST
-            )
-        ]
     )
     return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb)
 

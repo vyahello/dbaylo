@@ -59,13 +59,13 @@ def _labs_hub() -> tuple[str, InlineKeyboardMarkup]:
 
 @router.message(StateFilter(None), F.text == locale.MENU_HEALTH)
 async def menu_health(message: Message) -> None:
-    """🩺 Моє здоровʼя — the agent's health hub: analyses · problems+goals · check-in. Цілі were
-    folded INTO ⚕️ Проблеми (one screen — they proposed the same out-of-range findings)."""
+    """🩺 Моє здоровʼя — the agent's health hub: analyses · problems · goals · check-in."""
     await message.answer(
         locale.MENU_HEALTH_INTRO,
         reply_markup=section_keyboard(
             (locale.BTN_MENU_ANALYSES, callbacks.MENU_OPEN_ANALYSES),
             (locale.BTN_MENU_PROBLEMS, callbacks.MENU_PROB_LIST),
+            (locale.BTN_MENU_GOALS, callbacks.MENU_OPEN_GOALS),
             (locale.BTN_MENU_CHECKIN, callbacks.MENU_OPEN_CHECKIN),
         ),
     )
@@ -104,11 +104,10 @@ async def cb_open_labs(callback: CallbackQuery) -> None:
 
 @router.message(StateFilter(None), F.text == locale.MENU_GOALS)
 async def menu_goals(message: Message) -> None:
-    # Legacy label: Цілі are now folded into ⚕️ Проблеми, so an old cached "🎯 Цілі" button opens
-    # the unified screen (which carries a 🎯 Мої цілі group).
+    # Legacy label (a cached old keyboard) — opens the goals screen, same as the hub's 🎯 Мої цілі.
     tg = _owner_tg(message)
     if tg is not None:
-        await proactive_flow.open_problems(message, tg)
+        await companion_flow.open_goals_screen(message, tg)
 
 
 @router.message(StateFilter(None), F.text == locale.MENU_PROBLEMS)

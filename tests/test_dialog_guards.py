@@ -135,7 +135,6 @@ async def test_goals_master_proposes_from_problems_and_shows_the_archive(monkeyp
     assert cb.goal_view(3) in datas  # an adopted goal opens its detail
     assert cb.GOAL_ARCHIVE in datas  # the 🗄 closed-goals archive button
     assert cb.MENU_GOAL_NEW in datas
-    assert cb.MENU_PROB_LIST in datas  # «◀» back to the unified problems-and-goals screen
 
 
 async def test_suggestion_detail_shows_the_goal_and_adopt(monkeypatch) -> None:
