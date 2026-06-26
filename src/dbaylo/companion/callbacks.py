@@ -484,6 +484,10 @@ CONSULT_REMIND = "consult_remind"  # open the "set a reminder" mini-flow during 
 CONSULT_REMIND_WHEN = "consult_rwhen"  # pick a relative offset for the reminder (carries days)
 CONSULT_CLINICS = "consult_clinics"  # find transparent options of where to do an exam (#3)
 CONSULT_RESUME = "consult_resume"  # back to the consultation from a sub-flow
+# General-chat affordances (#6): from an ordinary companion reply, set a reminder / find where to do
+# an exam — they enter a grounded GENERAL consultation, then reuse the consult reminder/clinic flow.
+CHAT_REMIND = "chat_remind"
+CHAT_CLINICS = "chat_clinics"
 
 
 def consult_remind_when(days: int) -> str:

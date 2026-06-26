@@ -445,6 +445,18 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **Config-gated chat model** — `CLAUDE_CHAT_MODEL` (`settings.claude_chat_model`, default empty =
   unchanged) lets the EXPERT chat (companion / consult / intake resolve `model or chat_model or
   None`) use a sharper model than extraction without touching extraction/humanize.
+- **Proactive affordances in general chat** (#6): a substantive companion reply carries
+  `consult_flow.chat_affordance_keyboard()` — 🔔 Нагадати / 🏥 Де зробити (`CHAT_REMIND`/
+  `CHAT_CLINICS`); a bare greeting/ack carries none. Tapping one (or TYPING the request —
+  `consult_flow.start_typed_affordance` intercepts `_wants_reminder/booking/clinics` in `on_free_text`
+  BEFORE `_run_companion_turn`, so Дбайло ACTS instead of just claiming it will) enters a grounded
+  **whole-picture consultation** (`consult_context.KIND_GENERAL`, `_general_context` grounded in
+  `health.findings_context` = the indicator picture; profile + memory added by `build_context`) and
+  reuses the SAME consult reminder/clinic mini-flows (`_seed_general_consult` seeds `consult_subject`
+  + the chat transcript + `ConsultStates.active`). So casual health chat deepens into a real
+  consultation only when the user chooses to act; the persona now states it CAN set reminders / find
+  clinics (no more "ок, нагадаю" it can't deliver). No new models/migrations; the gate still owns
+  escalation (a red flag in the typed request escalates inside the reused flow).
 - **Symptom intake** (`companion/intake.py`, Stage 6B): a multi-turn **history-taking** interview —
   when a free-text turn is a symptom (gate→triage) or a broad physical complaint
   (`looks_like_complaint`, router-only), `companion_flow` starts a guided intake (FSM

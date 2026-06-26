@@ -328,19 +328,9 @@ async def should_have_checkin(session: AsyncSession, user_id: int, *, today: dat
     return await has_current_flags(session, user_id, today=today)
 
 
-async def build_health_context(session: AsyncSession, user_id: int, *, today: date) -> str:
-    """The grounded context the companion / intake / check-in draw on: the patient profile, then the
-    deterministic CURRENT out-of-range indicators and the resolved-but-remembered ones. ``""`` when
-    there is nothing to ground in, so the caller answers generally."""
-    # Lazy import: consult_context -> history -> scheduler, and scheduler -> checkin -> health would
-    # otherwise be a module-load cycle. At call time everything is already imported.
-    from dbaylo.companion.consult_context import patient_profile
-
-    parts = []
-    profile = await patient_profile(session, user_id, today)
-    if profile:
-        parts.append(profile)
-    picture = await analyze_health(session, user_id, today=today)
+def _findings_block(picture: HealthPicture, *, today: date) -> str:
+    """The deterministic indicator picture (current / early-warning / resolved) as grounded English
+    lines, ``""`` when nothing is off. Shared by the chat grounding and the KIND_GENERAL consult."""
 
     def _latest(f: HealthFinding) -> str:
         # Pre-compute "how long ago" so the model judges recency reliably (it should nudge a re-test
@@ -353,6 +343,7 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
     def _trend(f: HealthFinding) -> str:
         return direction_phrase(TrendDirection[f.direction])  # human phrase, not the raw enum token
 
+    parts: list[str] = []
     if picture.current:
         lines = [
             "CURRENTLY out-of-range indicators (the LATEST measurement is outside its reference — "
@@ -380,4 +371,25 @@ async def build_health_context(session: AsyncSession, user_id: int, *, today: da
         for f in picture.resolved:
             lines.append(f"- {f.name}: now {f.value} (ref {f.ref}); {_latest(f)}.")
         parts.append("\n".join(lines))
+    return "\n\n".join(parts)
+
+
+async def findings_context(session: AsyncSession, user_id: int, *, today: date) -> str:
+    """The deterministic indicator picture alone (no profile) — the grounded subject of a general
+    consultation. ``""`` when nothing is currently noteworthy."""
+    picture = await analyze_health(session, user_id, today=today)
+    return _findings_block(picture, today=today)
+
+
+async def build_health_context(session: AsyncSession, user_id: int, *, today: date) -> str:
+    """The grounded context the companion / intake / check-in draw on: the patient profile, then the
+    deterministic CURRENT out-of-range indicators and the resolved-but-remembered ones. ``""`` when
+    there is nothing to ground in, so the caller answers generally."""
+    # Lazy import: consult_context -> history -> scheduler, and scheduler -> checkin -> health would
+    # otherwise be a module-load cycle. At call time everything is already imported.
+    from dbaylo.companion.consult_context import patient_profile
+
+    profile = await patient_profile(session, user_id, today)
+    picture = await analyze_health(session, user_id, today=today)
+    parts = [part for part in (profile, _findings_block(picture, today=today)) if part]
     return "\n\n".join(parts)

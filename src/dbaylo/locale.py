@@ -804,6 +804,8 @@ CONSULT_PROMPT_MEMORY_NOTE = (
 CONSULT_BTN_END = "✅ Завершити розмову"
 CONSULT_BTN_REMIND = "🔔 Нагадати"
 CONSULT_BTN_CLINICS = "🏥 Де зробити"
+# The subject label of a whole-picture consultation entered from general chat (#6).
+CONSULT_GENERAL_LABEL = "твій загальний стан"
 CONSULT_BTN_RESUME = "↩️ Назад до розмови"
 CONSULT_ENDED = "Гаразд, завершили. Звертайся, коли матимеш ще питання. 🙂"
 CONSULT_RESUMED = "Гаразд, повертаємось до розмови. Питай далі. 🩺"

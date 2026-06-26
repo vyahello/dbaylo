@@ -47,6 +47,7 @@ from dbaylo.companion import (
     reminders,
 )
 from dbaylo.companion.consult_context import (
+    KIND_GENERAL,
     KIND_INDICATOR,
     KIND_REPORT,
     KIND_SECTION,
@@ -767,6 +768,86 @@ async def on_consult_resume(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.answer()
     if isinstance(callback.message, Message):
         await _resume_consult(callback.message, state)
+
+
+# --- #6: proactive affordances from GENERAL chat (🔔 / 🏥 under a companion reply) ---
+# An ordinary companion reply can offer to set a reminder or find where to do an exam. Tapping it
+# (or typing the request) enters a grounded GENERAL consultation (KIND_GENERAL — the whole-picture
+# context) and reuses the SAME reminder/clinic mini-flows as a normal consult, so Дбайло actually
+# acts instead of just saying "ок, нагадаю". The chat's running transcript is carried in.
+
+
+def chat_affordance_keyboard() -> InlineKeyboardMarkup:
+    """Under a substantive companion reply: set a reminder / find where to do an exam (#6)."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.CONSULT_BTN_REMIND, callbacks.CHAT_REMIND),
+                _btn(locale.CONSULT_BTN_CLINICS, callbacks.CHAT_CLINICS),
+            ]
+        ]
+    )
+
+
+async def _seed_general_consult(state: FSMContext) -> None:
+    """Open a grounded GENERAL consultation seeded from the running chat thread, so the consult's
+    reminder/clinic flow has the conversation + a resolvable subject to work from."""
+    data = await state.get_data()
+    transcript = list(data.get("chat_transcript") or data.get("consult_transcript") or [])
+    subject = Subject(kind=KIND_GENERAL, report_id=0)
+    await state.set_state(ConsultStates.active)
+    await state.update_data(
+        consult_subject=subject.to_dict(),
+        consult_transcript=transcript[-2 * consult.MAX_CONTEXT_TURNS :],
+        consult_label=locale.CONSULT_GENERAL_LABEL,
+    )
+
+
+def _wants_affordance(text: str) -> bool:
+    return _wants_reminder(text) or _wants_booking(text) or _wants_clinics(text)
+
+
+async def start_typed_affordance(
+    message: Message, state: FSMContext, *, scheduler: ReminderScheduler
+) -> bool:
+    """A TYPED reminder/booking/clinic request in general chat ("нагадай мені перездати кров за 3
+    місяці") opens the same mini-flow as the buttons — entering a general consult so Дбайло acts on
+    it rather than the LLM merely claiming it will. Returns True when handled, False otherwise."""
+    text = message.text or ""
+    if not _wants_affordance(text):
+        return False
+    await _seed_general_consult(state)
+    if _wants_clinics(text):
+        await _do_clinic_search(message, state, user_text=text)
+    else:
+        await _start_reminder(
+            message, state, scheduler=scheduler, trigger_text=text, booking=_wants_booking(text)
+        )
+    return True
+
+
+@router.callback_query(F.data == callbacks.CHAT_REMIND)
+async def on_chat_remind(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    """🔔 under a companion reply — enter a general consult, then infer + set the reminder."""
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await _seed_general_consult(state)
+    await _start_reminder(callback.message, state, scheduler=reminder_scheduler)
+
+
+@router.callback_query(F.data == callbacks.CHAT_CLINICS)
+async def on_chat_clinics(callback: CallbackQuery, state: FSMContext) -> None:
+    """🏥 under a companion reply — enter a general consult, then find where to do an exam."""
+    if not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    await callback.answer()
+    await _seed_general_consult(state)
+    await _do_clinic_search(callback.message, state)
 
 
 # --- /memory + 🧠 Памʼять: grouped, per-analysis memory (master-detail) ----------

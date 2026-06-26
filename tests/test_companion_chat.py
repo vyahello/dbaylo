@@ -111,6 +111,27 @@ async def test_companion_turn_skips_memory_on_fallback(monkeypatch) -> None:
     remember.assert_not_awaited()
 
 
+async def test_substantive_turn_carries_the_affordance_keyboard(monkeypatch) -> None:
+    from dbaylo.companion import callbacks
+
+    _patch_common(monkeypatch)
+    message, state = _message(), _state({})
+    await companion_flow._run_companion_turn(
+        state=state, message=message, text="що з моїм залізом?"
+    )
+    kb = message.answer.call_args.kwargs.get("reply_markup")
+    assert kb is not None  # #6: a substantive turn offers 🔔 / 🏥
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.CHAT_REMIND in datas and callbacks.CHAT_CLINICS in datas
+
+
+async def test_trivial_turn_has_no_affordance_keyboard(monkeypatch) -> None:
+    _patch_common(monkeypatch)
+    message, state = _message(), _state({})
+    await companion_flow._run_companion_turn(state=state, message=message, text="дякую")
+    assert message.answer.call_args.kwargs.get("reply_markup") is None  # no buttons on a bare ack
+
+
 def test_worth_remembering_filters_trivial_turns() -> None:
     assert companion_flow._worth_remembering("чому в мене низький гемоглобін?")
     assert not companion_flow._worth_remembering("  Дякую  ")

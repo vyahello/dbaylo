@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.companion.consult_context import (
+    KIND_GENERAL,
     KIND_INDICATOR,
     KIND_REPORT,
     KIND_SECTION,
@@ -58,6 +59,20 @@ def test_section_label_maps_index_to_name() -> None:
     assert section_label(0) == locale.INTERPRET_SECTION_OVERALL
     assert section_label(2) == locale.INTERPRET_SECTION_HELP
     assert section_label(99) == "" and section_label(-1) == ""
+
+
+async def test_general_context_grounds_a_whole_picture_consult(async_session: AsyncSession) -> None:
+    # #6: a general consultation (entered from chat's affordances) grounds in the indicator picture.
+    user = await ensure_user(async_session, 1)
+    await _confirm(async_session, user, 1, 6.2)  # Холестерин above ≤5.2 -> currently out of range
+    built = await build_context(
+        async_session, user.id, Subject(kind=KIND_GENERAL, report_id=0), today=_TODAY
+    )
+    assert built is not None
+    context, label = built
+    assert label == locale.CONSULT_GENERAL_LABEL
+    assert "OVERALL health picture" in context  # the whole-picture framing
+    assert "Холестерин" in context  # the real out-of-range indicator is carried in
 
 
 async def test_indicator_context_carries_values_dates_status_and_trend(

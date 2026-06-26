@@ -14,7 +14,7 @@ from datetime import date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import concerns, consult_memory, history, notecache
+from dbaylo.companion import concerns, consult_memory, health, history, notecache
 from dbaylo.labs.agerefs import age_on, describe_age
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
@@ -33,6 +33,7 @@ _SEX_EN = {"m": "male", "f": "female"}
 KIND_INDICATOR = "indicator"
 KIND_REPORT = "report"
 KIND_SECTION = "section"
+KIND_GENERAL = "general"  # a whole-picture consultation (entered from general chat's affordances)
 
 # The four reading sections, in the SAME order as bot.formatting.SECTION_KEYS — so a section index
 # from the analysis drill-down maps to its Ukrainian name here without importing the bot layer.
@@ -179,6 +180,16 @@ async def _section_context(
     return f"{report_ctx}\n\n{focus}", name
 
 
+async def _general_context(session: AsyncSession, user_id: int, today: date) -> tuple[str, str]:
+    """A WHOLE-PICTURE consultation (entered from general chat's affordances) — grounded in the
+    deterministic indicator picture (the patient profile + memory are added by ``build_context``).
+    Never ``None``: with nothing currently off it is still a valid general talk about wellbeing."""
+    findings = await health.findings_context(session, user_id, today=today)
+    body = findings or "No indicator is currently out of range on record."
+    context = f"Subject: the user's OVERALL health picture (a general consultation).\n{body}"
+    return context, locale.CONSULT_GENERAL_LABEL
+
+
 async def patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
     """A compact, grounded profile of THIS patient — so Дбайло acts like an assistant who knows the
     person: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
@@ -241,6 +252,8 @@ async def build_context(
         built = await _report_context(session, user_id, subject.report_id)
     elif subject.kind == KIND_SECTION:
         built = await _section_context(session, user_id, subject.report_id, subject.section_idx)
+    elif subject.kind == KIND_GENERAL:
+        built = await _general_context(session, user_id, today)
     else:
         return None
     if built is None:

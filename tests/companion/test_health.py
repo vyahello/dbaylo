@@ -70,6 +70,20 @@ async def test_list_indicators_returns_all_analytes_out_of_range_first(
     assert names[0] == "Глюкоза"  # currently out of range -> sorted first
 
 
+async def test_findings_context_is_the_picture_without_the_profile(
+    async_session: AsyncSession,
+) -> None:
+    # #6: the general consult grounds in the indicator picture alone (the profile is added
+    # separately by build_context). Empty when nothing is off; else carries the flagged analyte.
+    user = await ensure_user(async_session, 1)
+    assert await health.findings_context(async_session, user.id, today=_TODAY) == ""
+    await _confirm(
+        async_session, user, day=date(2026, 6, 2), analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)]
+    )
+    ctx = await health.findings_context(async_session, user.id, today=_TODAY)
+    assert "Глюкоза" in ctx and "PATIENT PROFILE" not in ctx  # picture only, no profile
+
+
 async def test_watch_flags_an_in_range_value_trending_toward_a_bound(
     async_session: AsyncSession,
 ) -> None:

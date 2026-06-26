@@ -540,12 +540,19 @@ async def _run_companion_turn(message: Message, state: FSMContext, text: str) ->
         chat_transcript=history[-2 * _CHAT_KEEP_TURNS :], chat_ts=_now().isoformat()
     )
     tg = _telegram_id(message)
-    if tg is not None and reply.source == "llm" and _worth_remembering(text):
+    substantive = _worth_remembering(text)
+    if tg is not None and reply.source == "llm" and substantive:
         await _remember_general(tg, text, reply.text)
+    # A substantive turn carries the proactive affordances (🔔 set a reminder / 🏥 where to do an
+    # exam); a bare greeting/ack does not (#6). Tapping one enters a grounded general consult.
+    keyboard = (
+        consult_flow.chat_affordance_keyboard() if substantive and reply.source == "llm" else None
+    )
     await answer_chunked(
         message,
         render_companion_html(reply.text, full_disclaimer=not continuation),
         parse_mode=ParseMode.HTML,
+        reply_markup=keyboard,
     )
 
 
@@ -575,6 +582,10 @@ async def on_free_text(
     # If the user just opened a chart/indicator and is now writing about it (no «Запитати Дбайло»
     # tap), answer IN that grounded context instead of the contextless companion.
     if await consult_flow.start_primed_consult(message, state, scheduler=reminder_scheduler):
+        return
+    # A TYPED "нагадай мені…" / "запиши мене…" / "де зробити…" opens the reminder/clinic mini-flow
+    # (entering a grounded general consult) so Дбайло ACTS on it — never just claims it will (#6).
+    if await consult_flow.start_typed_affordance(message, state, scheduler=reminder_scheduler):
         return
     # Otherwise — ordinary companion chat: a continuous, grounded, memory-backed thread.
     await _run_companion_turn(message, state, text)

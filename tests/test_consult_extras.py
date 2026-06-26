@@ -171,6 +171,73 @@ async def test_question_without_a_matching_indicator_is_not_routed(monkeypatch) 
     run.assert_not_awaited()
 
 
+# --- #6: proactive affordances from general chat (🔔 / 🏥 enter a general consult) -------
+
+
+async def test_seed_general_consult_opens_a_whole_picture_subject() -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"chat_transcript": [{"role": "user", "text": "сон"}]})
+    await consult_flow._seed_general_consult(state)
+    state.set_state.assert_awaited_once()  # ConsultStates.active
+    saved = state.update_data.await_args.kwargs
+    assert saved["consult_subject"]["kind"] == "general"  # the whole-picture subject
+    assert saved["consult_transcript"] == [
+        {"role": "user", "text": "сон"}
+    ]  # chat thread carried in
+
+
+async def test_typed_reminder_in_chat_routes_to_the_reminder_flow(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    start_rem, clinic = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(consult_flow, "_start_reminder", start_rem)
+    monkeypatch.setattr(consult_flow, "_do_clinic_search", clinic)
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"chat_transcript": []})
+    handled = await consult_flow.start_typed_affordance(
+        _routing_message("нагадай мені перездати кров за 3 місяці"), state, scheduler=AsyncMock()
+    )
+    assert handled is True
+    start_rem.assert_awaited_once() and clinic.assert_not_awaited()
+    assert state.update_data.await_args.kwargs["consult_subject"]["kind"] == "general"
+
+
+async def test_typed_clinic_ask_in_chat_routes_to_the_finder(monkeypatch) -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    start_rem, clinic = AsyncMock(), AsyncMock()
+    monkeypatch.setattr(consult_flow, "_start_reminder", start_rem)
+    monkeypatch.setattr(consult_flow, "_do_clinic_search", clinic)
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={"chat_transcript": []})
+    handled = await consult_flow.start_typed_affordance(
+        _routing_message("де зробити УЗД нирок у Львові?"), state, scheduler=AsyncMock()
+    )
+    assert handled is True
+    clinic.assert_awaited_once() and start_rem.assert_not_awaited()
+
+
+async def test_plain_chat_text_is_not_an_affordance() -> None:
+    from unittest.mock import AsyncMock
+
+    from dbaylo.bot import consult_flow
+
+    state = AsyncMock()
+    handled = await consult_flow.start_typed_affordance(
+        _routing_message("як мені краще висипатися?"), state, scheduler=AsyncMock()
+    )
+    assert handled is False  # an ordinary turn falls through to the companion chat
+    state.update_data.assert_not_called()
+
+
 def test_booking_lead_fires_well_before_a_far_visit_and_clamps_a_near_one() -> None:
     # A booking reminder fires several days before the visit (the slot isn't arranged yet — time to
     # call and agree); if the visit is too soon, it clamps to "soon", never after the visit.
