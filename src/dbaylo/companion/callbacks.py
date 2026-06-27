@@ -233,6 +233,18 @@ def parse_medication_view(data: str) -> tuple[int, str] | None:
     return _parse_origin(MEDICATION_VIEW, data)
 
 
+# Open the original prescription photo/PDF a medication was read from (from its card).
+MEDICATION_FILE = "med_file"
+
+
+def medication_file(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(MEDICATION_FILE, medication_id, origin)
+
+
+def parse_medication_file(data: str) -> tuple[int, str] | None:
+    return _parse_origin(MEDICATION_FILE, data)
+
+
 # Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's
 # soft turn-off, MEDICATION_OFF) — there's no re-enable, so the card "removes" them for real.
 MEDICATION_DELETE = "med_del"

@@ -1314,3 +1314,5 @@ MED_CARD_HINT = (
 )
 BTN_MED_TURN_OFF = "🔕 Вимкнути нагадування"
 MED_TURNED_OFF_TOAST = "Вимкнув нагадування про ці ліки."
+BTN_MED_FILE = "📄 Фото рецепта"  # shown only for a med read from a prescription photo
+MED_FILE_GONE = "Оригінал рецепта не знайшов — можливо, його прибрали."

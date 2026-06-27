@@ -11,6 +11,7 @@ from __future__ import annotations
 import contextlib
 import html
 from datetime import date, datetime
+from pathlib import Path
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -18,7 +19,13 @@ from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    FSInputFile,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
@@ -890,21 +897,32 @@ def _med_card(med: Medication, *, when: str) -> str:
     return "\n".join(lines)
 
 
-def _med_card_keyboard(medication_id: int, origin: str) -> InlineKeyboardMarkup:
-    """The med card's actions: turn the reminders off (deliberate), or back to the list it came from
-    (the 💊 meds list or the 🔔 reminders list)."""
+def _med_card_keyboard(
+    medication_id: int, origin: str, *, has_file: bool = False
+) -> InlineKeyboardMarkup:
+    """The med card's actions: (📄 open the prescription photo, when there is one), turn the
+    reminders off (deliberate), or back to the list it came from (💊 meds / 🔔 reminders)."""
     back = callbacks.MED_LIST_BACK if origin == "m" else callbacks.REMINDERS_BACK
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_file:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_MED_TURN_OFF,
-                    callback_data=callbacks.medication_off(medication_id, origin),
-                ),
-                InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
+                    text=locale.BTN_MED_FILE,
+                    callback_data=callbacks.medication_file(medication_id, origin),
+                )
             ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_MED_TURN_OFF,
+                callback_data=callbacks.medication_off(medication_id, origin),
+            ),
+            InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 @router.callback_query(F.data.startswith(callbacks.MEDICATION_VIEW + ":"))
@@ -941,9 +959,30 @@ async def on_medication_view(
     with contextlib.suppress(TelegramBadRequest):
         await callback.message.edit_text(
             _med_card(med, when=when),
-            reply_markup=_med_card_keyboard(medication_id, origin),
+            reply_markup=_med_card_keyboard(medication_id, origin, has_file=bool(med.source_file)),
             parse_mode=ParseMode.HTML,
         )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.MEDICATION_FILE + ":"))
+async def on_medication_file(callback: CallbackQuery) -> None:
+    """📄 Send the original prescription photo/PDF the medication was read from."""
+    parsed = callbacks.parse_medication_file(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    medication_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        med = await session.get(Medication, medication_id)
+        path = med.source_file if med is not None and med.user_id == user.id else None
+    file = Path(path) if path else None
+    if file is not None and file.is_file():
+        await callback.message.answer_document(FSInputFile(str(file), filename=file.name))
+    else:
+        await callback.message.answer(locale.MED_FILE_GONE)
     await callback.answer()
 
 

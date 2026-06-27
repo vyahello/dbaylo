@@ -102,19 +102,27 @@ def resolve_schedule(text: str) -> tuple[list[time], str | None]:
 
 
 async def add_medication(
-    session: AsyncSession, *, user: User, name: str, times: list[time], dose: str | None = None
+    session: AsyncSession,
+    *,
+    user: User,
+    name: str,
+    times: list[time],
+    dose: str | None = None,
+    source_file: str | None = None,
 ) -> tuple[Medication, list[Reminder]]:
     """Record the medication and create one daily reminder per dose time.
 
     ``dose`` is optional RECORD-KEEPING of the prescribed amount (e.g. captured from a prescription
     photo) — stored on the :class:`Medication` (rail #1 allows storing what a doctor prescribed) but
-    NEVER placed in the reminder text.
+    NEVER placed in the reminder text. ``source_file`` is the original prescription image/PDF the
+    med was read from, kept so the user can re-open it; ``None`` for a manually-entered medication.
     """
     medication = Medication(
         user_id=user.id,
         name=name.strip(),
         dose=(dose or None),
         schedule=", ".join(t.strftime("%H:%M") for t in times),
+        source_file=(source_file or None),
     )
     session.add(medication)
     await session.flush()

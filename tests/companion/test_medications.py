@@ -73,3 +73,19 @@ async def test_add_medication_creates_one_reminder_per_time(async_session: Async
 
     for reminder in created:
         assert contains_dose_directive(reminders.render_reminder(reminder)) is None
+
+
+async def test_add_medication_stores_the_prescription_photo_path(
+    async_session: AsyncSession,
+) -> None:
+    # A med read from a prescription photo keeps the photo path (so the user can re-open it); a
+    # manually-entered med has none.
+    user = await _user(async_session)
+    med, _ = await medications.add_medication(
+        async_session, user=user, name="Но-шпа", times=[time(9, 0)], source_file="/data/rx/42.jpg"
+    )
+    assert med.source_file == "/data/rx/42.jpg"
+    manual, _ = await medications.add_medication(
+        async_session, user=user, name="Вітамін D", times=[time(9, 0)]
+    )
+    assert manual.source_file is None

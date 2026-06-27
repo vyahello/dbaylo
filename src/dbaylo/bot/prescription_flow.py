@@ -114,7 +114,8 @@ async def present_prescription_from_path(message: Message, state: FSMContext, *,
     # frequency but no hours, the bot picks the times instead of leaving the med for manual entry.
     resolved = [_with_resolved_times(med) for med in outcome]
     await state.set_state(PrescriptionStates.confirming)
-    await state.update_data(meds=[_med_to_state(med) for med in resolved])
+    # Keep the photo path so the saved meds link back to it (the user can re-open the prescription).
+    await state.update_data(meds=[_med_to_state(med) for med in resolved], rx_path=path)
     await message.answer(_render_confirm(resolved), reply_markup=_confirm_keyboard())
 
 
@@ -136,6 +137,7 @@ async def on_prescription_confirm(
 ) -> None:
     data = await state.get_data()
     raw = data.get("meds") or []
+    rx_path = data.get("rx_path")  # the original prescription photo, linked to each saved med
     await state.clear()
     await clear_inline_keyboard(callback)  # consume the confirm/cancel buttons
     tg = callback.from_user.id if callback.from_user else None
@@ -143,6 +145,7 @@ async def on_prescription_confirm(
         await callback.answer()
         return
 
+    source_file = str(rx_path) if rx_path else None
     meds = [_med_from_state(item) for item in raw if isinstance(item, dict)]
     created: list[str] = []
     skipped: list[str] = []
@@ -158,6 +161,7 @@ async def on_prescription_confirm(
                     times=times,
                     scheduler=reminder_scheduler,
                     dose=med.dose,
+                    source_file=source_file,
                 )
                 created.append(med.name)
             else:

@@ -380,8 +380,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   ACTION is a deliberate `[🔕 Вимкнути нагадування]` (`turn_off_medication` — keeps the Medication row
   + dose, just deactivates the jobs) `[◀ Назад]`. The med card is shared by the 💊 meds list and the
   🔔 reminders list, so `medication_view`/`medication_off` carry an **origin** ('m'/'r') and «Назад» /
-  the turn-off return to the list it was opened from (`MED_LIST_BACK` vs `REMINDERS_BACK`). **💊 з
-  фото рецепта** (`labs/prescription.py`
+  the turn-off return to the list it was opened from (`MED_LIST_BACK` vs `REMINDERS_BACK`).
+  **The prescription PHOTO is kept and re-openable** (migration 0019, `Medication.source_file`): a med
+  read from a prescription photo stores that file's path, and the med card shows a `📄 Фото рецепта`
+  button (`medication_file` → `on_medication_file` sends the original via `FSInputFile`) — a
+  manually-entered med has none. The orphan purge (`history.cleanup_orphans`) **skips a file any
+  `Medication.source_file` still references** (an auto-routed prescription shares its file with the
+  DISCARDED lab report it came from). **💊 з фото рецепта** (`labs/prescription.py`
   extractor + `bot/prescription_flow.py`, the 📷 button): a prescription photo/PDF is OCR'd to
   drug · dose · times (claude, defensive parser, like lab extraction), shown for confirmation
   (rail #5; nothing persists until confirm, rail #2), then a `Medication`+reminders per timed drug.

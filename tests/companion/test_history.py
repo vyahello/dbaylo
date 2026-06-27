@@ -27,6 +27,7 @@ from dbaylo.db.models import (
     ConditionStatus,
     LabReport,
     LabResult,
+    Medication,
     Reminder,
     ReportKind,
     ReportStatus,
@@ -1079,6 +1080,32 @@ async def test_orphans_counts_discarded_and_stale_pending_only(
     assert removed == 2
     assert not f.exists()  # the discarded upload's file was removed
     assert await history.count_orphans(async_session, user_id=user.id, now=now) == 0
+
+
+async def test_cleanup_keeps_a_file_a_medication_still_references(
+    async_session: AsyncSession, tmp_path: Path
+) -> None:
+    # An auto-routed prescription leaves a DISCARDED report sharing its file with the Medication it
+    # made — purging the orphan report must NOT delete the photo the medication still points to.
+    user = await _user(async_session)
+    now = datetime(2026, 6, 19, 12, 0, tzinfo=UTC)
+    rx = tmp_path / "rx.jpg"
+    rx.write_bytes(b"prescription")
+    async_session.add(Medication(user_id=user.id, name="Но-шпа", source_file=str(rx)))
+    await async_session.flush()
+    await _report(
+        async_session,
+        user_id=user.id,
+        on=None,
+        lab=None,
+        status=ReportStatus.DISCARDED,
+        source_file=str(rx),  # the same file the medication references
+        created_at=now - timedelta(minutes=1),
+    )
+    removed = await history.cleanup_orphans(async_session, user_id=user.id, now=now)
+    await async_session.commit()
+    assert removed == 1  # the junk report row is still gone
+    assert rx.exists()  # ...but the medication's prescription photo is preserved
 
 
 # --- Dynamics export: numeric vs qualitative vs single-measurement split ----------

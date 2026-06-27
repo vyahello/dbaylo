@@ -181,6 +181,9 @@ class Medication(TimestampMixin, Base):
     dose: Mapped[str | None] = mapped_column(default=None)
     schedule: Mapped[str | None] = mapped_column(default=None)
     prescribed_by: Mapped[str | None] = mapped_column(default=None)
+    # The original prescription photo/PDF this medication was read from (path on disk), so the user
+    # can re-open it — like a lab report's source_file. None for a manually-entered medication.
+    source_file: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[User] = relationship(back_populates="medications")
 

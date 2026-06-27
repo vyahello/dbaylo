@@ -20,6 +20,19 @@ def _med(name, dose=None, times=(), frequency=None) -> ExtractedMedication:
     return ExtractedMedication(name=name, dose=dose, times=times, frequency=frequency)
 
 
+def test_med_card_keyboard_shows_the_file_button_only_with_a_photo() -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    with_photo = proactive_flow._med_card_keyboard(7, "m", has_file=True)
+    datas = [b.callback_data for row in with_photo.inline_keyboard for b in row]
+    assert callbacks.medication_file(7, "m") in datas  # 📄 opens the prescription photo
+
+    no_photo = proactive_flow._med_card_keyboard(7, "m", has_file=False)
+    datas = [b.callback_data for row in no_photo.inline_keyboard for b in row]
+    assert not any(d.startswith(callbacks.MEDICATION_FILE) for d in datas)
+
+
 def test_with_resolved_times_spreads_a_frequency_only_med() -> None:
     # A doctor writes "двічі на день", not hours — the bot fills the times so the med is scheduled,
     # not skipped for manual entry. Explicit-times (or no usable frequency) is left unchanged.

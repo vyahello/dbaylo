@@ -30,6 +30,7 @@ from dbaylo.db.models import (
     ConsultMemory,
     LabReport,
     LabResult,
+    Medication,
     Reminder,
     ReportKind,
     ReportStatus,
@@ -1335,8 +1336,19 @@ async def count_orphans(session: AsyncSession, *, user_id: int, now: datetime) -
 
 async def cleanup_orphans(session: AsyncSession, *, user_id: int, now: datetime) -> int:
     orphans = await _orphans(session, user_id=user_id, now=now)
+    # A prescription auto-routed from a dropped photo leaves a DISCARDED report that SHARES its file
+    # with the Medication created from it — never delete a file a medication still references.
+    kept = {
+        p
+        for p in await session.scalars(
+            select(Medication.source_file).where(
+                Medication.user_id == user_id, Medication.source_file.is_not(None)
+            )
+        )
+    }
     for report in orphans:
-        _remove_file(report)
+        if not report.source_file or report.source_file not in kept:
+            _remove_file(report)
         await session.delete(report)
     await session.flush()
     return len(orphans)
