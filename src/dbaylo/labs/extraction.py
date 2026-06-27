@@ -48,6 +48,13 @@ EXTRACTION_PERSONA = (
     '  "kind": "tabular" | "narrative",  // "tabular" = an analyte results table;\n'
     '                                    // "narrative" = a descriptive medical document\n'
     "                                    // (МРТ/КТ/УЗД/висновок/виписка/опис) with no table\n"
+    '  "document_type": "lab" | "prescription", // WHAT this upload is. "prescription" ONLY\n'
+    "                                    // when the page's PRIMARY purpose is a doctor's list of\n"
+    "                                    // medications TO TAKE (рецепт / лист призначень: drug\n"
+    "                                    // names with doses / times / frequency). A lab results\n"
+    "                                    // table or an imaging/narrative report is 'lab' — even\n"
+    "                                    // if it has a 'recommendations' footer. If unsure,\n"
+    "                                    // use 'lab' (the default).\n"
     '  "report_type": string | null,     // for narrative: the study/document type, e.g.\n'
     "                                    // 'МРТ головного мозку', 'УЗД органів малого тазу'\n"
     '  "narrative": string | null,       // for narrative: the KEY FINDINGS body as printed\n'
@@ -191,7 +198,10 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     report_type: str | None = None
     conclusion: str | None = None
     narratives: list[str] = []
+    document_type = "lab"
     for report in reports:
+        if report.is_prescription:
+            document_type = "prescription"  # any chunk that reads as a prescription wins
         for analyte in report.results:
             key = (
                 analyte.section,
@@ -224,6 +234,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
         report_type=report_type,
         conclusion=conclusion,
         narrative="\n\n".join(narratives) or None,
+        document_type=document_type,
     )
 
 
@@ -310,6 +321,12 @@ def parse_extraction(text: str) -> ExtractedReport | None:
     kind = (_coerce_str(data.get("kind")) or "").strip().casefold()
     report_type = _coerce_str(data.get("report_type"))
     narrative = _coerce_str(data.get("narrative"))
+    # Auto-routing classification: only honour an explicit "prescription"; anything else is "lab".
+    document_type = (
+        "prescription"
+        if (_coerce_str(data.get("document_type")) or "").strip().casefold() == "prescription"
+        else "lab"
+    )
 
     # Narrative detection, robust to LLM variance (the bug behind the МРТ "send the table again"):
     # an imaging/descriptive document is narrative when the model SAYS so (kind), OR it carries a
@@ -333,6 +350,7 @@ def parse_extraction(text: str) -> ExtractedReport | None:
         conclusion=_coerce_str(data.get("conclusion")),
         report_type=report_type,
         narrative=narrative,
+        document_type=document_type,
     )
 
 

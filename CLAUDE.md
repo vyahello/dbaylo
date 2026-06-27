@@ -109,7 +109,9 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   fences/partial/malformed output and degrades to "ask the user", never crashes. Default model
   `sonnet`, escalates to `opus`; never `haiku`. **Captures the lab's OWN out-of-range indicator**
   per row (`out_of_range`, the boxed/highlighted "зона уваги" — OCR of the lab's verdict, not ours)
-  and the report's overall `conclusion` (Stage 5). **Argv note:** `run_claude` ends its argv with a
+  and the report's overall `conclusion` (Stage 5). Also classifies the upload via `document_type`
+  ("lab" | "prescription") for **auto-routing** a freely-dropped рецепт to the meds flow (see L1
+  💊 з фото рецепта). **Argv note:** `run_claude` ends its argv with a
   `--` terminator — `--add-dir`/`--allowedTools` are variadic and otherwise swallow the prompt (this
   silently broke every extraction once; `tests/test_llm_client.py` locks it). **Paged extraction**
   (`labs/pdf_split.py` + `extract_paged`/`extract_document`, the bot's entry): a multi-page PDF is
@@ -350,7 +352,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   drug · dose · times (claude, defensive parser, like lab extraction), shown for confirmation
   (rail #5; nothing persists until confirm, rail #2), then a `Medication`+reminders per timed drug.
   The router is registered BEFORE `lab_flow`, state-filtered to `PrescriptionStates.waiting_photo`,
-  so a prescription upload routes here while every other photo still reaches the lab pipeline. The
+  so an EXPLICIT prescription upload (📷 button) routes here. **Auto-routing of a freely-dropped
+  photo** (no button first): the lab read now also CLASSIFIES the upload — the extraction JSON
+  carries `document_type` ("lab" | "prescription"), parsed onto `ExtractedReport.document_type` /
+  `is_prescription` (merge propagates it across PDF chunks). In `lab_flow._handle_upload`, when the
+  read says `is_prescription` AND there are **no** analyte rows (a lab that merely prints a meds
+  footer keeps its rows → stays a lab — the conservative guard against hijacking real labs), the
+  pending lab report is DISCARDED and the file (already on disk) is handed to
+  `prescription_flow.present_prescription_from_path`, which re-reads it with the focused
+  prescription parser and confirms (rail #2/#5). So analyses stay a single read; only a detected
+  prescription pays a second, dedicated read — the common path is unchanged. A prescription the
+  classifier misses (→ "lab") just falls back to today's behaviour (📷 button still works). The
   **dose is stored** on `Medication.dose` as record-keeping (rail #1 permits it) and shown in the
   confirm, but NEVER in a reminder; a med whose time the page didn't print is listed for manual
   entry, never guessed. The daily check-in no longer appears as a deletable reminder — it's an

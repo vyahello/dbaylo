@@ -71,6 +71,18 @@ class ExtractedReport:
     # ("МРТ головного мозку") and the key findings body. Tabular reports leave these None.
     report_type: str | None = None
     narrative: str | None = None
+    # Auto-routing — the model's classification of WHAT this upload is: "lab" (a results table or
+    # an imaging/narrative report — the default) vs "prescription" (a doctor's medication list to
+    # take: рецепт / лист призначень). Lets a freely-dropped photo route itself to the right flow
+    # without the user pre-tapping a button. Independent of ``kind`` (tabular vs narrative).
+    document_type: str = "lab"
+
+    @property
+    def is_prescription(self) -> bool:
+        """The model classified this upload as a doctor's medication list (рецепт / лист
+        призначень), not lab data. The router ALSO requires no analyte rows (a lab that prints a
+        medication footer stays a lab), so on its own this is only the classifier's vote."""
+        return self.document_type == "prescription"
 
     @property
     def is_narrative(self) -> bool:

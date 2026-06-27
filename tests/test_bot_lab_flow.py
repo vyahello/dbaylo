@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import date
-from unittest.mock import AsyncMock
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from dbaylo import locale
+from dbaylo.bot import lab_flow
 from dbaylo.bot.lab_flow import (
     _CB_CONCERN_NO,
     _CB_CONCERN_YES,
@@ -47,6 +50,66 @@ def _report() -> ExtractedReport:
             ExtractedAnalyte("Кетони", value=None, value_text="не виявлено"),
         ],
     )
+
+
+# --- Auto-routing: a freely-dropped photo classified as a prescription -----------
+
+
+def _patch_upload(monkeypatch, *, outcome: ExtractedReport) -> AsyncMock:
+    """Stub _handle_upload's heavy deps; return the present-prescription spy."""
+    session = AsyncMock()
+    session.get = AsyncMock(return_value=SimpleNamespace(status=None, raw_ocr=None))
+
+    @asynccontextmanager
+    async def fake_session():
+        yield session
+
+    monkeypatch.setattr(lab_flow, "get_session", fake_session)
+    monkeypatch.setattr(lab_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=1)))
+    monkeypatch.setattr(lab_flow, "find_confirmed_by_hash", AsyncMock(return_value=None))
+    monkeypatch.setattr(lab_flow, "save_original_file", Mock(return_value="/tmp/up.jpg"))
+    monkeypatch.setattr(
+        lab_flow, "create_pending_report", AsyncMock(return_value=SimpleNamespace(id=42))
+    )
+    monkeypatch.setattr(lab_flow, "extract_document", AsyncMock(return_value=outcome))
+    present = AsyncMock()
+    monkeypatch.setattr(lab_flow.prescription_flow, "present_prescription_from_path", present)
+    monkeypatch.setattr(lab_flow, "answer_chunked", AsyncMock())
+    return present
+
+
+def _upload_message() -> AsyncMock:
+    message = AsyncMock()
+    message.from_user = SimpleNamespace(id=4242, full_name="Owner")
+    return message
+
+
+async def test_dropped_prescription_is_auto_routed_to_the_meds_flow(monkeypatch) -> None:
+    # The read classified the upload as a prescription AND it has no analyte rows → hand off to the
+    # medication flow (no need to pre-tap 📷 З фото рецепта); the lab confirm is NOT rendered.
+    present = _patch_upload(
+        monkeypatch, outcome=ExtractedReport(document_type="prescription", results=[])
+    )
+    message, state = _upload_message(), AsyncMock()
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".jpg")
+    present.assert_awaited_once()
+    assert present.await_args.kwargs["path"] == "/tmp/up.jpg"
+    lab_flow.answer_chunked.assert_not_awaited()  # the lab confirm view never shows
+
+
+async def test_a_lab_with_results_is_never_hijacked_as_a_prescription(monkeypatch) -> None:
+    # Even if the model tags document_type=prescription, a real results table stays a lab report.
+    present = _patch_upload(
+        monkeypatch,
+        outcome=ExtractedReport(
+            document_type="prescription",
+            results=[ExtractedAnalyte("Глюкоза", value=5.4)],
+        ),
+    )
+    message, state = _upload_message(), AsyncMock()
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".jpg")
+    present.assert_not_awaited()
+    lab_flow.answer_chunked.assert_awaited()  # the normal lab confirm view
 
 
 def test_render_confirmation_is_problems_first() -> None:

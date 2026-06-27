@@ -87,9 +87,16 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         user = await ensure_user(session, message.from_user.id, message.from_user.full_name)
         path = save_original_file(data, user_id=user.id, suffix=suffix)
 
+    await present_prescription_from_path(message, state, path=str(path))
+
+
+async def present_prescription_from_path(message: Message, state: FSMContext, *, path: str) -> None:
+    """Read an ALREADY-SAVED prescription file → confirm. Shared by the explicit 📷 button flow and
+    the **auto-routing** path (`lab_flow` hands off a freely-dropped photo the lab read classified
+    as a prescription — the file is already on disk, so no re-download / re-save)."""
     budget = 2 * get_settings().claude_extract_timeout_s + 30
     try:
-        outcome = await asyncio.wait_for(extract_prescription(str(path)), timeout=budget)
+        outcome = await asyncio.wait_for(extract_prescription(path), timeout=budget)
     except Exception:  # noqa: BLE001 — never leave the user hanging on a bad upload
         outcome = ExtractionFailed("prescription extraction timed out or errored")
 

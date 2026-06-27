@@ -11,6 +11,7 @@ from dbaylo.labs.extraction import (
     ExtractionFailed,
     extract,
     extract_with_escalation,
+    merge_reports,
     parse_extraction,
 )
 from dbaylo.llm import ClaudeResult, ClaudeUnavailable
@@ -40,6 +41,38 @@ def test_parse_good_json() -> None:
     assert report.lab == "Сінево"  # "Synevo" canonicalized to the printed Ukrainian brand
     assert len(report.results) == 2
     assert report.results[1].value == pytest.approx(9.1)  # comma decimal coerced
+
+
+def test_parse_defaults_document_type_to_lab() -> None:
+    # No document_type in the JSON (a normal lab) → "lab", never auto-routed as a prescription.
+    report = parse_extraction(GOOD_JSON)
+    assert report is not None
+    assert report.document_type == "lab" and report.is_prescription is False
+
+
+def test_parse_classifies_a_prescription() -> None:
+    # The model flagged the upload as a doctor's medication list → is_prescription drives routing.
+    report = parse_extraction(
+        '{"document_type": "prescription", "kind": "narrative", "results": []}'
+    )
+    assert report is not None and report.is_prescription is True
+
+
+def test_parse_ignores_an_unknown_document_type() -> None:
+    # Anything other than the exact "prescription" token is treated as "lab" (conservative).
+    report = parse_extraction('{"document_type": "weird", "results": []}')
+    assert report is not None and report.document_type == "lab"
+
+
+def test_merge_propagates_a_prescription_classification() -> None:
+    # A multi-page рецепт: any chunk read as a prescription makes the merged whole a prescription.
+    merged = merge_reports(
+        [
+            ExtractedReport(document_type="lab"),
+            ExtractedReport(document_type="prescription"),
+        ]
+    )
+    assert merged.is_prescription is True
 
 
 def test_parse_strips_code_fences() -> None:

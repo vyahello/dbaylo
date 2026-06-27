@@ -34,6 +34,7 @@ from aiogram.types import (
 )
 
 from dbaylo import locale
+from dbaylo.bot import prescription_flow
 from dbaylo.bot.formatting import answer_chunked
 from dbaylo.bot.history_flow import send_analysis
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
@@ -413,6 +414,20 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
                 pending.status = ReportStatus.DISCARDED
         await message.answer(locale.LAB_EXTRACTION_FAILED)
         await state.clear()
+        return
+
+    # Auto-routing: the read classified this upload as a prescription / лист призначень AND it has
+    # no analyte table (a lab that merely prints a meds footer keeps its rows → stays a lab). Hand a
+    # freely-dropped prescription to the medication flow, so the user need not pre-tap 📷 З фото
+    # рецепта. The file is already saved (``path``); the meds flow re-reads it with its focused
+    # prescription parser (drug · dose · time) and confirms before anything persists (rail #2/#5).
+    if outcome.is_prescription and not outcome.results:
+        async with get_session() as session:
+            pending = await session.get(LabReport, report_id)
+            if pending is not None:
+                pending.status = ReportStatus.DISCARDED  # it is not a lab report after all
+        await message.answer(locale.LAB_LOOKS_LIKE_PRESCRIPTION)
+        await prescription_flow.present_prescription_from_path(message, state, path=str(path))
         return
 
     async with get_session() as session:

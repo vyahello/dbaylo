@@ -182,6 +182,10 @@ LAB_EXTRACTION_FAILED = (
     "Не вдалося розпізнати результати. Надішли, будь ласка, чіткіше фото або PDF, "
     "або введи значення вручну."
 )
+# Auto-routing: a freely-dropped photo read as a prescription, not lab results — switching flows.
+LAB_LOOKS_LIKE_PRESCRIPTION = (
+    "📋 Це більше схоже на рецепт / лист призначень, ніж на аналізи — зчитую ліки. 💊"
+)
 LAB_UNSUPPORTED_FILE = (
     "Я вмію читати фото (JPEG/PNG) або PDF з результатами аналізів. Спробуй надіслати такий файл."
 )
