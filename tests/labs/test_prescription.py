@@ -17,21 +17,30 @@ from dbaylo.labs.prescription import (
 from dbaylo.llm import ClaudeResult
 
 
-def test_parse_reads_name_dose_times() -> None:
+def test_parse_reads_name_dose_times_duration_and_course() -> None:
     text = (
-        '{"medications": [{"name": "Аспірин", "dose": "500 мг", '
-        '"times": ["8:00", "20:00"], "frequency": null}]}'
+        '{"course": "Урологічний курс", "medications": [{"name": "Аспірин", "dose": "500 мг", '
+        '"times": ["8:00", "20:00"], "frequency": null, "duration": "3 міс."}]}'
     )
-    meds = parse_prescription(text)
-    assert meds == [
-        ExtractedMedication(name="Аспірин", dose="500 мг", times=("08:00", "20:00"), frequency=None)
-    ]  # "8:00" padded to "08:00"
+    rx = parse_prescription(text)
+    assert rx is not None and rx.course == "Урологічний курс"  # the model's clinical naming
+    assert rx.medications == [
+        ExtractedMedication(
+            name="Аспірин",
+            dose="500 мг",
+            times=("08:00", "20:00"),  # "8:00" padded to "08:00"
+            frequency=None,
+            duration="3 міс.",
+        )
+    ]
 
 
 def test_parse_tolerates_code_fences() -> None:
     text = '```json\n{"medications": [{"name": "Парацетамол", "times": []}]}\n```'
-    meds = parse_prescription(text)
-    assert meds is not None and meds[0].name == "Парацетамол" and meds[0].times == ()
+    rx = parse_prescription(text)
+    assert (
+        rx is not None and rx.medications[0].name == "Парацетамол" and rx.medications[0].times == ()
+    )
 
 
 def test_parse_drops_invalid_times_and_keeps_frequency() -> None:
@@ -39,14 +48,15 @@ def test_parse_drops_invalid_times_and_keeps_frequency() -> None:
         '{"medications": [{"name": "Сироп", "dose": "10 мл", '
         '"times": ["25:00", "noon"], "frequency": "двічі на день"}]}'
     )
-    meds = parse_prescription(text)
-    assert meds is not None
-    assert meds[0].times == ()  # "25:00"/"noon" are not valid HH:MM
-    assert meds[0].frequency == "двічі на день"
+    rx = parse_prescription(text)
+    assert rx is not None
+    assert rx.medications[0].times == ()  # "25:00"/"noon" are not valid HH:MM
+    assert rx.medications[0].frequency == "двічі на день"
 
 
 def test_parse_empty_medications_is_valid() -> None:
-    assert parse_prescription('{"medications": []}') == []  # not a prescription -> empty, not None
+    rx = parse_prescription('{"medications": []}')  # not a prescription -> empty meds, not None
+    assert rx is not None and rx.medications == []
 
 
 def test_parse_garbage_returns_none() -> None:
@@ -66,8 +76,9 @@ async def test_extract_uses_runner_and_parses(tmp_path: Path) -> None:
             exit_code=0,
         )
 
-    meds = await extract_prescription(file, runner=runner)
-    assert isinstance(meds, list) and meds[0].name == "Метформін" and meds[0].dose == "850 мг"
+    rx = await extract_prescription(file, runner=runner)
+    assert not isinstance(rx, ExtractionFailed)
+    assert rx.medications[0].name == "Метформін" and rx.medications[0].dose == "850 мг"
 
 
 async def test_extract_missing_file_fails_cleanly() -> None:

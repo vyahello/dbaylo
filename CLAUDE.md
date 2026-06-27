@@ -380,7 +380,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   a default course label ("Рецепт від {date}") the user can rename by **typing** a name while
   confirming (`on_prescription_course`, the agent auto-determines, the user overrides in their own
   words); on confirm every med gets that `course`. The 💊 Мої ліки list groups meds under their course
-  on confirm every med gets that `course`. **A prescription (course) is ONE GROUP entry, NOT N loose
+  on confirm every med gets that `course`. **The agent NAMES the course** clinically (the extractor's
+  one inferred field: `ExtractedPrescription.course`, "Урологічний курс" from the drug set) — the date
+  label is only the fallback when the model can't tell; the user can still rename by typing.
+  **Duration → auto-expiry** (migration 0021, `Medication.until`): the extractor reads each med's
+  printed term (`ExtractedMedication.duration`, "3 міс."/"1 міс."/"10 днів"/"до 27.07");
+  `medications.course_end(today, duration)` turns it into the last day to take it (`until`). The med
+  shows `⏳ Курс до <date>` in the confirm + card; when the term passes it LEAVES the lists
+  (`_live_medications` filters `until < today`) and the scheduler RETIRES its reminders on the next
+  fire + tells the user once (`MED_COURSE_FINISHED`). No duration → open-ended (never expires). **A
+  prescription (course) is ONE GROUP entry, NOT N loose
   meds** (owner: "3 окремі нагадування а не 1 загальне", "1 фото для групи"): in BOTH 💊 Мої ліки
   (`_medications_payload`) and 🔔 Нагадування (`_reminders_payload`) a course is a single
   `🗂 <course> · N ліки` button (`_group_by_course`; a manual med stays its own `💊 <name>` row),

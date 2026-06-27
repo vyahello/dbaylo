@@ -700,7 +700,14 @@ async def _live_medications(session: AsyncSession, *, user_id: int) -> list[Medi
             seen.add(mid)
             order.append(mid)
     meds = {m.id: m for m in await medications.list_medications(session, user_id=user_id)}
-    return [meds[mid] for mid in order if mid in meds]
+    today = date.today()
+
+    def _live(med: Medication) -> bool:
+        # A med whose prescribed term has passed leaves the lists immediately (the scheduler retires
+        # its jobs on the next fire; this hides it the same day so it never lingers as active.
+        return med.until is None or today <= med.until
+
+    return [meds[mid] for mid in order if mid in meds and _live(meds[mid])]
 
 
 def _group_by_course(
@@ -754,11 +761,20 @@ def _course_card(course: str, meds: list[Medication]) -> str:
     still fire SEPARATELY. One shared photo + one turn-off live in the keyboard."""
     lines = [locale.COURSE_CARD_TITLE.format(course=html.escape(course))]
     for med in meds:
-        lines.append(
-            locale.COURSE_CARD_ITEM.format(
-                name=html.escape(med.name), times=html.escape(med.schedule or "?")
+        if med.until is not None:
+            lines.append(
+                locale.COURSE_CARD_ITEM_UNTIL.format(
+                    name=html.escape(med.name),
+                    times=html.escape(med.schedule or "?"),
+                    until=med.until.isoformat(),
+                )
             )
-        )
+        else:
+            lines.append(
+                locale.COURSE_CARD_ITEM.format(
+                    name=html.escape(med.name), times=html.escape(med.schedule or "?")
+                )
+            )
     lines.append("")
     lines.append(locale.COURSE_CARD_HINT)
     return "\n".join(lines)
@@ -990,6 +1006,8 @@ def _med_card(med: Medication, *, when: str) -> str:
     if med.dose:
         lines.append(locale.MED_CARD_DOSE.format(dose=html.escape(med.dose)))
     lines.append(locale.MED_CARD_TIMES.format(times=html.escape(med.schedule or "?")))
+    if med.until is not None:  # the doctor's term — the bot stops reminding after it
+        lines.append(locale.MED_CARD_UNTIL.format(until=med.until.isoformat()))
     lines.append(locale.MED_CARD_NEXT.format(when=when))
     lines.append("")
     lines.append(locale.MED_CARD_HINT)

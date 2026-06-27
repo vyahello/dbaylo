@@ -65,6 +65,19 @@ def test_parse_dose() -> None:
     assert medications.parse_dose("3 рази на день") is None  # a frequency is not a dose
 
 
+def test_course_end_from_duration() -> None:
+    from datetime import date
+
+    start = date(2026, 6, 27)
+    assert medications.course_end(start, "3 міс.") == date(2026, 9, 27)
+    assert medications.course_end(start, "1 міс.") == date(2026, 7, 27)
+    assert medications.course_end(start, "10 днів") == date(2026, 7, 7)
+    assert medications.course_end(start, "2 тижні") == date(2026, 7, 11)
+    assert medications.course_end(start, "до 15.07") == date(2026, 7, 15)
+    assert medications.course_end(start, None) is None  # open-ended -> never expires
+    assert medications.course_end(start, "за потреби") is None
+
+
 def test_resolve_schedule_prefers_explicit_times_then_frequency() -> None:
     # A doctor prescribes a frequency, not hours — the bot spreads the day. Explicit times win.
     times, dose = medications.resolve_schedule("2 таблетки 3 рази в день")

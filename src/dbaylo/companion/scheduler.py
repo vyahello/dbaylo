@@ -39,7 +39,7 @@ from dbaylo.companion import checkin, health, reminders
 from dbaylo.companion.reminders import CronSpec, DateSpec, parse_schedule
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.db.models import Reminder, User
+from dbaylo.db.models import Medication, Reminder, User
 
 # A factory that yields an AsyncSession context manager (``get_session`` by default).
 SessionFactory = Callable[[], AbstractAsyncContextManager[AsyncSession]]
@@ -173,7 +173,26 @@ async def _fire_reminder(
             await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
             await reminders.deactivate(session, reminder)  # one-off: retire it
         else:  # medication
-            await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
+            med = (
+                await session.get(Medication, reminder.medication_id)
+                if reminder.medication_id is not None
+                else None
+            )
+            if med is not None and med.until is not None and datetime.now(tz).date() > med.until:
+                # The doctor's term is over — retire ALL of this med's reminders and tell the user
+                # once. The Medication row + dose stay (a record); only the jobs stop.
+                ids = await reminders.deactivate_medication(session, med.id)
+                for rid in ids:
+                    if scheduler.get_job(f"reminder:{rid}") is not None:
+                        scheduler.remove_job(f"reminder:{rid}")
+                await _send(
+                    sender,
+                    session,
+                    reminder.user_id,
+                    locale.MED_COURSE_FINISHED.format(name=med.name, until=med.until.isoformat()),
+                )
+            else:
+                await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
         await session.commit()
 
 

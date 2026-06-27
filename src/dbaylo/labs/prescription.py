@@ -32,22 +32,30 @@ PRESCRIPTION_PERSONA = (
     "extract every prescribed medication. Return JSON ONLY — no prose, no markdown, no code "
     "fences — matching this shape:\n"
     "{\n"
+    '  "course": string | null,    // SHORT Ukrainian label naming the prescription as a doctor\n'
+    "                              // would file it, from WHAT the meds treat / the specialty (an\n"
+    "                              // alpha-blocker + sleep aid from a urologist -> a urological\n"
+    "                              // course label). Best clinical guess from the drug list; null\n"
+    "                              // ONLY if truly unclear. A filing label, not a diagnosis.\n"
     '  "medications": [\n'
     "    {\n"
-    '      "name": string,             // drug name exactly as printed (Ukrainian/Latin)\n'
-    '      "dose": string | null,      // dose PER INTAKE as printed, e.g. "500 мг",\n'
-    '                                  // "1 таблетка", "10 крапель"; null if not printed\n'
-    '      "times": ["HH:MM", ...],    // explicit 24h clock times if the page prints them\n'
-    '                                  // (e.g. "08:00"), else an empty list []\n'
-    '      "frequency": string | null  // the printed frequency when there are NO clock times,\n'
-    '                                  // e.g. "двічі на день", "3 рази на добу", "вранці"\n'
+    '      "name": string,         // drug name exactly as printed (Ukrainian/Latin)\n'
+    '      "dose": string | null,  // dose PER INTAKE as printed: "500 мг", "1 таблетка",\n'
+    '                              // "10 крапель"; null if not printed\n'
+    '      "times": ["HH:MM", ...],// explicit 24h clock times if printed ("08:00"), else []\n'
+    '      "frequency": string|null,// the printed frequency when there are NO clock times,\n'
+    '                              // e.g. "двічі на день", "3 рази на добу", "вранці"\n'
+    '      "duration": string|null // how LONG to take it, verbatim: "3 міс.", "1 міс.",\n'
+    '                              // "10 днів", "2 тижні", "до 27.07"; null if none given\n'
     "    }\n"
     "  ]\n"
     "}\n"
-    "Report ONLY what the document shows. NEVER invent a drug, a dose, a time, or a frequency; "
-    "if a field is missing or illegible use null (or [] for times). This is record-keeping — do "
-    "not advise, diagnose, or comment. If the document is NOT a prescription / medication list, "
-    'return {"medications": []}.'
+    "Report ONLY what the document shows for medication FIELDS — NEVER invent a drug, dose, time, "
+    "frequency or duration; if a field is missing or illegible use null (or [] for times). The "
+    "'course' label is the ONE exception: your best clinical naming of the set, allowed because it "
+    "only organizes the user's own prescription. This is record-keeping — do not advise on a dose, "
+    "diagnose the user, or comment. If the document is NOT a prescription / medication list, give "
+    '{"course": null, "medications": []}.'
 )
 
 _TIME_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
@@ -61,11 +69,20 @@ class ExtractedMedication:
     dose: str | None  # per-intake dose, stored as record (rail #1); never in reminder text
     times: tuple[str, ...]  # validated "HH:MM" strings, in printed order, de-duplicated
     frequency: str | None  # printed frequency when no explicit clock times were given
+    duration: str | None = None  # how long to take it, verbatim ("3 міс.", "10 днів"); None if none
+
+
+@dataclass(frozen=True)
+class ExtractedPrescription:
+    """A whole read prescription: its meds + a clinician-style course label (the one inferred)."""
+
+    medications: list[ExtractedMedication]
+    course: str | None = None
 
 
 async def extract_prescription(
     file_path: str | Path, *, model: str | None = None, runner: Runner = run_claude
-) -> list[ExtractedMedication] | ExtractionFailed:
+) -> ExtractedPrescription | ExtractionFailed:
     """Run a single extraction pass over a prescription image/PDF. Returns the medications it could
     read (possibly empty if the page is not a prescription) or :class:`ExtractionFailed`."""
     path = Path(file_path)
@@ -89,10 +106,10 @@ async def extract_prescription(
 
     if not result.ok:
         return ExtractionFailed(result.error or "extraction call failed")
-    meds = parse_prescription(result.text)
-    if meds is None:
+    parsed = parse_prescription(result.text)
+    if parsed is None:
         return ExtractionFailed("could not read a prescription from the document")
-    return meds
+    return parsed
 
 
 # --- Defensive parsing ----------------------------------------------------------
@@ -100,21 +117,24 @@ async def extract_prescription(
 _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
-def parse_prescription(text: str) -> list[ExtractedMedication] | None:
-    """Parse model output into medications, tolerating fences / partial output. ``None`` only when
-    nothing JSON-like can be recovered (an empty list is a valid "no medications found")."""
+def parse_prescription(text: str) -> ExtractedPrescription | None:
+    """Parse model output into a prescription (meds + course label), tolerating fences / partial
+    output. ``None`` only when nothing JSON-like can be recovered (an empty med list is a valid
+    "no medications found")."""
     data = _load_json_loosely(text)
     if not isinstance(data, dict):
         return None
     raw = data.get("medications")
     if not isinstance(raw, list):
-        return [] if raw is None else None
+        if raw is None:
+            return ExtractedPrescription(medications=[], course=_coerce_str(data.get("course")))
+        return None
     out: list[ExtractedMedication] = []
     for item in raw:
         med = _coerce_medication(item)
         if med is not None:
             out.append(med)
-    return out
+    return ExtractedPrescription(medications=out, course=_coerce_str(data.get("course")))
 
 
 def _coerce_medication(item: object) -> ExtractedMedication | None:
@@ -135,6 +155,7 @@ def _coerce_medication(item: object) -> ExtractedMedication | None:
         dose=_coerce_str(item.get("dose")),
         times=tuple(times),
         frequency=_coerce_str(item.get("frequency")),
+        duration=_coerce_str(item.get("duration")),
     )
 
 

@@ -159,6 +159,30 @@ async def test_fire_checkin_resets_any_stale_dialog_first(async_session: AsyncSe
     assert reset_calls == [user.telegram_id]
 
 
+async def test_fire_medication_retires_an_expired_course(async_session: AsyncSession) -> None:
+    # The doctor's term is over (until = yesterday): firing the med's reminder must NOT send the
+    # usual reminder — it tells the user the course is finished and retires all of its reminders.
+    from datetime import time, timedelta
+
+    from dbaylo.companion import medications
+
+    user = await _user(async_session)
+    yesterday = datetime.now(TZ).date() - timedelta(days=1)
+    _med, created = await medications.add_medication(
+        async_session, user=user, name="Соннат", times=[time(21, 0)], until=yesterday
+    )
+    recorder = _Recorder()
+    await scheduler._fire_reminder(
+        created[0].id,
+        session_factory=_factory(async_session),
+        sender=recorder,
+        scheduler=AsyncIOScheduler(timezone=TZ),
+        tz=TZ,
+    )
+    assert len(recorder.sent) == 1 and "завершено" in recorder.sent[0][1]  # the course-over notice
+    assert await reminders.active_reminders_for_user(async_session, user_id=user.id) == []
+
+
 async def test_fire_medication_does_not_reset_the_dialog(async_session: AsyncSession) -> None:
     # The belt is for the check-in only — a medication reminder must not wipe an in-progress dialog.
     user = await _user(async_session)

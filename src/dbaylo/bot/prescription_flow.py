@@ -105,18 +105,22 @@ async def present_prescription_from_path(message: Message, state: FSMContext, *,
         await message.answer(locale.PRESCRIPTION_FAILED)
         await state.clear()
         return
-    if not outcome:
+    if not outcome.medications:
         await message.answer(locale.PRESCRIPTION_NONE)
         await state.clear()
         return
 
     # A doctor writes a FREQUENCY ("3 рази на день"), not clock times — so when the page gave a
     # frequency but no hours, the bot picks the times instead of leaving the med for manual entry.
-    resolved = [_with_resolved_times(med) for med in outcome]
-    course = locale.PRESCRIPTION_COURSE_DEFAULT.format(date=date.today().isoformat())
+    resolved = [_with_resolved_times(med) for med in outcome.medications]
+    # The COURSE label is the model's best clinical naming of the set ("Урологічний курс"); only
+    # when it couldn't tell do we fall back to a date label the user can rename.
+    course = outcome.course or locale.PRESCRIPTION_COURSE_DEFAULT.format(
+        date=date.today().isoformat()
+    )
     await state.set_state(PrescriptionStates.confirming)
     # Keep the photo path so the saved meds link back to it (the user can re-open the prescription),
-    # and a default course label that groups these meds — the user can rename it (see below).
+    # and the course label that groups these meds — the user can rename it (see below).
     await state.update_data(
         meds=[_med_to_state(med) for med in resolved], rx_path=path, course=course
     )
@@ -168,6 +172,7 @@ async def on_prescription_confirm(
         return
 
     source_file = str(rx_path) if rx_path else None
+    today = date.today()
     meds = [_med_from_state(item) for item in raw if isinstance(item, dict)]
     created: list[str] = []
     skipped: list[str] = []
@@ -185,6 +190,7 @@ async def on_prescription_confirm(
                     dose=med.dose,
                     source_file=source_file,
                     course=course,
+                    until=medications.course_end(today, med.duration),  # the doctor's term
                 )
                 created.append(med.name)
             else:
@@ -204,6 +210,7 @@ def _med_to_state(med: ExtractedMedication) -> dict[str, object]:
         "dose": med.dose,
         "times": list(med.times),
         "frequency": med.frequency,
+        "duration": med.duration,
     }
 
 
@@ -214,6 +221,7 @@ def _med_from_state(item: dict[str, object]) -> ExtractedMedication:
         dose=(str(item["dose"]) if item.get("dose") else None),
         times=tuple(str(t) for t in times) if isinstance(times, list) else (),
         frequency=(str(item["frequency"]) if item.get("frequency") else None),
+        duration=(str(item["duration"]) if item.get("duration") else None),
     )
 
 
@@ -236,6 +244,8 @@ def _med_line(med: ExtractedMedication) -> str:
         parts.append(f"{med.frequency} ({locale.PRESCRIPTION_LINE_NO_TIME})")
     else:
         parts.append(locale.PRESCRIPTION_LINE_NO_TIME)
+    if med.duration:  # the doctor's term — when the bot will stop reminding
+        parts.append(locale.PRESCRIPTION_LINE_DURATION.format(duration=med.duration))
     return " · ".join(parts)
 
 

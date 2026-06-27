@@ -187,6 +187,9 @@ class Medication(TimestampMixin, Base):
     # The prescription / course this med belongs to (a group label, e.g. "Рецепт від уролога") so
     # meds from one script are grouped together. None for a standalone manually-entered med.
     course: Mapped[str | None] = mapped_column(default=None)
+    # The LAST day to take this med (from the prescription's duration, "3 міс." → today+3mo). After
+    # it, the scheduler retires the reminders (course over). None = open-ended (never expires).
+    until: Mapped[date | None] = mapped_column(default=None)
 
     user: Mapped[User] = relationship(back_populates="medications")
 

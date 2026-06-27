@@ -36,8 +36,8 @@ def test_course_card_lists_its_meds_and_shares_one_photo() -> None:
     from dbaylo.companion import callbacks
 
     meds = [
-        SimpleNamespace(name="Симода", schedule="09:00"),
-        SimpleNamespace(name="Буспірон", schedule="08:00, 14:00, 20:00"),
+        SimpleNamespace(name="Симода", schedule="09:00", until=None),
+        SimpleNamespace(name="Буспірон", schedule="08:00, 14:00, 20:00", until=None),
     ]
     card = proactive_flow._course_card("Заспокійливі", meds)
     assert "Заспокійливі" in card and "Симода" in card and "08:00, 14:00, 20:00" in card

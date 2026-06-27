@@ -12,7 +12,7 @@ orphaned jobs keep firing.
 from __future__ import annotations
 
 import re
-from datetime import time
+from datetime import date, time
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -148,6 +148,70 @@ def resolve_schedule(text: str) -> tuple[list[time], str | None]:
     return times_from_text(text), parse_dose(text)
 
 
+# How long to take a med — number + unit ("3 міс.", "10 днів", "2 тижні", "1 рік").
+_DURATION_RE = re.compile(
+    r"(\d+)\s*(дн|день|діб|доб|тижн|тиж|нед|міс|мiс|рок|рік|рік|р\.)",  # noqa: RUF001 (Cyrillic і/i)
+    re.IGNORECASE,
+)
+# An explicit end date — "до 27.07" / "до 27.07.2026".
+_END_DATE_RE = re.compile(r"до\s*(\d{1,2})[./](\d{1,2})(?:[./](\d{2,4}))?")
+
+
+def _add_months(d: date, months: int) -> date:
+    """Add calendar months to a date, clamping the day to the target month's length."""
+    total = d.month - 1 + months
+    year, month = d.year + total // 12, total % 12 + 1
+    day = min(d.day, (date(year + month // 12, month % 12 + 1, 1) - date(year, month, 1)).days)
+    return date(year, month, day)
+
+
+def course_end(start: date, duration_text: str | None) -> date | None:
+    """The LAST day to take a med, counted from ``start``, from a duration phrase ("3 міс.",
+    "10 днів", "2 тижні", "1 рік"). ``None`` when no duration is expressed — an open-ended course
+    the bot never auto-expires. The doctor sets the term; the bot just stops reminding after it."""
+    if not duration_text:
+        return None
+    if explicit := _explicit_end(duration_text, start):
+        return explicit
+    m = _DURATION_RE.search(duration_text.casefold())
+    if not m:
+        return None
+    n, unit = int(m.group(1)), m.group(2)
+    if unit.startswith(("дн", "ден", "діб", "доб")):
+        return _add_days(start, n)
+    if unit.startswith(("тиж", "нед")):
+        return _add_days(start, n * 7)
+    if unit.startswith(("міс", "мiс")):  # noqa: RUF001
+        return _add_months(start, n)
+    return _add_months(start, n * 12)  # years
+
+
+def _add_days(d: date, days: int) -> date:
+    from datetime import timedelta
+
+    return d + timedelta(days=days)
+
+
+def _explicit_end(text: str, start: date) -> date | None:
+    """An explicit "до DD.MM[.YYYY]" end date; a year-less past date rolls to next year."""
+    m = _END_DATE_RE.search(text.casefold())
+    if not m:
+        return None
+    day, month = int(m.group(1)), int(m.group(2))
+    if m.group(3):
+        year = int(m.group(3))
+        year += 2000 if year < 100 else 0
+    else:
+        year = start.year
+    try:
+        end = date(year, month, day)
+    except ValueError:
+        return None
+    if not m.group(3) and end < start:  # no year given and the date is past -> next year
+        end = date(year + 1, month, day)
+    return end
+
+
 async def add_medication(
     session: AsyncSession,
     *,
@@ -157,6 +221,7 @@ async def add_medication(
     dose: str | None = None,
     source_file: str | None = None,
     course: str | None = None,
+    until: date | None = None,
 ) -> tuple[Medication, list[Reminder]]:
     """Record the medication and create one daily reminder per dose time.
 
@@ -164,7 +229,8 @@ async def add_medication(
     photo) — stored on the :class:`Medication` (rail #1 allows storing what a doctor prescribed) but
     NEVER placed in the reminder text. ``source_file`` is the original prescription image/PDF the
     med was read from, kept so the user can re-open it. ``course`` groups meds from one prescription
-    under a label. Both are ``None`` for a standalone manually-entered medication.
+    under a label. ``until`` is the last day to take it (from the printed duration) — the scheduler
+    retires it after. All are ``None`` for a standalone, open-ended manually-entered medication.
     """
     medication = Medication(
         user_id=user.id,
@@ -173,6 +239,7 @@ async def add_medication(
         schedule=", ".join(t.strftime("%H:%M") for t in times),
         source_file=(source_file or None),
         course=(course or None),
+        until=until,
     )
     session.add(medication)
     await session.flush()

@@ -126,6 +126,7 @@ async def add_medication(
     dose: str | None = None,
     source_file: str | None = None,
     course: str | None = None,
+    until: date | None = None,
 ) -> tuple[Medication, list[Reminder]]:
     medication, created = await medications.add_medication(
         session,
@@ -135,6 +136,7 @@ async def add_medication(
         dose=dose,
         source_file=source_file,
         course=course,
+        until=until,
     )
     for reminder in created:
         scheduler.schedule(reminder)
