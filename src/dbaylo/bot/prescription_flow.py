@@ -40,7 +40,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.extraction import ExtractionFailed
-from dbaylo.labs.intake import ensure_user, is_supported, save_original_file
+from dbaylo.labs.intake import ensure_user, file_hash, is_supported, save_original_file
 from dbaylo.labs.prescription import ExtractedMedication, extract_prescription
 
 router = Router(name="prescription")
@@ -88,13 +88,31 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         user = await ensure_user(session, message.from_user.id, message.from_user.full_name)
         path = save_original_file(data, user_id=user.id, suffix=suffix)
 
-    await present_prescription_from_path(message, state, path=str(path))
+    await present_prescription_from_path(
+        message, state, path=str(path), content_hash=file_hash(data)
+    )
 
 
-async def present_prescription_from_path(message: Message, state: FSMContext, *, path: str) -> None:
+async def present_prescription_from_path(
+    message: Message, state: FSMContext, *, path: str, content_hash: str | None = None
+) -> None:
     """Read an ALREADY-SAVED prescription file → confirm. Shared by the explicit 📷 button flow and
     the **auto-routing** path (`lab_flow` hands off a freely-dropped photo the lab read classified
-    as a prescription — the file is already on disk, so no re-download / re-save)."""
+    as a prescription — the file is already on disk, so no re-download / re-save). ``content_hash``
+    (SHA-256 of the bytes) de-dups a re-dropped script."""
+    tg = message.from_user.id if message.from_user else None
+    # Same bytes already turned into meds? Don't re-extract or duplicate — point at the saved meds.
+    if content_hash is not None and tg is not None:
+        async with get_session() as session:
+            user = await ensure_user(session, telegram_id=tg)
+            existing = await medications.find_by_content_hash(
+                session, user_id=user.id, content_hash=content_hash
+            )
+        if existing is not None:
+            await message.answer(locale.PRESCRIPTION_DUPLICATE, reply_markup=_result_keyboard())
+            await state.clear()
+            return
+
     budget = 2 * get_settings().claude_extract_timeout_s + 30
     try:
         outcome = await asyncio.wait_for(extract_prescription(path), timeout=budget)
@@ -120,9 +138,12 @@ async def present_prescription_from_path(message: Message, state: FSMContext, *,
     )
     await state.set_state(PrescriptionStates.confirming)
     # Keep the photo path so the saved meds link back to it (the user can re-open the prescription),
-    # and the course label that groups these meds — the user can rename it (see below).
+    # the course label that groups these meds, and the content hash (the dedup key).
     await state.update_data(
-        meds=[_med_to_state(med) for med in resolved], rx_path=path, course=course
+        meds=[_med_to_state(med) for med in resolved],
+        rx_path=path,
+        course=course,
+        rx_hash=content_hash,
     )
     await message.answer(_render_confirm(resolved, course=course), reply_markup=_confirm_keyboard())
 
@@ -164,6 +185,7 @@ async def on_prescription_confirm(
     raw = data.get("meds") or []
     rx_path = data.get("rx_path")  # the original prescription photo, linked to each saved med
     course = data.get("course") or None  # the group label these meds are filed under
+    rx_hash = data.get("rx_hash") or None  # the dedup key (so the same script isn't added twice)
     await state.clear()
     await clear_inline_keyboard(callback)  # consume the confirm/cancel buttons
     tg = callback.from_user.id if callback.from_user else None
@@ -172,6 +194,7 @@ async def on_prescription_confirm(
         return
 
     source_file = str(rx_path) if rx_path else None
+    content_hash = str(rx_hash) if rx_hash else None
     today = date.today()
     meds = [_med_from_state(item) for item in raw if isinstance(item, dict)]
     created: list[str] = []
@@ -191,6 +214,7 @@ async def on_prescription_confirm(
                     source_file=source_file,
                     course=course,
                     until=medications.course_end(today, med.duration),  # the doctor's term
+                    content_hash=content_hash,  # so re-dropping the same script doesn't duplicate
                 )
                 created.append(med.name)
             else:

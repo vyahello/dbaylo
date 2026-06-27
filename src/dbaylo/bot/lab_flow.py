@@ -427,7 +427,9 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
             if pending is not None:
                 pending.status = ReportStatus.DISCARDED  # it is not a lab report after all
         await message.answer(locale.LAB_LOOKS_LIKE_PRESCRIPTION)
-        await prescription_flow.present_prescription_from_path(message, state, path=str(path))
+        await prescription_flow.present_prescription_from_path(
+            message, state, path=str(path), content_hash=content_hash
+        )
         return
 
     async with get_session() as session:

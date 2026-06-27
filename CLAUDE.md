@@ -440,7 +440,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   classifier misses (→ "lab") just falls back to today's behaviour (📷 button still works). The
   **dose is stored** on `Medication.dose` as record-keeping (rail #1 permits it) and shown in the
   confirm, but NEVER in a reminder; a med whose time the page didn't print is listed for manual
-  entry, never guessed. **The result navigates forward** (no dead-end on "Готово!"): when any med was
+  entry, never guessed. **Duplicate guard, like labs** (migration 0022, `Medication.content_hash` =
+  SHA-256 of the photo bytes): `present_prescription_from_path` is given the hash (the explicit flow
+  computes it, the auto-route passes lab_flow's), checks `medications.find_by_content_hash` BEFORE
+  extracting, and on a hit shows `PRESCRIPTION_DUPLICATE` + the nav instead of a second course; the
+  hash is stored on each saved med (a 🗑-deleted course leaves no row → re-add allowed, mirroring the
+  lab CONFIRMED-only rule). **The downloaded photo is named readably** (`_rx_filename` →
+  «Рецепт-<course/med>.<ext>», sanitized), not the random storage filename — like the lab
+  `_source_filename`. **The result navigates forward** (no dead-end on "Готово!"): when any med was
   saved, the result carries `[📋 Мої ліки][🔔 Нагадування]` (`_result_keyboard`, reusing the menu
   callbacks) so the user can jump to the new course — mirroring how a LAB confirm delivers a navigable
   analysis card (`send_analysis`: 🩺 overview + per-section/chart buttons + sequenced follow-up offers,

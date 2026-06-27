@@ -20,6 +20,17 @@ def _med(name, dose=None, times=(), frequency=None) -> ExtractedMedication:
     return ExtractedMedication(name=name, dose=dose, times=times, frequency=frequency)
 
 
+def test_rx_filename_is_human_readable() -> None:
+    from pathlib import Path
+
+    from dbaylo.bot import proactive_flow
+
+    assert proactive_flow._rx_filename("Психоневрологічний курс", Path("/x/cf23.jpg")) == (
+        "Рецепт-Психоневрологічний-курс.jpg"  # readable name, not the random storage filename
+    )
+    assert proactive_flow._rx_filename("Но/шпа", Path("/x/y.pdf")) == "Рецепт-Ношпа.pdf"  # safe
+
+
 def test_group_by_course_splits_grouped_and_ungrouped() -> None:
     from dbaylo.bot import proactive_flow
 

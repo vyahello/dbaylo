@@ -133,6 +133,29 @@ async def test_add_medication_stores_the_course_group(async_session: AsyncSessio
     assert manual.course is None
 
 
+async def test_find_by_content_hash_dedups_a_re_dropped_script(
+    async_session: AsyncSession,
+) -> None:
+    # The same prescription photo bytes -> the existing med is found, so it isn't added twice.
+    user = await _user(async_session)
+    assert (
+        await medications.find_by_content_hash(async_session, user_id=user.id, content_hash="h1")
+        is None
+    )
+    await medications.add_medication(
+        async_session, user=user, name="Симода", times=[time(9, 0)], content_hash="h1"
+    )
+    found = await medications.find_by_content_hash(
+        async_session, user_id=user.id, content_hash="h1"
+    )
+    assert found is not None and found.name == "Симода"
+    # A different upload (different hash) is not a duplicate.
+    assert (
+        await medications.find_by_content_hash(async_session, user_id=user.id, content_hash="h2")
+        is None
+    )
+
+
 async def test_list_by_course_returns_only_that_prescription(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     for name, course in [("A", "Рецепт"), ("B", "Рецепт"), ("C", "Інший")]:

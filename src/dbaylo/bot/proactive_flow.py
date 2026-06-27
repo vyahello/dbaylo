@@ -63,6 +63,14 @@ def _telegram_id(event: Message | CallbackQuery) -> int | None:
     return event.from_user.id if event.from_user else None
 
 
+def _rx_filename(label: str, path: Path) -> str:
+    """A self-describing download name for a prescription photo («Рецепт-<course/med>.jpg»), not the
+    random storage filename. Cyrillic is kept; path separators / control chars are dropped."""
+    raw = locale.MED_FILE_NAME.format(label=_short(label, 40), ext=path.suffix)
+    cleaned = "".join(ch for ch in raw if ord(ch) >= 0x20 and ch not in "/\\")
+    return "-".join(cleaned.split()).strip("-. ") or "Рецепт"
+
+
 def _fmt_when(when: datetime | None) -> str:
     return when.strftime("%Y-%m-%d %H:%M") if when is not None else locale.REMINDER_NEXT_UNKNOWN
 
@@ -1136,13 +1144,18 @@ async def on_medication_file(callback: CallbackQuery) -> None:
         await callback.answer()
         return
     medication_id, _origin = parsed
+    label = "рецепт"
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         med = await session.get(Medication, medication_id)
         path = med.source_file if med is not None and med.user_id == user.id else None
+        if med is not None:
+            label = med.course or med.name
     file = Path(path) if path else None
     if file is not None and file.is_file():
-        await callback.message.answer_document(FSInputFile(str(file), filename=file.name))
+        await callback.message.answer_document(
+            FSInputFile(str(file), filename=_rx_filename(label, file))
+        )
     else:
         await callback.message.answer(locale.MED_FILE_GONE)
     await callback.answer()
@@ -1194,9 +1207,12 @@ async def on_course_file(callback: CallbackQuery) -> None:
         user = await ensure_user(session, telegram_id=tg)
         meds = await _course_meds_all(session, user_id=user.id, rep_med_id=rep_med_id)
     path = next((m.source_file for m in meds if m.source_file), None)
+    label = (meds[0].course if meds else None) or "рецепт"
     file = Path(path) if path else None
     if file is not None and file.is_file():
-        await callback.message.answer_document(FSInputFile(str(file), filename=file.name))
+        await callback.message.answer_document(
+            FSInputFile(str(file), filename=_rx_filename(label, file))
+        )
     else:
         await callback.message.answer(locale.MED_FILE_GONE)
     await callback.answer()

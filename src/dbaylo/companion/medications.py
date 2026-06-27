@@ -222,6 +222,7 @@ async def add_medication(
     source_file: str | None = None,
     course: str | None = None,
     until: date | None = None,
+    content_hash: str | None = None,
 ) -> tuple[Medication, list[Reminder]]:
     """Record the medication and create one daily reminder per dose time.
 
@@ -240,6 +241,7 @@ async def add_medication(
         source_file=(source_file or None),
         course=(course or None),
         until=until,
+        content_hash=(content_hash or None),
     )
     session.add(medication)
     await session.flush()
@@ -256,6 +258,21 @@ async def add_medication(
         )
         created.append(reminder)
     return medication, created
+
+
+async def find_by_content_hash(
+    session: AsyncSession, *, user_id: int, content_hash: str
+) -> Medication | None:
+    """An existing medication created from the SAME prescription photo bytes (any status), so the
+    same script dropped twice doesn't make a second course. A DELETED med leaves no row → not a
+    duplicate (re-adding allowed), mirroring the lab duplicate guard."""
+    found: Medication | None = await session.scalar(
+        select(Medication)
+        .where(Medication.user_id == user_id, Medication.content_hash == content_hash)
+        .order_by(Medication.id)
+        .limit(1)
+    )
+    return found
 
 
 async def list_by_course(session: AsyncSession, *, user_id: int, course: str) -> list[Medication]:

@@ -190,6 +190,9 @@ class Medication(TimestampMixin, Base):
     # The LAST day to take this med (from the prescription's duration, "3 міс." → today+3mo). After
     # it, the scheduler retires the reminders (course over). None = open-ended (never expires).
     until: Mapped[date | None] = mapped_column(default=None)
+    # SHA-256 of the prescription photo's bytes — the duplicate-detection key (like LabReport), so
+    # re-dropping the same script doesn't create a second course. None for a manual med.
+    content_hash: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[User] = relationship(back_populates="medications")
 

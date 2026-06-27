@@ -664,6 +664,8 @@ PRESCRIPTION_FAILED = (
     "Не вдалося зчитати рецепт. Спробуй чіткіше фото — або додай ліки вручну через «➕ Додати»."
 )
 PRESCRIPTION_NONE = "Не побачив тут ліків — це точно рецепт? Можеш додати вручну через «➕ Додати»."
+# The exact same prescription photo was already added — don't duplicate; point at the saved meds.
+PRESCRIPTION_DUPLICATE = "Цей рецепт я вже додавав — не дублюю. Ось твої ліки 💊"
 PRESCRIPTION_CONFIRM_HEADER = (
     "Ось що я зчитав із рецепта. Перевір і підтвердь — і я налаштую нагадування "
     "(дозу лишаю як запис, у нагадуваннях її не буде):"
@@ -1330,6 +1332,7 @@ BTN_MED_TURN_OFF = "🔕 Вимкнути нагадування"
 MED_TURNED_OFF_TOAST = "Вимкнув нагадування про ці ліки."
 BTN_MED_FILE = "📄 Фото рецепта"  # shown only for a med read from a prescription photo
 MED_FILE_GONE = "Оригінал рецепта не знайшов — можливо, його прибрали."
+MED_FILE_NAME = "Рецепт-{label}{ext}"  # a readable download name, not the random storage filename
 # A prescription/course "card": one entry for the whole script, its meds listed as sub-items that
 # still fire SEPARATELY at their own times (one shared photo, one turn-off-all).
 COURSE_BTN = "🗂 {course} · {n} ліки"  # the course as ONE entry in the meds / reminders list
