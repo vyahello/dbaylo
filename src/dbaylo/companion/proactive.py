@@ -195,6 +195,15 @@ async def turn_off_medication(
     scheduler.unschedule_many(ids)
 
 
+async def turn_off_course(
+    session: AsyncSession, *, user_id: int, course: str, scheduler: ReminderScheduler
+) -> None:
+    """Turn off the reminders of EVERY medication in a prescription (course) at once — the records +
+    doses stay (rail #1), only the jobs stop. The meds fired separately; they retire together."""
+    for med in await medications.list_by_course(session, user_id=user_id, course=course):
+        await turn_off_medication(session, medication_id=med.id, scheduler=scheduler)
+
+
 async def delete_reminder(
     session: AsyncSession, *, reminder: Reminder, scheduler: ReminderScheduler
 ) -> None:

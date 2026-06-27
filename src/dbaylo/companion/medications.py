@@ -191,6 +191,16 @@ async def add_medication(
     return medication, created
 
 
+async def list_by_course(session: AsyncSession, *, user_id: int, course: str) -> list[Medication]:
+    """Every medication in one prescription (course), in creation order."""
+    rows = await session.scalars(
+        select(Medication)
+        .where(Medication.user_id == user_id, Medication.course == course)
+        .order_by(Medication.created_at)
+    )
+    return list(rows.all())
+
+
 async def list_medications(session: AsyncSession, *, user_id: int) -> list[Medication]:
     rows = await session.scalars(
         select(Medication).where(Medication.user_id == user_id).order_by(Medication.created_at)

@@ -703,38 +703,100 @@ async def _live_medications(session: AsyncSession, *, user_id: int) -> list[Medi
     return [meds[mid] for mid in order if mid in meds]
 
 
+def _group_by_course(
+    live: list[Medication],
+) -> tuple[list[tuple[str, list[Medication]]], list[Medication]]:
+    """Split live meds into (course groups, ungrouped). A prescription's meds (same ``course``) are
+    ONE group — addressed by a representative med — while manually-added meds stay individual."""
+    grouped: dict[str, list[Medication]] = {}
+    ungrouped: list[Medication] = []
+    for med in live:
+        if med.course:
+            grouped.setdefault(med.course, []).append(med)
+        else:
+            ungrouped.append(med)
+    return list(grouped.items()), ungrouped
+
+
+def _course_button(course: str, meds: list[Medication], origin: str) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=locale.COURSE_BTN.format(course=_short(course), n=len(meds)),
+        callback_data=callbacks.course_view(meds[0].id, origin),  # any med addresses the course
+    )
+
+
 async def _medications_payload(
     session: AsyncSession, *, user_id: int
 ) -> tuple[str, InlineKeyboardMarkup | None]:
-    """The medications MASTER: one short `💊 <name>` button per live medication — a tap OPENS its
-    card (read), it never destructively turns it off (that's a deliberate button in the card)."""
+    """The medications MASTER: a prescription (course) is ONE `🗂 <name>` entry (its meds inside);
+    a manually-added med is its own `💊 <name>`. A tap OPENS the card/course (read), not an off."""
     live = await _live_medications(session, user_id=user_id)
     if not live:
         return locale.MED_LIST_EMPTY, None
-    # Group meds by their prescription (course) so a script's meds read together; a manually-added
-    # med (no course) goes under "Окремі ліки". Headers live in the text (Telegram can't put them
-    # between button rows); the flat buttons below follow the same order and open each med's card.
-    groups: dict[str, list[Medication]] = {}
-    for med in live:
-        groups.setdefault(med.course or "", []).append(med)
-    ordered = [k for k in groups if k] + ([""] if "" in groups else [])
-    lines = [locale.MED_LIST_HEADER]
-    rows: list[list[InlineKeyboardButton]] = []
-    for key in ordered:
-        header = locale.MED_LIST_COURSE.format(course=key) if key else locale.MED_LIST_UNGROUPED
-        lines.append("")
-        lines.append(header)
-        for med in groups[key]:
-            lines.append(locale.MED_LIST_GROUP_ITEM.format(name=med.name))
-            rows.append(
-                [
-                    InlineKeyboardButton(
-                        text=locale.BTN_MED_VIEW.format(name=_short(med.name)),
-                        callback_data=callbacks.medication_view(med.id, "m"),
-                    )
-                ]
+    grouped, ungrouped = _group_by_course(live)
+    rows: list[list[InlineKeyboardButton]] = [
+        [_course_button(course, meds, "m")] for course, meds in grouped
+    ]
+    rows.extend(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_MED_VIEW.format(name=_short(med.name)),
+                callback_data=callbacks.medication_view(med.id, "m"),
             )
-    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
+        ]
+        for med in ungrouped
+    )
+    return locale.MED_LIST_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _course_card(course: str, meds: list[Medication]) -> str:
+    """The course card (escaped HTML): the prescription name + each med · its times — sub-items that
+    still fire SEPARATELY. One shared photo + one turn-off live in the keyboard."""
+    lines = [locale.COURSE_CARD_TITLE.format(course=html.escape(course))]
+    for med in meds:
+        lines.append(
+            locale.COURSE_CARD_ITEM.format(
+                name=html.escape(med.name), times=html.escape(med.schedule or "?")
+            )
+        )
+    lines.append("")
+    lines.append(locale.COURSE_CARD_HINT)
+    return "\n".join(lines)
+
+
+def _course_card_keyboard(rep_med_id: int, origin: str, *, has_file: bool) -> InlineKeyboardMarkup:
+    """The course card's actions: 📄 open the ONE shared prescription photo, 🔕 turn off the WHOLE
+    course (all its meds), or back to the list it came from."""
+    back = callbacks.MED_LIST_BACK if origin == "m" else callbacks.REMINDERS_BACK
+    rows: list[list[InlineKeyboardButton]] = []
+    if has_file:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_MED_FILE,
+                    callback_data=callbacks.course_file(rep_med_id, origin),
+                )
+            ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COURSE_TURN_OFF,
+                callback_data=callbacks.course_off(rep_med_id, origin),
+            ),
+            InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def _course_meds(session: AsyncSession, *, user_id: int, rep_med_id: int) -> list[Medication]:
+    """The LIVE meds of the course a representative med belongs to (``[]`` if it has no course)."""
+    rep = await session.get(Medication, rep_med_id)
+    if rep is None or rep.user_id != user_id or not rep.course:
+        return []
+    live = await _live_medications(session, user_id=user_id)
+    return [m for m in live if m.course == rep.course]
 
 
 async def open_medications(message: Message, telegram_id: int) -> None:
@@ -806,20 +868,41 @@ async def _reminders_payload(
             return f"{info}\n\n{locale.REMINDERS_NONE_MANUAL}", None
         return locale.REMINDERS_EMPTY, None
 
-    kb_rows: list[list[InlineKeyboardButton]] = []
-    shown_medications: set[int] = set()
+    # A prescription (course) is ONE entry (🗂) — its meds fire separately but list together; a
+    # manually-added med is its own row; other reminders (consult / repeat-lab) one row each.
+    med_reminder: dict[int, Reminder] = {}  # medication_id -> a representative reminder (for when)
+    others: list[Reminder] = []
     for reminder in manageable:
-        when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
         if reminder.type == reminders.TYPE_MEDICATION and reminder.medication_id is not None:
-            if reminder.medication_id in shown_medications:
-                continue  # one row per medication; its card turns off all its times
-            shown_medications.add(reminder.medication_id)
-            label = _reminder_label(reminder, meds.get(reminder.medication_id), when)
-            data = callbacks.medication_view(reminder.medication_id, "r")
+            med_reminder.setdefault(reminder.medication_id, reminder)
         else:
-            label = _reminder_label(reminder, None, when)
-            data = callbacks.reminder_view(reminder.id)
-        kb_rows.append([InlineKeyboardButton(text=label, callback_data=data)])
+            others.append(reminder)
+    live_meds = [meds[mid] for mid in med_reminder if mid in meds]
+    grouped, ungrouped = _group_by_course(live_meds)
+
+    kb_rows: list[list[InlineKeyboardButton]] = [
+        [_course_button(course, cmeds, "r")] for course, cmeds in grouped
+    ]
+    for med in ungrouped:
+        when = _fmt_when(next_run.get(f"reminder:{med_reminder[med.id].id}"))
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_reminder_label(med_reminder[med.id], med, when),
+                    callback_data=callbacks.medication_view(med.id, "r"),
+                )
+            ]
+        )
+    for reminder in others:
+        when = _fmt_when(next_run.get(f"reminder:{reminder.id}"))
+        kb_rows.append(
+            [
+                InlineKeyboardButton(
+                    text=_reminder_label(reminder, None, when),
+                    callback_data=callbacks.reminder_view(reminder.id),
+                )
+            ]
+        )
     header = f"{info}\n\n{locale.REMINDERS_HEADER}" if info else locale.REMINDERS_HEADER
     return header, InlineKeyboardMarkup(inline_keyboard=kb_rows)
 
@@ -1000,6 +1083,84 @@ async def on_medication_file(callback: CallbackQuery) -> None:
     else:
         await callback.message.answer(locale.MED_FILE_GONE)
     await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_VIEW + ":"))
+async def on_course_view(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """Open a prescription (course) card: its meds as sub-items (they still fire separately), with
+    one shared 📄 photo and a 🔕 turn-off-all."""
+    parsed = callbacks.parse_course_view(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    rep_med_id, origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds = await _course_meds(session, user_id=user.id, rep_med_id=rep_med_id)
+    if not meds:  # the whole course was turned off meanwhile — show the fresh list
+        await (
+            _edit_to_meds(callback)
+            if origin == "m"
+            else _edit_to_list(callback, reminder_scheduler)
+        )
+        await callback.answer()
+        return
+    course = meds[0].course or "?"
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            _course_card(course, meds),
+            reply_markup=_course_card_keyboard(
+                meds[0].id, origin, has_file=any(m.source_file for m in meds)
+            ),
+            parse_mode=ParseMode.HTML,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_FILE + ":"))
+async def on_course_file(callback: CallbackQuery) -> None:
+    """📄 Send the ONE prescription photo shared by a course's meds (not once per med)."""
+    parsed = callbacks.parse_course_file(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    rep_med_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds = await _course_meds(session, user_id=user.id, rep_med_id=rep_med_id)
+    path = next((m.source_file for m in meds if m.source_file), None)
+    file = Path(path) if path else None
+    if file is not None and file.is_file():
+        await callback.message.answer_document(FSInputFile(str(file), filename=file.name))
+    else:
+        await callback.message.answer(locale.MED_FILE_GONE)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_OFF + ":"))
+async def on_course_off(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """🔕 Turn off the WHOLE prescription (every med in the course), then back to the list."""
+    parsed = callbacks.parse_course_off(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None:
+        await callback.answer()
+        return
+    rep_med_id, origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        rep = await session.get(Medication, rep_med_id)
+        if rep is not None and rep.user_id == user.id and rep.course:
+            await proactive.turn_off_course(
+                session, user_id=user.id, course=rep.course, scheduler=reminder_scheduler
+            )
+            await session.commit()
+    await callback.answer(locale.COURSE_TURNED_OFF_TOAST)
+    if origin == "m":
+        await _edit_to_meds(callback)
+    else:
+        await _edit_to_list(callback, reminder_scheduler)
 
 
 @router.callback_query(F.data.startswith(callbacks.REMINDER_OFF + ":"))

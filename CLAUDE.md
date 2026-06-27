@@ -380,18 +380,24 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   a default course label ("Рецепт від {date}") the user can rename by **typing** a name while
   confirming (`on_prescription_course`, the agent auto-determines, the user overrides in their own
   words); on confirm every med gets that `course`. The 💊 Мої ліки list groups meds under their course
-  header (`_medications_payload`; a manual med → "💊 Окремі ліки"), and the card shows `🗂 Рецепт:`.
-  **💊 Список ліків is a
-  master-detail** (`_medications_payload`): a short `💊 <name>` button per LIVE medication (one with
-  an active reminder) OPENS its card (`medication_view`, never a destructive turn-off tap); the card
-  (`_med_card`, HTML) shows name · **dose** (record-keeping, escaped) · times · next run, and the
-  ACTION is a deliberate `[🔕 Вимкнути нагадування]` (`turn_off_medication` — keeps the Medication row
-  + dose, just deactivates the jobs) `[◀ Назад]`. The med card is shared by the 💊 meds list and the
-  🔔 reminders list, so `medication_view`/`medication_off` carry an **origin** ('m'/'r') and «Назад» /
-  the turn-off return to the list it was opened from (`MED_LIST_BACK` vs `REMINDERS_BACK`).
+  on confirm every med gets that `course`. **A prescription (course) is ONE GROUP entry, NOT N loose
+  meds** (owner: "3 окремі нагадування а не 1 загальне", "1 фото для групи"): in BOTH 💊 Мої ліки
+  (`_medications_payload`) and 🔔 Нагадування (`_reminders_payload`) a course is a single
+  `🗂 <course> · N ліки` button (`_group_by_course`; a manual med stays its own `💊 <name>` row),
+  addressed by a REPRESENTATIVE med id (`course_view`/`course_file`/`course_off`, origin 'm'/'r').
+  Tapping it opens the **course card** (`_course_card`): the meds listed as sub-items with their times
+  (they still **fire SEPARATELY** — only the LIST + photo are unified), one shared `[📄 Фото рецепта]`
+  (`course_file` → the ONE photo, not once per med) and one `[🔕 Вимкнути весь рецепт]`
+  (`course_off` → `proactive.turn_off_course` deactivates every med in the course). **💊 Список ліків
+  master-detail**: a short `💊 <name>` button per LIVE *manual* medication OPENS its card
+  (`medication_view`, never a destructive turn-off tap); the card (`_med_card`, HTML) shows name ·
+  course · **dose** (record, escaped) · times · next run, action `[🔕 Вимкнути нагадування]`
+  (`turn_off_medication` — keeps the row + dose) `[◀ Назад]`. The card is shared by both lists via an
+  **origin** ('m'/'r') for the right «Назад» (`MED_LIST_BACK` vs `REMINDERS_BACK`).
   **The prescription PHOTO is kept and re-openable** (migration 0019, `Medication.source_file`): a med
-  read from a prescription photo stores that file's path, and the med card shows a `📄 Фото рецепта`
-  button (`medication_file` → `on_medication_file` sends the original via `FSInputFile`) — a
+  read from a prescription photo stores that file's path; the photo is offered ONCE at the course
+  level (`course_file`), and the per-med card's `📄 Фото рецепта` (`medication_file`) is the fallback
+  for an orphaned-photo med (one with `source_file` but no course, e.g. a pre-0020 row). A
   manually-entered med has none. The orphan purge (`history.cleanup_orphans`) **skips a file any
   `Medication.source_file` still references** (an auto-routed prescription shares its file with the
   DISCARDED lab report it came from). **💊 з фото рецепта** (`labs/prescription.py`

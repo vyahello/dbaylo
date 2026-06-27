@@ -118,3 +118,13 @@ async def test_add_medication_stores_the_course_group(async_session: AsyncSessio
         async_session, user=user, name="Магній", times=[time(9, 0)]
     )
     assert manual.course is None
+
+
+async def test_list_by_course_returns_only_that_prescription(async_session: AsyncSession) -> None:
+    user = await _user(async_session)
+    for name, course in [("A", "Рецепт"), ("B", "Рецепт"), ("C", "Інший")]:
+        await medications.add_medication(
+            async_session, user=user, name=name, times=[time(9, 0)], course=course
+        )
+    group = await medications.list_by_course(async_session, user_id=user.id, course="Рецепт")
+    assert {m.name for m in group} == {"A", "B"}

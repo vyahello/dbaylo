@@ -1306,9 +1306,6 @@ MED_LIST_EMPTY = (
     "Ліків поки немає. Тисни «➕ Додати» — назви ліки й час прийому, і я нагадуватиму. 💊"
 )
 MED_LIST_ITEM = "💊 {name} ({times})"
-MED_LIST_COURSE = "🗂 {course}"  # a prescription/course header in the grouped meds list
-MED_LIST_UNGROUPED = "💊 Окремі ліки"  # meds added manually (not from a prescription)
-MED_LIST_GROUP_ITEM = "• {name}"  # a med under its course header (the button below opens it)
 BTN_MED_VIEW = (
     "💊 {name}"  # a medication in the list -> opens its card (read, not a destructive tap)
 )
@@ -1326,3 +1323,11 @@ BTN_MED_TURN_OFF = "🔕 Вимкнути нагадування"
 MED_TURNED_OFF_TOAST = "Вимкнув нагадування про ці ліки."
 BTN_MED_FILE = "📄 Фото рецепта"  # shown only for a med read from a prescription photo
 MED_FILE_GONE = "Оригінал рецепта не знайшов — можливо, його прибрали."
+# A prescription/course "card": one entry for the whole script, its meds listed as sub-items that
+# still fire SEPARATELY at their own times (one shared photo, one turn-off-all).
+COURSE_BTN = "🗂 {course} · {n} ліки"  # the course as ONE entry in the meds / reminders list
+COURSE_CARD_TITLE = "🗂 <b>{course}</b>"
+COURSE_CARD_ITEM = "💊 {name} · {times}"  # a med inside the course (its reminders fire separately)
+COURSE_CARD_HINT = "Нагадування приходять окремо — кожне у свій час. 💊"
+BTN_COURSE_TURN_OFF = "🔕 Вимкнути весь рецепт"
+COURSE_TURNED_OFF_TOAST = "Вимкнув нагадування про цей рецепт."

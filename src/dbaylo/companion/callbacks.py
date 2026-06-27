@@ -245,6 +245,37 @@ def parse_medication_file(data: str) -> tuple[int, str] | None:
     return _parse_origin(MEDICATION_FILE, data)
 
 
+# A PRESCRIPTION / course group (its meds fire separately, but list + photo are one). Addressed by a
+# REPRESENTATIVE medication id (any med in the course) — its ``course`` label gathers the rest.
+COURSE_VIEW = "course_view"
+COURSE_FILE = "course_file"
+COURSE_OFF = "course_off"
+
+
+def course_view(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_VIEW, medication_id, origin)
+
+
+def parse_course_view(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_VIEW, data)
+
+
+def course_file(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_FILE, medication_id, origin)
+
+
+def parse_course_file(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_FILE, data)
+
+
+def course_off(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_OFF, medication_id, origin)
+
+
+def parse_course_off(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_OFF, data)
+
+
 # Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's
 # soft turn-off, MEDICATION_OFF) — there's no re-enable, so the card "removes" them for real.
 MEDICATION_DELETE = "med_del"

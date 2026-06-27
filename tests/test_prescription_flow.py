@@ -20,6 +20,36 @@ def _med(name, dose=None, times=(), frequency=None) -> ExtractedMedication:
     return ExtractedMedication(name=name, dose=dose, times=times, frequency=frequency)
 
 
+def test_group_by_course_splits_grouped_and_ungrouped() -> None:
+    from dbaylo.bot import proactive_flow
+
+    m1 = SimpleNamespace(id=1, name="Симода", course="Рецепт", source_file="/x")
+    m2 = SimpleNamespace(id=2, name="Соннат", course="Рецепт", source_file="/x")
+    m3 = SimpleNamespace(id=3, name="Магній", course=None, source_file=None)  # manual -> ungrouped
+    grouped, ungrouped = proactive_flow._group_by_course([m1, m2, m3])
+    assert grouped == [("Рецепт", [m1, m2])]  # a prescription's meds are ONE group
+    assert ungrouped == [m3]
+
+
+def test_course_card_lists_its_meds_and_shares_one_photo() -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    meds = [
+        SimpleNamespace(name="Симода", schedule="09:00"),
+        SimpleNamespace(name="Буспірон", schedule="08:00, 14:00, 20:00"),
+    ]
+    card = proactive_flow._course_card("Заспокійливі", meds)
+    assert "Заспокійливі" in card and "Симода" in card and "08:00, 14:00, 20:00" in card
+    kb = proactive_flow._course_card_keyboard(7, "r", has_file=True)
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.course_file(7, "r") in datas  # ONE shared photo for the group
+    assert callbacks.course_off(7, "r") in datas  # turn off the WHOLE course
+    no_photo = proactive_flow._course_card_keyboard(7, "r", has_file=False)
+    datas2 = [b.callback_data for row in no_photo.inline_keyboard for b in row]
+    assert not any(d.startswith(callbacks.COURSE_FILE) for d in datas2)
+
+
 def test_med_card_keyboard_shows_the_file_button_only_with_a_photo() -> None:
     from dbaylo.bot import proactive_flow
     from dbaylo.companion import callbacks
