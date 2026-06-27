@@ -1342,7 +1342,8 @@ MED_COURSE_FINISHED = (
     "⏳ Курс «{name}» завершено — призначений термін (до {until}) минув. Зупиняю нагадування й "
     "прибираю його зі списку. Якщо лікар продовжив прийом — додай знову. 💚"
 )
-BTN_COURSE_TURN_OFF = "🔕 Вимкнути весь рецепт"
+# Shares a row with «◀ Назад», so kept SHORT — the full label was truncated on mobile.
+BTN_COURSE_TURN_OFF = "🔕 Вимкнути"
 COURSE_TURNED_OFF_TOAST = "Вимкнув нагадування про цей рецепт."
 # Archive of finished prescriptions (turned off OR term passed) — record + photo kept, restorable.
 BTN_MED_ARCHIVE = "🗄 Завершені рецепти — {n}"
