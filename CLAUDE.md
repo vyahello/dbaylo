@@ -405,8 +405,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   read-only (`course_archived` → `_course_card(..., archived=True)`) with the shared `📄 Фото рецепта`
   still openable and an `[↩️ Відновити рецепт]` (`course_restore` → `proactive.restore_course`
   re-activates the soft-deleted reminders via `reminders.reactivate_medication`, clearing a PAST
-  `until` so it doesn't instantly re-expire). The photo is never deleted (the orphan purge already
-  skips a `Medication.source_file`). **💊 Список ліків
+  `until` so it doesn't instantly re-expire). Turn-off / expiry never delete the photo (the orphan
+  purge already skips a `Medication.source_file`). **🗑 Видалити рецепт** (on BOTH the active and
+  archived course cards) is the explicit ERASE — a TWO-STEP confirm (`course_delete` →
+  `COURSE_DELETE_CONFIRM` → `course_delete_yes`); `proactive.delete_course` deletes every `Medication`
+  + its reminders (rows+jobs) and returns the shared photo path, which the handler `unlink`s **only if
+  no remaining med references it** (the shared-file guard). **💊 Список ліків
   master-detail**: a short `💊 <name>` button per LIVE *manual* medication OPENS its card
   (`medication_view`, never a destructive turn-off tap); the card (`_med_card`, HTML) shows name ·
   course · **dose** (record, escaped) · times · next run, action `[🔕 Вимкнути нагадування]`

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, time
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.companion import concerns, health, medications, reminders
@@ -204,6 +204,27 @@ async def turn_off_course(
     doses stay (rail #1), only the jobs stop. The meds fired separately; they retire together."""
     for med in await medications.list_by_course(session, user_id=user_id, course=course):
         await turn_off_medication(session, medication_id=med.id, scheduler=scheduler)
+
+
+async def delete_course(
+    session: AsyncSession, *, user_id: int, course: str, scheduler: ReminderScheduler
+) -> str | None:
+    """PERMANENTLY delete a prescription: every med in the course + all their reminders (rows+jobs).
+    Returns the shared photo path to unlink — or ``None`` if any remaining med still references it
+    (so a shared file is never deleted out from under another record)."""
+    meds = await medications.list_by_course(session, user_id=user_id, course=course)
+    file = next((m.source_file for m in meds if m.source_file), None)
+    for med in meds:
+        await delete_medication_reminders(session, medication_id=med.id, scheduler=scheduler)
+        await session.delete(med)
+    await session.flush()
+    if file is not None:
+        remaining = await session.scalar(
+            select(func.count()).select_from(Medication).where(Medication.source_file == file)
+        )
+        if remaining:
+            return None
+    return file
 
 
 async def restore_course(

@@ -1351,3 +1351,12 @@ MED_ARCHIVE_EMPTY = "Завершених рецептів немає."
 COURSE_CARD_ARCHIVED_HINT = "Цей рецепт завершено — нагадування не приходять. Можна відновити. 🗄"
 BTN_COURSE_RESTORE = "↩️ Відновити рецепт"
 COURSE_RESTORED_TOAST = "Відновив рецепт — нагадування знову активні. ↩️"
+# Permanent delete (two-step) — removes the meds, reminders AND the photo, for good.
+BTN_COURSE_DELETE = "🗑 Видалити рецепт"
+COURSE_DELETE_CONFIRM = (
+    "🗑 Видалити рецепт «{course}» <b>назавжди</b>?\n\nЗникне все: ліки, нагадування й фото "
+    "рецепта. Відновити буде неможливо."
+)
+BTN_COURSE_DELETE_YES = "🗑 Так, видалити назавжди"
+BTN_COURSE_DELETE_NO = "◀ Ні, лишити"
+COURSE_DELETED_TOAST = "Видалив рецепт повністю — разом із фото. 🗑"

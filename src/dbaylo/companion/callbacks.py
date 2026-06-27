@@ -299,6 +299,27 @@ def parse_course_restore(data: str) -> tuple[int, str] | None:
     return _parse_origin(COURSE_RESTORE, data)
 
 
+# PERMANENTLY delete a whole prescription (meds + reminders + photo) — two-step, with a confirm.
+COURSE_DELETE = "course_del"  # ask to confirm
+COURSE_DELETE_YES = "course_del_y"  # do it
+
+
+def course_delete(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_DELETE, medication_id, origin)
+
+
+def parse_course_delete(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_DELETE, data)
+
+
+def course_delete_yes(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_DELETE_YES, medication_id, origin)
+
+
+def parse_course_delete_yes(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_DELETE_YES, data)
+
+
 # Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's
 # soft turn-off, MEDICATION_OFF) — there's no re-enable, so the card "removes" them for real.
 MEDICATION_DELETE = "med_del"

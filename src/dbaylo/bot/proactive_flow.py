@@ -840,6 +840,14 @@ def _course_card_keyboard(rep_med_id: int, origin: str, *, has_file: bool) -> In
             InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
         ]
     )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COURSE_DELETE,
+                callback_data=callbacks.course_delete(rep_med_id, origin),
+            )
+        ]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -1251,9 +1259,17 @@ async def on_course_archived(callback: CallbackQuery) -> None:
             InlineKeyboardButton(
                 text=locale.BTN_COURSE_RESTORE,
                 callback_data=callbacks.course_restore(meds[0].id, "m"),
+            ),
+            InlineKeyboardButton(
+                text=locale.BTN_REMINDER_BACK, callback_data=callbacks.MED_ARCHIVE
+            ),
+        ],
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COURSE_DELETE,
+                callback_data=callbacks.course_delete(meds[0].id, "a"),  # 'a' -> back to archive
             )
         ],
-        [InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=callbacks.MED_ARCHIVE)],
     ]
     if any(m.source_file for m in meds):
         kb.insert(
@@ -1296,6 +1312,81 @@ async def on_course_restore(callback: CallbackQuery, reminder_scheduler: Reminde
             await session.commit()
     await callback.answer(locale.COURSE_RESTORED_TOAST)
     await _edit_to_meds(callback)
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_DELETE + ":"))
+async def on_course_delete(callback: CallbackQuery) -> None:
+    """🗑 Step 1 — ask to confirm PERMANENT deletion of a whole prescription (meds + reminders +
+    photo). Shows exactly what will be removed; nothing happens until the user confirms."""
+    parsed = callbacks.parse_course_delete(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    rep_med_id, origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        rep = await session.get(Medication, rep_med_id)
+        course = rep.course if rep is not None and rep.user_id == user.id else None
+    if not course:
+        await callback.answer()
+        return
+    # «Ні» returns to whichever card this came from (active course view, or the archived one).
+    back = (
+        callbacks.course_archived(rep_med_id, "m")
+        if origin == "a"
+        else callbacks.course_view(rep_med_id, origin)
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_COURSE_DELETE_YES,
+                    callback_data=callbacks.course_delete_yes(rep_med_id, origin),
+                )
+            ],
+            [InlineKeyboardButton(text=locale.BTN_COURSE_DELETE_NO, callback_data=back)],
+        ]
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.COURSE_DELETE_CONFIRM.format(course=html.escape(course)),
+            reply_markup=kb,
+            parse_mode=ParseMode.HTML,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_DELETE_YES + ":"))
+async def on_course_delete_yes(
+    callback: CallbackQuery, reminder_scheduler: ReminderScheduler
+) -> None:
+    """🗑 Step 2 — permanently delete the prescription: meds, reminders, AND the photo file."""
+    parsed = callbacks.parse_course_delete_yes(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None:
+        await callback.answer()
+        return
+    rep_med_id, origin = parsed
+    file: str | None = None
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        rep = await session.get(Medication, rep_med_id)
+        if rep is not None and rep.user_id == user.id and rep.course:
+            file = await proactive.delete_course(
+                session, user_id=user.id, course=rep.course, scheduler=reminder_scheduler
+            )
+            await session.commit()
+    if file:  # no remaining med references it -> remove the photo from disk
+        with contextlib.suppress(OSError):
+            Path(file).unlink(missing_ok=True)
+    await callback.answer(locale.COURSE_DELETED_TOAST)
+    if origin == "a":
+        await _edit_to_archive(callback)
+    elif origin == "m":
+        await _edit_to_meds(callback)
+    else:
+        await _edit_to_list(callback, reminder_scheduler)
 
 
 @router.callback_query(F.data.startswith(callbacks.COURSE_OFF + ":"))

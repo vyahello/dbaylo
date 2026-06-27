@@ -113,6 +113,65 @@ async def test_turn_off_then_archive_then_restore_a_course(
     assert sonnat.until is None  # the past term was cleared so it doesn't immediately re-expire
 
 
+async def test_delete_course_removes_everything_and_returns_the_photo(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # 🗑 PERMANENT delete: meds + reminders gone; the shared photo path is returned to unlink.
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import medications
+
+    user = await _user(async_session)
+    for name in ("Симода", "Соннат"):
+        await proactive.add_medication(
+            async_session,
+            user=user,
+            name=name,
+            times=[time(9, 0)],
+            scheduler=scheduler,
+            course="Курс",
+            source_file="/data/rx/1.jpg",
+        )
+    await async_session.commit()
+    file = await proactive.delete_course(
+        async_session, user_id=user.id, course="Курс", scheduler=scheduler
+    )
+    await async_session.commit()
+    assert file == "/data/rx/1.jpg"  # nothing references it now -> the caller unlinks it
+    assert await medications.list_by_course(async_session, user_id=user.id, course="Курс") == []
+    assert await proactive_flow._live_medications(async_session, user_id=user.id) == []
+    assert _count(scheduler, "medication") == 0  # jobs unscheduled too
+
+
+async def test_delete_course_keeps_a_photo_still_referenced(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # The shared-file guard: deleting one course must NOT unlink a photo another course still uses.
+    user = await _user(async_session)
+    await proactive.add_medication(
+        async_session,
+        user=user,
+        name="A",
+        times=[time(9, 0)],
+        scheduler=scheduler,
+        course="Курс1",
+        source_file="/data/shared.jpg",
+    )
+    await proactive.add_medication(
+        async_session,
+        user=user,
+        name="B",
+        times=[time(9, 0)],
+        scheduler=scheduler,
+        course="Курс2",
+        source_file="/data/shared.jpg",
+    )
+    await async_session.commit()
+    file = await proactive.delete_course(
+        async_session, user_id=user.id, course="Курс1", scheduler=scheduler
+    )
+    assert file is None  # Курс2 still references it -> do NOT delete the file
+
+
 async def test_an_active_goal_schedules_the_checkin(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:
