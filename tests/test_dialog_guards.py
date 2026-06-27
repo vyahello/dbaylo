@@ -135,6 +135,15 @@ async def test_goals_master_proposes_from_problems_and_shows_the_archive(monkeyp
     assert cb.goal_view(3) in datas  # an adopted goal opens its detail
     assert cb.GOAL_ARCHIVE in datas  # the 🗄 closed-goals archive button
     assert cb.MENU_GOAL_NEW in datas
+    # The headers aren't empty: every suggestion / adopted goal is also a TEXT line under them,
+    # so the body reads as a real list (the owner saw blank "💡 Пропоную взяти:" headers).
+    body = message.answer.call_args.args[0]
+    assert "Привести Глюкоза до норми" in body and "Більше рухатися" in body
+    # The data goal carries its clinical-group emoji (⚗️ Біохімія) — on the button AND the line,
+    # so "Глюкоза" reads as which аналіз it belongs to; the generic wellness goal carries none.
+    labels = [b.text for b in flat]
+    assert any("⚗️" in lbl and "Глюкоза" in lbl for lbl in labels)
+    assert any(lbl == "🎯 Сон" for lbl in labels)  # generic wellness goal: no spurious group emoji
 
 
 async def test_suggestion_detail_shows_the_goal_and_adopt(monkeypatch) -> None:

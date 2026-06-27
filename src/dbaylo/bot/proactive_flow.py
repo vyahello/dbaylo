@@ -131,12 +131,9 @@ def _stored_category(name: str) -> str:
 def _category_prefix(name: str) -> str:
     """The group emoji (🩸/🔬/⚗️/…) for a stored concern name — so the Під наглядом / Відкладені /
     Вирішені lists show which аналіз each belongs to (the SAME groups as the top screen). '' for a
-    non-lab custom concern ('other' / imaging), which carries no specimen."""
-    category = _stored_category(name)
-    if category in (grouping.OTHER, grouping.IMAGING):
-        return ""
-    emoji = locale.CATEGORY_NAMES.get(category, "").split(" ", 1)[0]
-    return f"{emoji} " if emoji else ""
+    non-lab custom concern ('other' / imaging), which carries no specimen. Shared with the goals
+    screen via ``grouping.category_emoji`` so both read identically."""
+    return grouping.category_emoji(name)
 
 
 def _by_category(conditions: list[Condition]) -> list[Condition]:

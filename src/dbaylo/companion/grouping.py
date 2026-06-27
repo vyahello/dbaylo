@@ -235,3 +235,20 @@ def categorize(section: str | None, analyte: str) -> str:
         if any(keyword in a for keyword in keywords):
             return category
     return OTHER
+
+
+def category_emoji(name: str) -> str:
+    """The clinical-group emoji ('🩸 ' / '🔬 ' / '⚗️ ' / …) for a stored analyte / concern / goal
+    name, re-derived by ``categorize(name, name)`` (so a printed-panel prefix or a '(сеча)' tag in
+    the name is honoured). Empty for a non-lab name (other / imaging) — it has no specimen group.
+
+    The single source of truth for "which аналіз does this name belong to", shared by every list
+    that tags its items (Під наглядом / Відкладені / Вирішені / Цілі), so they read identically.
+    """
+    from dbaylo import locale  # leaf module (pure strings); kept local to keep grouping light
+
+    category = categorize(name, name)
+    if category in (OTHER, IMAGING):
+        return ""
+    emoji = locale.CATEGORY_NAMES.get(category, "").split(" ", 1)[0]
+    return f"{emoji} " if emoji else ""

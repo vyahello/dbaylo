@@ -370,6 +370,9 @@ GOAL_MASTER_HEADER = (
 )
 GOAL_MASTER_SUGGEST_LABEL = "💡 Пропоную взяти:"
 GOAL_MASTER_MINE_LABEL = "📌 Твої активні цілі:"
+# Each suggestion / adopted goal is also listed as a text line under its label (so the headers
+# aren't empty + the full goal and its 🩸/🔬/⚗️ group are readable, not just the trimmed button).
+GOAL_MASTER_ITEM_LINE = "• {goal}"
 BTN_GOAL_VIEW_SUG = "🎯 {subject}"  # a suggestion in the master (tap -> its detail)
 BTN_GOAL_VIEW = "📌 {subject}"  # an adopted goal in the master (tap -> its detail)
 GOAL_DETAIL_SUG_TITLE = "🎯 <b>{goal}</b>"  # suggestion detail

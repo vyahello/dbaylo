@@ -32,7 +32,16 @@ from dbaylo.bot import consult_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, checkin, consult_memory, goals, health, intake, proactive
+from dbaylo.companion import (
+    callbacks,
+    checkin,
+    consult_memory,
+    goals,
+    grouping,
+    health,
+    intake,
+    proactive,
+)
 from dbaylo.companion.conversation import Turn, generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
@@ -114,24 +123,32 @@ async def _goals_master(session: AsyncSession, *, user_id: int) -> tuple[str, In
     lines: list[str] = [locale.GOAL_MASTER_HEADER]
     kb: list[list[InlineKeyboardButton]] = []
     if suggestions:
+        lines.append("")
         lines.append(locale.GOAL_MASTER_SUGGEST_LABEL)
         for index, sug in enumerate(suggestions):
+            prefix = grouping.category_emoji(sug.subject)  # 🩸/🔬/⚗️ — which аналіз it touches
+            lines.append(locale.GOAL_MASTER_ITEM_LINE.format(goal=f"{prefix}{sug.text}"))
             kb.append(
                 [
                     InlineKeyboardButton(
-                        text=locale.BTN_GOAL_VIEW_SUG.format(subject=_short_goal(sug.subject)),
+                        text=locale.BTN_GOAL_VIEW_SUG.format(
+                            subject=f"{prefix}{_short_goal(sug.subject)}"
+                        ),
                         callback_data=callbacks.goal_view_sug(index),
                     )
                 ]
             )
     if current:
+        lines.append("")
         lines.append(locale.GOAL_MASTER_MINE_LABEL)
         for goal in current:
             subject = goals.target_subject(goal.target or "") or (goal.target or "")
+            prefix = grouping.category_emoji(subject)
+            lines.append(locale.GOAL_MASTER_ITEM_LINE.format(goal=f"{prefix}{goal.target or ''}"))
             kb.append(
                 [
                     InlineKeyboardButton(
-                        text=locale.BTN_GOAL_VIEW.format(subject=_short_goal(subject)),
+                        text=locale.BTN_GOAL_VIEW.format(subject=f"{prefix}{_short_goal(subject)}"),
                         callback_data=callbacks.goal_view(goal.id),
                     )
                 ]
@@ -169,10 +186,13 @@ async def _goals_archive(
             else locale.GOAL_ARCHIVE_MARK_ABANDONED
         )
         subject = goals.target_subject(goal.target or "") or (goal.target or "")
+        prefix = grouping.category_emoji(subject)
         kb.append(
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_GOAL_REOPEN.format(mark=mark, subject=_short_goal(subject)),
+                    text=locale.BTN_GOAL_REOPEN.format(
+                        mark=mark, subject=f"{prefix}{_short_goal(subject)}"
+                    ),
                     callback_data=callbacks.goal_reopen(goal.id),
                 )
             ]
@@ -225,7 +245,8 @@ async def _suggestion_detail(
     if not 0 <= index < len(suggestions):
         return None
     sug = suggestions[index]
-    lines = [locale.GOAL_DETAIL_SUG_TITLE.format(goal=html.escape(sug.text)), ""]
+    prefix = grouping.category_emoji(sug.subject)
+    lines = [locale.GOAL_DETAIL_SUG_TITLE.format(goal=f"{prefix}{html.escape(sug.text)}"), ""]
     if sug.series_key:
         finding = await goals.goal_analyte(session, user_id, target=sug.text, today=date.today())
         if finding is not None:
@@ -254,7 +275,9 @@ async def _goal_detail(
     if goal is None:
         return None
     target = goal.target or ""
-    lines = [locale.GOAL_DETAIL_MINE_TITLE.format(goal=html.escape(target)), ""]
+    subject = goals.target_subject(target) or target
+    prefix = grouping.category_emoji(subject)
+    lines = [locale.GOAL_DETAIL_MINE_TITLE.format(goal=f"{prefix}{html.escape(target)}"), ""]
     finding = await goals.goal_analyte(session, user_id, target=target, today=date.today())
     if finding is not None and finding.series_key:
         lines.extend(await _history_lines(session, user_id, series_key=finding.series_key))

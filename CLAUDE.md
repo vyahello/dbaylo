@@ -228,9 +228,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **The screen is a MASTER-DETAIL** (long "Привести … до норми" was cut off on mobile): the master
   (`_goals_master`) lists SHORT subject buttons — 🎯 suggestions (`goal_view_sug` by index) then 📌
   adopted goals (`goal_view` by id) — and a tap opens that goal's **detail**, which shows the FULL
-  title + (for a data goal) the indicator's history "коли були поза нормою"
-  (`health.indicator_history` over `HealthFinding.series_key`; a goal target is mapped back to its
-  finding by `goals.goal_analyte`/`target_subject`). The ACTION lives in the detail: a suggestion has
+  title + (for a data goal) the indicator's history "коли були поза нормою".
+  **Each goal carries its clinical-group emoji** (🩸/🔬/⚗️/🧬/🧫…) via `grouping.category_emoji`
+  (the single source of truth for name→group, shared with `proactive_flow._category_prefix`), so a
+  blood `Еритроцити (RBC)` reads apart from a urine `Еритроцити (сеча)`; a generic wellness goal
+  (Сон/рух) carries none. And the master no longer shows **empty** `💡 Пропоную взяти:` / `📌 Твої
+  активні цілі:` headers — every suggestion / adopted goal is ALSO a text line under its header
+  (`GOAL_MASTER_ITEM_LINE`, full goal + group emoji), with the buttons as the tap targets.
+  The detail's history is `health.indicator_history` over `HealthFinding.series_key`; a goal target
+  is mapped back to its finding by `goals.goal_analyte`/`target_subject`. The ACTION lives in the
+  detail: a suggestion has
   `[🎯 Взяти ціль]` (`set_goal`, guardrail re-vets), an adopted goal has `[✅ Досягнута]`
   (`achieve_goal`→ACHIEVED) `[🗑 Прибрати]` (`remove_goal`→ABANDONED, the **undo for an accidental
   adopt**); every detail has `[◀ Назад]`, every action edits back to the master. No migration (reuses
