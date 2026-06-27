@@ -365,8 +365,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   confused with the blood one, and `health._already_known` is **specimen-aware** (tracking blood
   Еритроцити no longer suppresses proposing the urine one). Tracked concerns sit behind `✅ Вже
   відстежую` (`[✅ <name>][✏️]` resolve/rename). Commands: `/problem`,
-  `/problems` (resolve/rename), `/medication` (name + times → one reminder per time, **no dose**,
-  `Reminder.medication_id`), `/reminders` (list, next_run from the scheduler). **💊 Список ліків is a
+  `/problems` (resolve/rename), `/medication` (name + schedule → one reminder per time, **no dose** in
+  the reminder, `Reminder.medication_id`), `/reminders` (list, next_run from the scheduler).
+  **The bot splits the day itself** (`medications.parse_frequency`/`distribute_times`/`resolve_schedule`):
+  a doctor prescribes a FREQUENCY ("3 рази на день", "2 таблетки 3 рази"), NOT clock times, so the
+  add-med dialog asks "скільки разів на день?" and spreads N intakes over a deterministic waking-hours
+  schedule (1→09:00 … 3→08/14/20 … capped at `MAX_PER_DAY`=6); explicit "08:00, 20:00" still works, and
+  a per-intake amount ("2 таблетки", `parse_dose`) is captured as `Medication.dose` record-keeping. The
+  prescription-photo flow applies the SAME spread (`prescription_flow._with_resolved_times`): a script
+  read as frequency-only is now auto-scheduled, not skipped for manual entry. **💊 Список ліків is a
   master-detail** (`_medications_payload`): a short `💊 <name>` button per LIVE medication (one with
   an active reminder) OPENS its card (`medication_view`, never a destructive turn-off tap); the card
   (`_med_card`, HTML) shows name · **dose** (record-keeping, escaped) · times · next run, and the

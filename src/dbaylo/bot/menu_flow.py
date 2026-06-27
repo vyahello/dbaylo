@@ -71,9 +71,10 @@ async def menu_health(message: Message) -> None:
     )
 
 
-@router.message(StateFilter(None), F.text == locale.MENU_CARE)
+@router.message(StateFilter(None), F.text.in_({locale.MENU_CARE, locale.MENU_CARE_LEGACY}))
 async def menu_care(message: Message) -> None:
-    """💊 Ліки й нагадування — medications (list / add) + the reminders list, in one hub."""
+    """💊 Ліки та нагадування — medications (list / add) + the reminders list, in one hub. Accepts
+    the legacy "Ліки й нагадування" label too, so a cached old keyboard still opens the hub."""
     await message.answer(
         locale.MENU_CARE_INTRO,
         reply_markup=section_keyboard(

@@ -635,10 +635,16 @@ LAB_OFFER_EXPIRED = (
 # --- Tier 1.1: medications ------------------------------------------------------
 
 MED_ASK_NAME = "Назва ліків (як на упаковці / у призначенні лікаря)?"
-MED_ASK_TIMES = "О котрій годині приймати? Напр.: «08:00» або «08:00, 20:00»."
-MED_BAD_TIMES = "Не зрозумів час. Введи у форматі ГГ:ХХ, напр.: «08:00» або «08:00, 20:00»."
+MED_ASK_TIMES = (
+    "Скільки разів на день приймати? Напр.: «3 рази на день» або «2 таблетки 2 рази» — "
+    "я сам розкладу зручні години. (Хочеш конкретні — напиши «08:00, 20:00».)"
+)
+MED_BAD_TIMES = (
+    "Не зрозумів. Напиши, скільки разів на день — напр. «3 рази на день» — "
+    "або точні години: «08:00, 20:00»."
+)
 MED_ADDED = (
-    "Додав ліки «{name}» з нагадуванням о {times}. Нагадуватиму без зазначення дози — "
+    "Додав ліки «{name}» — нагадуватиму о {times}. Без зазначення дози: "
     "приймай за призначенням лікаря."
 )
 
@@ -1195,7 +1201,7 @@ NAV_SUPERLATIVE_PATTERNS: tuple[str, ...] = (
 # menu tap". The menu is ~5 AGENT-DRIVEN sections: 🩺 Моє здоровʼя aggregates analyses · problems ·
 # goals · check-in, and 💊 Ліки й нагадування aggregates medications + reminders.
 MENU_HEALTH = "🩺 Моє здоровʼя"
-MENU_CARE = "💊 Ліки й нагадування"
+MENU_CARE = "💊 Ліки та нагадування"
 MENU_PRICES = "💰 Ціни / НСЗУ"
 MENU_MEMORY = "🧠 Памʼять"
 MENU_HELP = "❓ Довідка"
@@ -1209,6 +1215,8 @@ MENU_PROBLEMS = "⚕️ Проблеми"
 MENU_MEDS = "💊 Ліки"
 MENU_REMINDERS = "🔔 Нагадування"
 MENU_CHECKIN = "📝 Чек-ін"
+# The previous hub label (renamed й → та); kept so a cached old keyboard still opens the hub.
+MENU_CARE_LEGACY = "💊 Ліки й нагадування"
 
 # Current keyboard labels PLUS the legacy ones — so a tap of either (new label, or an old label from
 # a keyboard a client still has cached) aborts an in-progress dialog.
@@ -1225,6 +1233,7 @@ MENU_LABELS: frozenset[str] = frozenset(
         MENU_MEDS,
         MENU_REMINDERS,
         MENU_CHECKIN,
+        MENU_CARE_LEGACY,
     }
 )
 
@@ -1255,7 +1264,7 @@ MENU_HEALTH_INTRO = (
     "🩺 Твоя картина здоровʼя в одному місці — обери, що відкрити "
     "(а новий аналіз додаси, надіславши фото або PDF):"
 )
-MENU_CARE_INTRO = "💊 Твої ліки й нагадування про них."
+MENU_CARE_INTRO = "💊 Твої ліки та нагадування про них."
 # Section-screen intros (each shown with its inline action buttons).
 MENU_LABS_INTRO = "Аналізи — обери, що показати (а новий додаси, надіславши фото або PDF):"
 MENU_GOALS_INTRO = "Твої цілі для здоров'я."

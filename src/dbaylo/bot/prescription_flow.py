@@ -18,6 +18,7 @@ safety choke-point invariant is unaffected (extraction is OCR/record-keeping, li
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import time
 from io import BytesIO
 from pathlib import Path
@@ -34,7 +35,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
-from dbaylo.companion import callbacks, proactive
+from dbaylo.companion import callbacks, medications, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -109,9 +110,24 @@ async def present_prescription_from_path(message: Message, state: FSMContext, *,
         await state.clear()
         return
 
+    # A doctor writes a FREQUENCY ("3 рази на день"), not clock times — so when the page gave a
+    # frequency but no hours, the bot picks the times instead of leaving the med for manual entry.
+    resolved = [_with_resolved_times(med) for med in outcome]
     await state.set_state(PrescriptionStates.confirming)
-    await state.update_data(meds=[_med_to_state(med) for med in outcome])
-    await message.answer(_render_confirm(outcome), reply_markup=_confirm_keyboard())
+    await state.update_data(meds=[_med_to_state(med) for med in resolved])
+    await message.answer(_render_confirm(resolved), reply_markup=_confirm_keyboard())
+
+
+def _with_resolved_times(med: ExtractedMedication) -> ExtractedMedication:
+    """Fill a frequency-only med's times by spreading the day (the bot, not the page, picks hours).
+    Unchanged when the page already printed explicit times or no usable frequency."""
+    if med.times or not med.frequency:
+        return med
+    freq = medications.parse_frequency(med.frequency)
+    if freq is None:
+        return med
+    times = tuple(t.strftime("%H:%M") for t in medications.distribute_times(freq))
+    return replace(med, times=times)
 
 
 @router.callback_query(PrescriptionStates.confirming, F.data == callbacks.PRESCRIPTION_CONFIRM)

@@ -20,6 +20,17 @@ def _med(name, dose=None, times=(), frequency=None) -> ExtractedMedication:
     return ExtractedMedication(name=name, dose=dose, times=times, frequency=frequency)
 
 
+def test_with_resolved_times_spreads_a_frequency_only_med() -> None:
+    # A doctor writes "двічі на день", not hours — the bot fills the times so the med is scheduled,
+    # not skipped for manual entry. Explicit-times (or no usable frequency) is left unchanged.
+    spread = prescription_flow._with_resolved_times(_med("Сироп", frequency="двічі на день"))
+    assert spread.times == ("09:00", "21:00")
+    explicit = _med("Аспірин", times=("08:00", "20:00"), frequency="двічі")
+    assert prescription_flow._with_resolved_times(explicit).times == ("08:00", "20:00")  # untouched
+    vague = _med("Мазь", frequency="за потреби")  # no parseable N/day -> still manual
+    assert prescription_flow._with_resolved_times(vague).times == ()
+
+
 def test_render_confirm_shows_dose_and_times_and_flags_missing_time() -> None:
     text = prescription_flow._render_confirm(
         [

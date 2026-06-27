@@ -658,7 +658,10 @@ async def on_medication_name(message: Message, state: FSMContext) -> None:
 async def on_medication_times(
     message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
 ) -> None:
-    times = medications.parse_times(message.text or "")
+    # A doctor prescribes a FREQUENCY ("3 рази на день"), not clock times — accept that and let the
+    # bot spread the day; explicit "08:00, 20:00" still works. ``dose`` ("2 таблетки") is kept as
+    # record-keeping, never in a reminder.
+    times, dose = medications.resolve_schedule(message.text or "")
     if not times:
         await message.answer(locale.MED_BAD_TIMES)  # stay in state, ask again
         return
@@ -671,7 +674,7 @@ async def on_medication_times(
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         await proactive.add_medication(
-            session, user=user, name=name, times=times, scheduler=reminder_scheduler
+            session, user=user, name=name, times=times, scheduler=reminder_scheduler, dose=dose
         )
         await session.commit()
     pretty = ", ".join(t.strftime("%H:%M") for t in times)
