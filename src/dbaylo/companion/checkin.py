@@ -170,17 +170,24 @@ async def grounded_context(session: AsyncSession, *, user_id: int, today: date) 
     return "\n\n".join(part for part in (labs, state) if part)
 
 
+async def full_checkin_context(session: AsyncSession, *, user_id: int, today: date) -> str:
+    """The check-in's COMPLETE grounding: the lab/profile picture + state memory
+    (``grounded_context``) PLUS the rotating tracked-concern FOCUS (one concern per day + a re-test
+    nudge when its data is stale). Used by BOTH the scheduled check-in AND the manual 📝 button, so
+    the two are built identically — the manual one is not a poorer version of the scheduled one."""
+    base = await grounded_context(session, user_id=user_id, today=today)
+    focus = await health.checkin_focus_block(session, user_id, today=today)
+    return "\n\n".join(part for part in (base, focus) if part)
+
+
 async def checkin_messages(
     session: AsyncSession, *, user_id: int, now: datetime, runner: Runner = run_claude
 ) -> list[ProactiveMessage]:
     """What the firing check-in sends: a GROUNDED prompt (asks about the user's actual concerns +
     data + recent state), then — if any concerns are due for review — ONE batched "still relevant?"
     message with a "✅ <name>" button per concern (not a separate message each)."""
-    context = await grounded_context(session, user_id=user_id, today=now.date())
-    # Make a tracked concern VISIBLE: each check-in leads with one of them (rotated daily) and
-    # nudges a re-test when its data is stale — so "Під наглядом" is felt, not just background.
-    focus = await health.checkin_focus_block(session, user_id, today=now.date())
-    full_context = "\n\n".join(part for part in (context, focus) if part)
+    # Full grounding incl. the rotating tracked-concern focus — shared with the manual button.
+    full_context = await full_checkin_context(session, user_id=user_id, today=now.date())
     messages: list[ProactiveMessage] = [
         (await build_grounded_prompt(full_context, runner=runner), None)
     ]

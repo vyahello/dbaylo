@@ -483,7 +483,9 @@ async def start_checkin_dialog(
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        context = await checkin.grounded_context(session, user_id=user.id, today=date.today())
+        # Same grounding as the scheduled 10:00 check-in (incl. the rotating tracked-concern focus),
+        # so the 📝 button is not a poorer version of the automatic one.
+        context = await checkin.full_checkin_context(session, user_id=user.id, today=date.today())
     if not context:  # nothing to ground in -> the gentle generic prompt, instantly
         await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
         return

@@ -276,9 +276,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **Tracked-concern FOCUS** (`health.checkin_focus_block`, deterministic): so "Під наглядом" is FELT,
   each check-in is handed ONE tracked concern (rotated daily by `today.toordinal() % N`) named
   EXPLICITLY, and — if its latest measurement is `>= CHECKIN_RETEST_DAYS` (90) old — a re-test nudge
-  (the concern is matched to its analyte via `_already_known` to read `last_date`). `checkin_messages`
-  appends this focus to the grounded context (CHECK-IN ONLY — not general chat); the persona LEADS the
-  check-in with it. The focus only says WHICH concern + WHETHER to re-test; the LLM phrases it.
+  (the concern is matched to its analyte via `_already_known` to read `last_date`); the persona LEADS
+  the check-in with it. The focus only says WHICH concern + WHETHER to re-test; the LLM phrases it.
+  **The manual button and the scheduled 10:00 check-in are built IDENTICALLY**: both ground via the
+  shared `checkin.full_checkin_context` (= `grounded_context` [profile+concerns+findings+state] + the
+  focus block), so the 📝 button is not a poorer version of the automatic one (the focus used to be in
+  the scheduled `checkin_messages` only). Each day's check-in is GENERATED FRESH (rotating focus,
+  updated recency/state, non-deterministic LLM phrasing) — same engine, never the same words twice;
+  the scheduled one ALSO carries the ~weekly "still relevant?" review batch.
 - **Health analyzer** (`companion/health.py`, the "big idea" foundation): **deterministic, NO LLM,
   NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine into `current` (latest
   out of range), `watch` (still in range but trending toward — within 15% of — a bound: an EARLY
