@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from dbaylo.bot.app import build_dispatcher, make_sender
+from dbaylo.bot.app import build_dispatcher, make_dialog_reset, make_sender
 from dbaylo.bot.handlers import cmd_help, cmd_start
 from dbaylo.bot.keyboards import main_menu_keyboard
 from dbaylo.db.models import User
@@ -64,6 +64,19 @@ async def test_make_sender_forwards_to_the_bot() -> None:
     sender = make_sender(bot)
     await sender(123456, "🔔 нагадування")
     bot.send_message.assert_awaited_once_with(123456, "🔔 нагадування", reply_markup=None)
+
+
+async def test_make_dialog_reset_clears_state_and_data_for_the_user() -> None:
+    # The check-in safety belt: clears the user's FSM state+data keyed by their telegram_id, so a
+    # check-in reply is never eaten by a stale dialog (private chat: chat_id == user_id == tg).
+    bot = SimpleNamespace(id=777)
+    storage = AsyncMock()
+    reset = make_dialog_reset(bot, storage)
+    await reset(123456)
+    key = storage.set_state.await_args.kwargs.get("key") or storage.set_state.await_args.args[0]
+    assert key.bot_id == 777 and key.chat_id == 123456 and key.user_id == 123456
+    storage.set_state.assert_awaited_once()
+    storage.set_data.assert_awaited_once()
 
 
 @pytest.mark.parametrize("text", [START_TEXT, HELP_TEXT])

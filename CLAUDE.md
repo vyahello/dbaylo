@@ -422,6 +422,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   problem `_add_problem` now run `safety.screen(name)` — a symptom / red flag short-circuits to triage
   (surfaced verbatim, nothing stored), exactly like `goals.set_goal` already did. So a symptom typed
   where a name is expected can NEVER be silently saved as a med/concern; it always reaches triage.
+  **Belt-and-braces — the check-in itself resets the dialog on fire**: a `DialogReset` callback
+  (`app.make_dialog_reset` → clears FSM state+data for the owner's `StorageKey`, since a private chat
+  keys `chat_id == user_id == telegram_id`) is threaded into `ReminderScheduler`; `_fire_reminder`
+  calls it (best-effort) BEFORE sending a `TYPE_CHECKIN` prompt — so even if a stale dialog is armed
+  and the user never navigated away, the check-in reply reaches the gate/companion, not the dialog.
+  Only the check-in resets (a medication reminder does not); `dialog_reset=None` in dry-run/tests.
 - **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
   new domain logic. The persistent `ReplyKeyboardMarkup` is now **~5 agent-driven sections**
   (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми · 🎯 Мої цілі ·

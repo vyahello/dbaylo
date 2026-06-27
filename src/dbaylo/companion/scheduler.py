@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import sys
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import AbstractAsyncContextManager
@@ -52,6 +53,13 @@ class Sender(Protocol):
     async def __call__(
         self, telegram_id: int, text: str, *, buttons: Buttons | None = None
     ) -> None: ...
+
+
+class DialogReset(Protocol):
+    """Clears any in-progress FSM dialog for a Telegram user (the safety belt below). Provided by
+    the bot layer (it owns the FSM storage); ``None`` in dry-run / tests, where it is a no-op."""
+
+    async def __call__(self, telegram_id: int) -> None: ...
 
 
 # How long after the check-in prompt to send the single (no-nag) follow-up.
@@ -123,6 +131,7 @@ async def _fire_reminder(
     sender: Sender,
     scheduler: AsyncIOScheduler,
     tz: ZoneInfo,
+    dialog_reset: DialogReset | None = None,
 ) -> None:
     """Run when a reminder's trigger fires: render, send, then housekeep."""
     async with session_factory() as session:
@@ -135,6 +144,16 @@ async def _fire_reminder(
         reminder.last_fired_at = datetime.now(tz)
 
         if reminder.type == reminders.TYPE_CHECKIN:
+            # Safety belt: a check-in invites a FREE-FORM reply, but the user may be parked in an
+            # unrelated FSM dialog (e.g. a half-open add-medication). Clear it FIRST so the reply
+            # reaches the gate/companion — a symptom routes to triage, never gets eaten as a dialog
+            # answer (the "symptom stored as a drug name" bug). Best-effort: a reset failure must
+            # never block the prompt from going out.
+            if dialog_reset is not None:
+                user = await session.get(User, reminder.user_id)
+                if user is not None and user.telegram_id is not None:
+                    with contextlib.suppress(Exception):
+                        await dialog_reset(user.telegram_id)
             # The prompt + a "still relevant?" review for each due active concern.
             for text, buttons in await checkin.checkin_messages(
                 session, user_id=reminder.user_id, now=datetime.now(tz)
@@ -178,6 +197,7 @@ def _add_job(
     session_factory: SessionFactory,
     sender: Sender,
     tz: ZoneInfo,
+    dialog_reset: DialogReset | None = None,
 ) -> None:
     scheduler.add_job(
         _fire_reminder,
@@ -191,6 +211,7 @@ def _add_job(
             "sender": sender,
             "scheduler": scheduler,
             "tz": tz,
+            "dialog_reset": dialog_reset,
         },
     )
 
@@ -247,9 +268,11 @@ class ReminderScheduler:
         sender: Sender,
         session_factory: SessionFactory = get_session,
         tz: ZoneInfo | None = None,
+        dialog_reset: DialogReset | None = None,
     ) -> None:
         self._sender = sender
         self._sf = session_factory
+        self._dialog_reset = dialog_reset
         self._tz = tz or ZoneInfo(get_settings().timezone)
         self._scheduler = AsyncIOScheduler(
             timezone=self._tz,
@@ -308,11 +331,17 @@ class ReminderScheduler:
                     sender=self._sender,
                     scheduler=self._scheduler,
                     tz=self._tz,
+                    dialog_reset=self._dialog_reset,
                 )
 
     def schedule(self, reminder: Reminder) -> None:
         _add_job(
-            self._scheduler, reminder, session_factory=self._sf, sender=self._sender, tz=self._tz
+            self._scheduler,
+            reminder,
+            session_factory=self._sf,
+            sender=self._sender,
+            tz=self._tz,
+            dialog_reset=self._dialog_reset,
         )
 
     def unschedule(self, reminder_id: int) -> None:

@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 
 from aiogram import Bot, Dispatcher
-from aiogram.fsm.storage.base import BaseStorage
+from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
 from dbaylo import locale
@@ -31,7 +31,7 @@ from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
 from dbaylo.bot.storage import SQLiteStorage
 from dbaylo.companion import callbacks, history, notewarm
-from dbaylo.companion.scheduler import Buttons, ReminderScheduler, Sender
+from dbaylo.companion.scheduler import Buttons, DialogReset, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.intake import ensure_user
@@ -119,6 +119,19 @@ def make_sender(bot: Bot) -> Sender:
     return sender
 
 
+def make_dialog_reset(bot: Bot, storage: BaseStorage) -> DialogReset:
+    """Clear a user's in-progress FSM dialog — the check-in safety belt. A private chat keys FSM by
+    (bot, chat, user) with chat_id == user_id == telegram_id, so a check-in reply is never eaten by
+    a stale dialog (e.g. a half-open add-medication) — it reaches the gate/companion instead."""
+
+    async def reset(telegram_id: int) -> None:
+        key = StorageKey(bot_id=bot.id, chat_id=telegram_id, user_id=telegram_id)
+        await storage.set_state(key, None)
+        await storage.set_data(key, {})
+
+    return reset
+
+
 async def recover_interrupted_analyses(bot: Bot, owner_id: int) -> None:
     """After a restart, offer to finish any analysis that was interrupted mid-run (a deploy /
     crash killed the LLM call, leaving the summary PENDING). One message per affected report with
@@ -168,7 +181,10 @@ async def _run_polling() -> None:
     # Reminders run inside the bot process (one service, shared event loop). The live
     # scheduler is shared with handlers via dispatcher data so commands can schedule /
     # unschedule reminders without a restart.
-    reminder_scheduler = ReminderScheduler(sender=make_sender(bot))
+    reminder_scheduler = ReminderScheduler(
+        sender=make_sender(bot),
+        dialog_reset=make_dialog_reset(bot, dispatcher.storage),
+    )
     dispatcher["reminder_scheduler"] = reminder_scheduler
     await reminder_scheduler.start()
     # Register the "/" command menu so every command is discoverable without typing.

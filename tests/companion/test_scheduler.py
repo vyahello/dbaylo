@@ -113,6 +113,53 @@ async def test_fire_checkin_sends_prompt_and_schedules_one_nudge(
     assert len(sched.get_jobs()) == 1
 
 
+async def test_fire_checkin_resets_any_stale_dialog_first(async_session: AsyncSession) -> None:
+    # Safety belt: firing a check-in clears the user's FSM dialog (with their telegram_id) BEFORE
+    # sending the prompt, so the reply can't be eaten by a stale add-medication/etc. dialog.
+    user = await _user(async_session)
+    rem = await reminders.ensure_checkin_reminder(async_session, user=user)
+    reset_calls: list[int] = []
+
+    async def dialog_reset(telegram_id: int) -> None:
+        reset_calls.append(telegram_id)
+
+    await scheduler._fire_reminder(
+        rem.id,
+        session_factory=_factory(async_session),
+        sender=_Recorder(),
+        scheduler=AsyncIOScheduler(timezone=TZ),
+        tz=TZ,
+        dialog_reset=dialog_reset,
+    )
+    assert reset_calls == [user.telegram_id]
+
+
+async def test_fire_medication_does_not_reset_the_dialog(async_session: AsyncSession) -> None:
+    # The belt is for the check-in only — a medication reminder must not wipe an in-progress dialog.
+    user = await _user(async_session)
+    rem = await reminders.create_reminder(
+        async_session,
+        user=user,
+        type=reminders.TYPE_MEDICATION,
+        schedule=daily_cron(9, 0),
+        payload="Вітамін D",
+    )
+    reset_calls: list[int] = []
+
+    async def dialog_reset(telegram_id: int) -> None:
+        reset_calls.append(telegram_id)
+
+    await scheduler._fire_reminder(
+        rem.id,
+        session_factory=_factory(async_session),
+        sender=_Recorder(),
+        scheduler=AsyncIOScheduler(timezone=TZ),
+        tz=TZ,
+        dialog_reset=dialog_reset,
+    )
+    assert reset_calls == []
+
+
 async def test_fire_repeat_lab_deactivates_one_off(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     rem = await reminders.create_reminder(
