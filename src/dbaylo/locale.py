@@ -1341,3 +1341,13 @@ MED_COURSE_FINISHED = (
 )
 BTN_COURSE_TURN_OFF = "🔕 Вимкнути весь рецепт"
 COURSE_TURNED_OFF_TOAST = "Вимкнув нагадування про цей рецепт."
+# Archive of finished prescriptions (turned off OR term passed) — record + photo kept, restorable.
+BTN_MED_ARCHIVE = "🗄 Завершені рецепти — {n}"
+MED_ARCHIVE_HEADER = (
+    "🗄 Завершені рецепти — вимкнені або з минулим терміном. Запис і фото збережені; "
+    "натисни, щоб переглянути або відновити:"
+)
+MED_ARCHIVE_EMPTY = "Завершених рецептів немає."
+COURSE_CARD_ARCHIVED_HINT = "Цей рецепт завершено — нагадування не приходять. Можна відновити. 🗄"
+BTN_COURSE_RESTORE = "↩️ Відновити рецепт"
+COURSE_RESTORED_TOAST = "Відновив рецепт — нагадування знову активні. ↩️"

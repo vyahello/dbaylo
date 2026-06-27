@@ -732,13 +732,40 @@ def _course_button(course: str, meds: list[Medication], origin: str) -> InlineKe
     )
 
 
+async def _archived_courses(
+    session: AsyncSession, *, user_id: int
+) -> list[tuple[str, list[Medication]]]:
+    """Prescriptions with NO live med left — every med turned off OR its term passed. The record +
+    photo are kept; these are the restorable archive."""
+    all_meds = await medications.list_medications(session, user_id=user_id)
+    live_courses = {m.course for m in await _live_medications(session, user_id=user_id) if m.course}
+    archived: dict[str, list[Medication]] = {}
+    for med in all_meds:
+        if med.course and med.course not in live_courses:
+            archived.setdefault(med.course, []).append(med)
+    return list(archived.items())
+
+
+async def _course_meds_all(
+    session: AsyncSession, *, user_id: int, rep_med_id: int
+) -> list[Medication]:
+    """EVERY med of the course a representative med belongs to (live or not) — for the archive view
+    and the shared photo (which exists on a turned-off / expired course too)."""
+    rep = await session.get(Medication, rep_med_id)
+    if rep is None or rep.user_id != user_id or not rep.course:
+        return []
+    return await medications.list_by_course(session, user_id=user_id, course=rep.course)
+
+
 async def _medications_payload(
     session: AsyncSession, *, user_id: int
 ) -> tuple[str, InlineKeyboardMarkup | None]:
     """The medications MASTER: a prescription (course) is ONE `🗂 <name>` entry (its meds inside);
-    a manually-added med is its own `💊 <name>`. A tap OPENS the card/course (read), not an off."""
+    a manually-added med is its own `💊 <name>`; finished prescriptions sit behind 🗄. A tap OPENS
+    the card/course (read), not an off."""
     live = await _live_medications(session, user_id=user_id)
-    if not live:
+    archived = await _archived_courses(session, user_id=user_id)
+    if not live and not archived:
         return locale.MED_LIST_EMPTY, None
     grouped, ungrouped = _group_by_course(live)
     rows: list[list[InlineKeyboardButton]] = [
@@ -753,12 +780,22 @@ async def _medications_payload(
         ]
         for med in ungrouped
     )
+    if archived:  # finished prescriptions — record + photo kept, restorable
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_MED_ARCHIVE.format(n=len(archived)),
+                    callback_data=callbacks.MED_ARCHIVE,
+                )
+            ]
+        )
     return locale.MED_LIST_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _course_card(course: str, meds: list[Medication]) -> str:
-    """The course card (escaped HTML): the prescription name + each med · its times — sub-items that
-    still fire SEPARATELY. One shared photo + one turn-off live in the keyboard."""
+def _course_card(course: str, meds: list[Medication], *, archived: bool = False) -> str:
+    """The course card (escaped HTML): the prescription name + each med · its times. For a LIVE
+    course the meds fire separately (hint says so); for an ARCHIVED one the hint says it's finished
+    and restorable. One shared photo lives in the keyboard."""
     lines = [locale.COURSE_CARD_TITLE.format(course=html.escape(course))]
     for med in meds:
         if med.until is not None:
@@ -776,7 +813,7 @@ def _course_card(course: str, meds: list[Medication]) -> str:
                 )
             )
     lines.append("")
-    lines.append(locale.COURSE_CARD_HINT)
+    lines.append(locale.COURSE_CARD_ARCHIVED_HINT if archived else locale.COURSE_CARD_HINT)
     return "\n".join(lines)
 
 
@@ -1147,7 +1184,7 @@ async def on_course_file(callback: CallbackQuery) -> None:
     rep_med_id, _origin = parsed
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        meds = await _course_meds(session, user_id=user.id, rep_med_id=rep_med_id)
+        meds = await _course_meds_all(session, user_id=user.id, rep_med_id=rep_med_id)
     path = next((m.source_file for m in meds if m.source_file), None)
     file = Path(path) if path else None
     if file is not None and file.is_file():
@@ -1155,6 +1192,110 @@ async def on_course_file(callback: CallbackQuery) -> None:
     else:
         await callback.message.answer(locale.MED_FILE_GONE)
     await callback.answer()
+
+
+async def _edit_to_archive(callback: CallbackQuery) -> None:
+    """Edit the current message into the (refreshed) finished-prescriptions archive."""
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        archived = await _archived_courses(session, user_id=user.id)
+    if not archived:  # nothing left to archive — back to the meds list
+        await _edit_to_meds(callback)
+        return
+    rows = [[_course_button_archived(course, meds)] for course, meds in archived]
+    rows.append(
+        [InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=callbacks.MED_LIST_BACK)]
+    )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            locale.MED_ARCHIVE_HEADER, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+        )
+
+
+def _course_button_archived(course: str, meds: list[Medication]) -> InlineKeyboardButton:
+    return InlineKeyboardButton(
+        text=locale.COURSE_BTN.format(course=_short(course), n=len(meds)),
+        callback_data=callbacks.course_archived(meds[0].id, "m"),
+    )
+
+
+@router.callback_query(F.data == callbacks.MED_ARCHIVE)
+async def on_med_archive(callback: CallbackQuery) -> None:
+    """🗄 Open the archive of finished (turned-off / expired) prescriptions."""
+    await _edit_to_archive(callback)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_ARCHIVED + ":"))
+async def on_course_archived(callback: CallbackQuery) -> None:
+    """Open an ARCHIVED prescription card (read): its meds + the shared 📄 photo + ↩️ restore."""
+    parsed = callbacks.parse_course_archived(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        await callback.answer()
+        return
+    rep_med_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds = await _course_meds_all(session, user_id=user.id, rep_med_id=rep_med_id)
+    if not meds:
+        await _edit_to_archive(callback)
+        await callback.answer()
+        return
+    course = meds[0].course or "?"
+    kb = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COURSE_RESTORE,
+                callback_data=callbacks.course_restore(meds[0].id, "m"),
+            )
+        ],
+        [InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=callbacks.MED_ARCHIVE)],
+    ]
+    if any(m.source_file for m in meds):
+        kb.insert(
+            0,
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_MED_FILE, callback_data=callbacks.course_file(meds[0].id, "m")
+                )
+            ],
+        )
+    with contextlib.suppress(TelegramBadRequest):
+        await callback.message.edit_text(
+            _course_card(course, meds, archived=True),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb),
+            parse_mode=ParseMode.HTML,
+        )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_RESTORE + ":"))
+async def on_course_restore(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+    """↩️ Restore a finished prescription — its reminders go live again (a past term is cleared)."""
+    parsed = callbacks.parse_course_restore(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None:
+        await callback.answer()
+        return
+    rep_med_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        rep = await session.get(Medication, rep_med_id)
+        if rep is not None and rep.user_id == user.id and rep.course:
+            await proactive.restore_course(
+                session,
+                user_id=user.id,
+                course=rep.course,
+                scheduler=reminder_scheduler,
+                today=date.today(),
+            )
+            await session.commit()
+    await callback.answer(locale.COURSE_RESTORED_TOAST)
+    await _edit_to_meds(callback)
 
 
 @router.callback_query(F.data.startswith(callbacks.COURSE_OFF + ":"))

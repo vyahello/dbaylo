@@ -276,6 +276,29 @@ def parse_course_off(data: str) -> tuple[int, str] | None:
     return _parse_origin(COURSE_OFF, data)
 
 
+# Archive of FINISHED prescriptions (all meds turned off, or the course's term has passed). The
+# record + photo are kept; the user can re-open or restore them.
+MED_ARCHIVE = "med_archive"  # open the archive list (no id)
+COURSE_ARCHIVED = "course_arch"  # view an archived course card
+COURSE_RESTORE = "course_rest"  # re-activate an archived course's reminders
+
+
+def course_archived(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_ARCHIVED, medication_id, origin)
+
+
+def parse_course_archived(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_ARCHIVED, data)
+
+
+def course_restore(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_RESTORE, medication_id, origin)
+
+
+def parse_course_restore(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_RESTORE, data)
+
+
 # Hard-delete a medication's reminders FROM ITS REMINDER CARD (distinct from the /medication list's
 # soft turn-off, MEDICATION_OFF) — there's no re-enable, so the card "removes" them for real.
 MEDICATION_DELETE = "med_del"

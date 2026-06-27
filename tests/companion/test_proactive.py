@@ -57,6 +57,62 @@ async def test_no_concern_means_no_checkin_job(
     assert _count(scheduler, "checkin") == 0
 
 
+async def test_turn_off_then_archive_then_restore_a_course(
+    async_session: AsyncSession, scheduler: ReminderScheduler
+) -> None:
+    # Turning off a prescription keeps the record (+ photo): it moves to the 🗄 archive, restorable.
+    # A med whose term already passed has its `until` cleared on restore (the doctor extended it).
+    from datetime import date, timedelta
+
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    user = await _user(async_session)
+    yesterday = date.today() - timedelta(days=1)
+    await proactive.add_medication(
+        async_session,
+        user=user,
+        name="Симода",
+        times=[time(9, 0)],
+        scheduler=scheduler,
+        course="Урологічний курс",
+    )
+    await proactive.add_medication(
+        async_session,
+        user=user,
+        name="Соннат",
+        times=[time(21, 0)],
+        scheduler=scheduler,
+        course="Урологічний курс",
+        until=yesterday,
+    )
+    await async_session.commit()
+
+    await proactive.turn_off_course(
+        async_session, user_id=user.id, course="Урологічний курс", scheduler=scheduler
+    )
+    await async_session.commit()
+    # No live meds left -> the course is archived, and the 🗄 button shows in the meds list.
+    archived = await proactive_flow._archived_courses(async_session, user_id=user.id)
+    assert [c for c, _ in archived] == ["Урологічний курс"]
+    _text, kb = await proactive_flow._medications_payload(async_session, user_id=user.id)
+    assert kb is not None
+    assert callbacks.MED_ARCHIVE in [b.callback_data for row in kb.inline_keyboard for b in row]
+
+    await proactive.restore_course(
+        async_session,
+        user_id=user.id,
+        course="Урологічний курс",
+        scheduler=scheduler,
+        today=date.today(),
+    )
+    await async_session.commit()
+    live = await proactive_flow._live_medications(async_session, user_id=user.id)
+    assert {m.name for m in live} == {"Симода", "Соннат"}  # both back, live again
+    sonnat = next(m for m in live if m.name == "Соннат")
+    assert sonnat.until is None  # the past term was cleared so it doesn't immediately re-expire
+
+
 async def test_an_active_goal_schedules_the_checkin(
     async_session: AsyncSession, scheduler: ReminderScheduler
 ) -> None:

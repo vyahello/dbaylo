@@ -206,6 +206,24 @@ async def turn_off_course(
         await turn_off_medication(session, medication_id=med.id, scheduler=scheduler)
 
 
+async def restore_course(
+    session: AsyncSession,
+    *,
+    user_id: int,
+    course: str,
+    scheduler: ReminderScheduler,
+    today: date,
+) -> None:
+    """Re-activate a finished prescription (from the archive): every med's soft-deleted reminders go
+    live again. A med whose term already passed has its ``until`` cleared (the doctor extended it →
+    open-ended, so it does not immediately re-expire); a term still in the future is kept."""
+    for med in await medications.list_by_course(session, user_id=user_id, course=course):
+        if med.until is not None and med.until < today:
+            med.until = None
+        for reminder in await reminders.reactivate_medication(session, med.id):
+            scheduler.schedule(reminder)
+
+
 async def delete_reminder(
     session: AsyncSession, *, reminder: Reminder, scheduler: ReminderScheduler
 ) -> None:

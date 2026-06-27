@@ -281,6 +281,20 @@ async def delete_medication_reminders(session: AsyncSession, medication_id: int)
     return ids
 
 
+async def reactivate_medication(session: AsyncSession, medication_id: int) -> list[Reminder]:
+    """Re-activate a medication's soft-deleted reminders (the rows persist on turn-off / expiry), so
+    a finished course can be RESTORED. Returns them for the caller to re-schedule."""
+    rows = await session.scalars(
+        select(Reminder).where(Reminder.medication_id == medication_id, Reminder.active.is_(False))
+    )
+    out: list[Reminder] = []
+    for reminder in rows.all():
+        reminder.active = True
+        out.append(reminder)
+    await session.flush()
+    return out
+
+
 async def deactivate_medication(session: AsyncSession, medication_id: int) -> list[int]:
     """Soft-delete every active reminder for a medication; return their ids to unschedule.
 

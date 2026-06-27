@@ -397,7 +397,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   Tapping it opens the **course card** (`_course_card`): the meds listed as sub-items with their times
   (they still **fire SEPARATELY** — only the LIST + photo are unified), one shared `[📄 Фото рецепта]`
   (`course_file` → the ONE photo, not once per med) and one `[🔕 Вимкнути весь рецепт]`
-  (`course_off` → `proactive.turn_off_course` deactivates every med in the course). **💊 Список ліків
+  (`course_off` → `proactive.turn_off_course` deactivates every med in the course). **Finished
+  prescriptions are ARCHIVED, not lost** (owner: "коли вимикаю — фото видалиться?"): turning a course
+  off (or its term expiring) only deactivates reminders — the `Medication` rows + `source_file` stay,
+  so the course moves to a `🗄 Завершені рецепти — N` button on the meds list (`_archived_courses` =
+  courses with NO live med left, `MED_ARCHIVE` → `_edit_to_archive`). An archived course opens
+  read-only (`course_archived` → `_course_card(..., archived=True)`) with the shared `📄 Фото рецепта`
+  still openable and an `[↩️ Відновити рецепт]` (`course_restore` → `proactive.restore_course`
+  re-activates the soft-deleted reminders via `reminders.reactivate_medication`, clearing a PAST
+  `until` so it doesn't instantly re-expire). The photo is never deleted (the orphan purge already
+  skips a `Medication.source_file`). **💊 Список ліків
   master-detail**: a short `💊 <name>` button per LIVE *manual* medication OPENS its card
   (`medication_view`, never a destructive turn-off tap); the card (`_med_card`, HTML) shows name ·
   course · **dose** (record, escaped) · times · next run, action `[🔕 Вимкнути нагадування]`
