@@ -165,7 +165,7 @@ async def test_cb_med_photo_starts_the_prescription_dialog(monkeypatch) -> None:
 
 async def test_cb_open_analyses_posts_the_labs_hub() -> None:
     callback = _callback(callbacks.MENU_OPEN_ANALYSES)
-    await menu_flow.cb_open_analyses(callback)
+    await menu_flow.cb_open_analyses(callback, AsyncMock())
     _, kwargs = callback.message.answer.call_args
     assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
     callback.answer.assert_awaited_once()
@@ -180,8 +180,10 @@ async def test_cb_open_goals_delegates_to_the_agent_screen(monkeypatch) -> None:
 
     monkeypatch.setattr(menu_flow.companion_flow, "open_goals_screen", fake)
     callback = _callback(callbacks.MENU_OPEN_GOALS)
-    await menu_flow.cb_open_goals(callback)
+    state = AsyncMock()
+    await menu_flow.cb_open_goals(callback, state)
     assert seen["args"] == (callback.message, 4242)
+    state.clear.assert_awaited_once()  # navigating cancels any half-open dialog
 
 
 async def test_cb_open_checkin_passes_the_owner_tg(monkeypatch) -> None:
@@ -223,7 +225,7 @@ async def test_cb_open_reminders_delegates_with_owner_tg(monkeypatch) -> None:
     monkeypatch.setattr(menu_flow.proactive_flow, "open_reminders", fake)
     callback = _callback(callbacks.MENU_OPEN_REMINDERS)
     scheduler = object()
-    await menu_flow.cb_open_reminders(callback, scheduler)
+    await menu_flow.cb_open_reminders(callback, AsyncMock(), scheduler)
     assert seen["args"] == (callback.message, 4242, scheduler)
 
 
@@ -301,7 +303,7 @@ async def test_cb_open_memory_opens_the_memory_view(monkeypatch) -> None:
 
     monkeypatch.setattr(menu_flow.consult_flow, "open_memory_view", fake)
     callback = _callback(callbacks.MENU_OPEN_MEMORY)
-    await menu_flow.cb_open_memory(callback)
+    await menu_flow.cb_open_memory(callback, AsyncMock())
     assert seen["args"] == (callback.message, 4242)
 
 
@@ -536,7 +538,7 @@ async def test_cb_open_history_edits_in_place(monkeypatch) -> None:
 
     monkeypatch.setattr(menu_flow.history_flow, "open_history_in_place", fake)
     callback = _callback(callbacks.MENU_OPEN_HISTORY)
-    await menu_flow.cb_open_history(callback)
+    await menu_flow.cb_open_history(callback, AsyncMock())
     assert seen["args"] == (callback, 4242)
 
 
@@ -544,7 +546,7 @@ async def test_cb_open_labs_returns_to_the_hub() -> None:
     # The list's ◀ Назад re-renders the two-button "Аналізи" hub by editing in place.
     callback = _callback(callbacks.MENU_OPEN_LABS)
     callback.message.edit_text = AsyncMock()
-    await menu_flow.cb_open_labs(callback)
+    await menu_flow.cb_open_labs(callback, AsyncMock())
     _, kwargs = callback.message.edit_text.call_args
     assert _cb_datas(kwargs["reply_markup"]) == [callbacks.MENU_OPEN_HISTORY, callbacks.DYN_OPEN]
     callback.answer.assert_awaited_once()

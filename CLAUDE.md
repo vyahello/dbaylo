@@ -413,6 +413,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   per-handler rule: **blank/whitespace input never creates a record** (goal · problem · medication ·
   check-in answer with `locale.NOTHING_SAVED`). `python -m dbaylo.maintenance.cleanup_phantoms`
   removes phantom rows (blank or `/`-leading name/target) and retires a now-pointless check-in.
+  **Navigation cancels a half-open dialog**: the menu's INLINE section-OPENERS (`cb_open_*`/
+  `cb_*_list`/`cb_goals_list`, the ones that show a screen, NOT the dialog-STARTERS that set their own
+  state) `await state.clear()` first — so tapping ➕ Додати ліки then 🔔 Нагадування no longer leaves
+  `MedStates.waiting_name` armed (the bug where a later **proactive check-in reply** got eaten by a
+  stale add-medication dialog and a symptom report was stored as a "drug name", bypassing triage).
+  **Single-field NAME dialogs screen their input through the gate**: `on_medication_name` and the
+  problem `_add_problem` now run `safety.screen(name)` — a symptom / red flag short-circuits to triage
+  (surfaced verbatim, nothing stored), exactly like `goals.set_goal` already did. So a symptom typed
+  where a name is expected can NEVER be silently saved as a med/concern; it always reaches triage.
 - **Tier 1.3 — button menu** (`bot/menu_flow.py`, `bot/keyboards.py`): a **UI/entry layer only**, no
   new domain logic. The persistent `ReplyKeyboardMarkup` is now **~5 agent-driven sections**
   (the menu→AI-agent overhaul): **🩺 Моє здоровʼя** (a hub → 📊 Аналізи · ⚕️ Проблеми · 🎯 Мої цілі ·

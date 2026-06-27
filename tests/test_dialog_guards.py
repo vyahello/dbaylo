@@ -80,6 +80,32 @@ async def test_blank_medication_name_aborts() -> None:
     message.answer.assert_awaited_once_with(locale.NOTHING_SAVED)
 
 
+async def test_symptom_as_medication_name_routes_to_triage() -> None:
+    # A proactive check-in can land while the add-med dialog is armed → the user answers it here.
+    # A symptom must reach triage, NEVER be stored as a "drug name" (which then asks for times).
+    from dbaylo.safety import screen
+
+    message = _message("кров у сечі")
+    state = AsyncMock()
+    await proactive_flow.on_medication_name(message, state)
+    state.clear.assert_awaited_once()
+    state.set_state.assert_not_awaited()  # never advances to MED_ASK_TIMES
+    message.answer.assert_awaited_once_with(screen("кров у сечі").message)  # the triage response
+
+
+async def test_symptom_as_problem_name_routes_to_triage(
+    monkeypatch, async_session: AsyncSession
+) -> None:
+    from dbaylo.safety import screen
+
+    flag = _guard_session(monkeypatch, "proactive_flow", async_session)
+    message = _message("кров у сечі")
+    await proactive_flow._add_problem(message, "кров у сечі", AsyncMock())
+    message.answer.assert_awaited_once_with(screen("кров у сечі").message)
+    assert not flag["opened"]  # a symptom is never written as a tracked concern
+    assert (await async_session.scalars(select(Condition))).first() is None
+
+
 # --- "Цілі = the agent suggests" (the AI-driven goals screen) --------------------
 
 

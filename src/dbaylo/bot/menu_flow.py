@@ -93,8 +93,9 @@ async def menu_labs(message: Message) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_LABS)
-async def cb_open_labs(callback: CallbackQuery) -> None:
+async def cb_open_labs(callback: CallbackQuery, state: FSMContext) -> None:
     """Back to the "Аналізи" hub — edits the message in place (the history list's ◀ Назад)."""
+    await state.clear()
     if isinstance(callback.message, Message):
         text, keyboard = _labs_hub()
         with contextlib.suppress(TelegramBadRequest):
@@ -172,7 +173,8 @@ async def menu_help(message: Message) -> None:
 
 # Hub destinations -> post the leaf section/dialog as a NEW message (the hub stays above).
 @router.callback_query(F.data == callbacks.MENU_OPEN_ANALYSES)
-async def cb_open_analyses(callback: CallbackQuery) -> None:
+async def cb_open_analyses(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     if isinstance(callback.message, Message):
         text, keyboard = _labs_hub()
         await callback.message.answer(text, reply_markup=keyboard)
@@ -180,7 +182,8 @@ async def cb_open_analyses(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_GOALS)
-async def cb_open_goals(callback: CallbackQuery) -> None:
+async def cb_open_goals(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
         await companion_flow.open_goals_screen(callback.message, tg)
@@ -201,7 +204,10 @@ async def cb_open_checkin(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_REMINDERS)
-async def cb_open_reminders(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
+async def cb_open_reminders(
+    callback: CallbackQuery, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    await state.clear()  # navigating to a screen cancels any half-open dialog (no stale trap)
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
         await proactive_flow.open_reminders(callback.message, tg, reminder_scheduler)
@@ -209,8 +215,9 @@ async def cb_open_reminders(callback: CallbackQuery, reminder_scheduler: Reminde
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_MEMORY)
-async def cb_open_memory(callback: CallbackQuery) -> None:
+async def cb_open_memory(callback: CallbackQuery, state: FSMContext) -> None:
     """🧠 Памʼять quick-jump (from ❓ Довідка) — open the consult-memory view."""
+    await state.clear()
     await callback.answer()
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
@@ -218,9 +225,10 @@ async def cb_open_memory(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_OPEN_HISTORY)
-async def cb_open_history(callback: CallbackQuery) -> None:
+async def cb_open_history(callback: CallbackQuery, state: FSMContext) -> None:
     # Edit the hub message into the report list in place, so the list's ◀ Назад edits back to the
     # hub — one tidy message (same master-detail pattern as the list <-> report card).
+    await state.clear()
     tg = _owner_tg(callback)
     if tg is not None:
         await history_flow.open_history_in_place(callback, tg)
@@ -229,7 +237,8 @@ async def cb_open_history(callback: CallbackQuery) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_GOALS_LIST)
-async def cb_goals_list(callback: CallbackQuery) -> None:
+async def cb_goals_list(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
         await companion_flow.open_goals_screen(callback.message, tg)  # the manageable agent screen
@@ -244,7 +253,8 @@ async def cb_goal_new(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_PROB_LIST)
-async def cb_prob_list(callback: CallbackQuery) -> None:
+async def cb_prob_list(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
         await proactive_flow.open_problems(callback.message, tg)
@@ -259,7 +269,8 @@ async def cb_prob_new(callback: CallbackQuery, state: FSMContext) -> None:
 
 
 @router.callback_query(F.data == callbacks.MENU_MED_LIST)
-async def cb_med_list(callback: CallbackQuery) -> None:
+async def cb_med_list(callback: CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
     tg = _owner_tg(callback)
     if isinstance(callback.message, Message) and tg is not None:
         await proactive_flow.open_medications(callback.message, tg)
