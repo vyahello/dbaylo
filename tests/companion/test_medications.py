@@ -27,12 +27,28 @@ def test_parse_times() -> None:
 def test_parse_frequency() -> None:
     assert medications.parse_frequency("3 рази на день") == 3
     assert medications.parse_frequency("2 таблетки 3 рази в день") == 3  # the freq, not the amount
+    assert medications.parse_frequency("3 р/д") == 3  # the doctor's abbreviation
+    assert medications.parse_frequency("по 1 таб 3 р/д – 1 міс") == 3
     assert medications.parse_frequency("двічі на день") == 2
     assert medications.parse_frequency("тричі на добу") == 3
     assert medications.parse_frequency("раз на день") == 1
     assert medications.parse_frequency("08:00, 20:00") is None  # explicit times, no frequency word
     assert medications.parse_frequency("ношпа") is None
     assert medications.parse_frequency("99 разів") is None  # out of the sane 1..6 range
+
+
+def test_times_from_text_handles_real_prescription_shorthand() -> None:
+    # The owner's urologist script: "зранку", "на ніч", "3 р/д" — doctor shorthand, not clock times.
+    assert medications.times_from_text("60 мг по 1 кап зранку - 3 міс") == [time(9, 0)]
+    assert medications.times_from_text("7,5 мг по 1 таб на ніч – 1 міс") == [time(21, 0)]
+    assert medications.times_from_text("по 1 таб 3 р/д – 1 міс") == [
+        time(8, 0),
+        time(14, 0),
+        time(20, 0),
+    ]
+    assert medications.times_from_text("вранці та ввечері") == [time(9, 0), time(21, 0)]
+    assert medications.times_from_text("08:00, 20:00") == [time(8, 0), time(20, 0)]  # explicit wins
+    assert medications.times_from_text("за потреби") == []  # nothing schedulable
 
 
 def test_distribute_times_spreads_across_waking_hours() -> None:
@@ -89,3 +105,16 @@ async def test_add_medication_stores_the_prescription_photo_path(
         async_session, user=user, name="Вітамін D", times=[time(9, 0)]
     )
     assert manual.source_file is None
+
+
+async def test_add_medication_stores_the_course_group(async_session: AsyncSession) -> None:
+    # Meds from one prescription share a course label (the 💊 list groups them); a manual one none.
+    user = await _user(async_session)
+    med, _ = await medications.add_medication(
+        async_session, user=user, name="Буспірон", times=[time(8, 0)], course="Рецепт від уролога"
+    )
+    assert med.course == "Рецепт від уролога"
+    manual, _ = await medications.add_medication(
+        async_session, user=user, name="Магній", times=[time(9, 0)]
+    )
+    assert manual.course is None

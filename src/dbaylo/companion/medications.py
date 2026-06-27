@@ -24,6 +24,31 @@ _TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
 # "N разів/раз" — the number of intakes per day. The number is the one BEFORE "раз", so in
 # "2 таблетки 3 рази" the frequency is 3 (the "2" is the per-intake amount, captured as the dose).
 _FREQ_NUM_RE = re.compile(r"(\d+)\s*раз", re.IGNORECASE)
+# The doctor's abbreviation "N р/д" / "N р/добу" (= N разів на день).
+_FREQ_ABBR_RE = re.compile(r"(\d+)\s*р\s*[/\\.]?\s*д", re.IGNORECASE)
+# Time-of-day phrases doctors write instead of a count ("зранку", "на ніч", "вранці та ввечері") —
+# each named part of the day maps to a sensible clock time; several phrases ⇒ several intakes.
+_TIME_OF_DAY: tuple[tuple[tuple[str, ...], tuple[int, int]], ...] = (
+    (("натще", "зранк", "вранц", "ранков", "ранку", "ранком", "сніда"), (9, 0)),
+    (("обід", "вдень", "удень", "опівдн", "полудень"), (14, 0)),
+    (
+        (
+            "ввечер",
+            "увечер",
+            "вечір",
+            "вечор",
+            "вечер",
+            "на ніч",
+            "вночі",
+            "уночі",
+            "ноч",
+            "перед сном",
+            "сном",
+            "ніч",
+        ),
+        (21, 0),
+    ),
+)
 # A per-intake amount for record-keeping (rail #1 allows storing what a doctor prescribed; never in
 # a reminder). e.g. "2 таблетки", "500 мг", "10 крапель", "1 капсула".
 _DOSE_RE = re.compile(
@@ -58,12 +83,14 @@ def parse_times(text: str) -> list[time]:
 
 
 def parse_frequency(text: str) -> int | None:
-    """Intakes per day from free text — "N разів/раз на день", "двічі", "тричі", or a bare "раз на
-    день". ``None`` when no frequency is expressed (the caller then asks again / keeps explicit
-    times). The doctor's instruction is the frequency; the bot, not the user, picks the clock times.
-    """
+    """Intakes per day from free text — "N разів/раз на день", "N р/д", "двічі", "тричі", or a bare
+    "раз на день". ``None`` when no count is expressed. The doctor's instruction is the frequency;
+    the bot, not the user, picks the clock times."""
     low = text.casefold()
     if m := _FREQ_NUM_RE.search(low):
+        n = int(m.group(1))
+        return n if 1 <= n <= MAX_PER_DAY else None
+    if m := _FREQ_ABBR_RE.search(low):  # "3 р/д"
         n = int(m.group(1))
         return n if 1 <= n <= MAX_PER_DAY else None
     if "двічі" in low:
@@ -73,6 +100,19 @@ def parse_frequency(text: str) -> int | None:
     if re.search(r"\bраз\b", low) and re.search(r"(день|добу|щодня|щодоби)", low):
         return 1  # "раз на день" with no number
     return None
+
+
+def times_of_day(text: str) -> list[time]:
+    """The clock times named by part-of-day phrases ("зранку" → 09:00, "на ніч" → 21:00), in order,
+    de-duplicated. ``[]`` when none are mentioned. Lets "вранці та ввечері" become two intakes."""
+    low = text.casefold()
+    out: list[time] = []
+    for words, (h, m) in _TIME_OF_DAY:
+        if any(w in low for w in words):
+            t = time(h, m)
+            if t not in out:
+                out.append(t)
+    return sorted(out)
 
 
 def distribute_times(per_day: int) -> list[time]:
@@ -89,16 +129,23 @@ def parse_dose(text: str) -> str | None:
     return m.group(0).strip() if m else None
 
 
+def times_from_text(text: str) -> list[time]:
+    """Best dosing times from one free-text instruction, in priority order: explicit "HH:MM" →
+    part-of-day phrases ("зранку"/"на ніч") → a frequency ("3 рази на день", "3 р/д") spread across
+    the day. ``[]`` when nothing usable is found. The clock times are the bot's job, not the user's.
+    """
+    if explicit := parse_times(text):
+        return explicit
+    if tod := times_of_day(text):
+        return tod
+    freq = parse_frequency(text)
+    return distribute_times(freq) if freq is not None else []
+
+
 def resolve_schedule(text: str) -> tuple[list[time], str | None]:
-    """Turn one free-text dosing answer into (times, dose). Explicit "HH:MM" times win; otherwise a
-    frequency ("3 рази на день") is spread across the day by the bot. Returns ``([], dose)`` when no
-    schedule could be read, so the caller can re-ask. The dose (if any) is record-keeping only."""
-    times = parse_times(text)
-    if not times:
-        freq = parse_frequency(text)
-        if freq is not None:
-            times = distribute_times(freq)
-    return times, parse_dose(text)
+    """Turn one free-text dosing answer into (times, dose) — see :func:`times_from_text`. Returns
+    ``([], dose)`` when no schedule could be read, so the caller re-asks. Dose is record-keeping."""
+    return times_from_text(text), parse_dose(text)
 
 
 async def add_medication(
@@ -109,13 +156,15 @@ async def add_medication(
     times: list[time],
     dose: str | None = None,
     source_file: str | None = None,
+    course: str | None = None,
 ) -> tuple[Medication, list[Reminder]]:
     """Record the medication and create one daily reminder per dose time.
 
     ``dose`` is optional RECORD-KEEPING of the prescribed amount (e.g. captured from a prescription
     photo) — stored on the :class:`Medication` (rail #1 allows storing what a doctor prescribed) but
     NEVER placed in the reminder text. ``source_file`` is the original prescription image/PDF the
-    med was read from, kept so the user can re-open it; ``None`` for a manually-entered medication.
+    med was read from, kept so the user can re-open it. ``course`` groups meds from one prescription
+    under a label. Both are ``None`` for a standalone manually-entered medication.
     """
     medication = Medication(
         user_id=user.id,
@@ -123,6 +172,7 @@ async def add_medication(
         dose=(dose or None),
         schedule=", ".join(t.strftime("%H:%M") for t in times),
         source_file=(source_file or None),
+        course=(course or None),
     )
     session.add(medication)
     await session.flush()

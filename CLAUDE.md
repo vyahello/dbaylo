@@ -367,13 +367,21 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   відстежую` (`[✅ <name>][✏️]` resolve/rename). Commands: `/problem`,
   `/problems` (resolve/rename), `/medication` (name + schedule → one reminder per time, **no dose** in
   the reminder, `Reminder.medication_id`), `/reminders` (list, next_run from the scheduler).
-  **The bot splits the day itself** (`medications.parse_frequency`/`distribute_times`/`resolve_schedule`):
-  a doctor prescribes a FREQUENCY ("3 рази на день", "2 таблетки 3 рази"), NOT clock times, so the
-  add-med dialog asks "скільки разів на день?" and spreads N intakes over a deterministic waking-hours
-  schedule (1→09:00 … 3→08/14/20 … capped at `MAX_PER_DAY`=6); explicit "08:00, 20:00" still works, and
-  a per-intake amount ("2 таблетки", `parse_dose`) is captured as `Medication.dose` record-keeping. The
-  prescription-photo flow applies the SAME spread (`prescription_flow._with_resolved_times`): a script
-  read as frequency-only is now auto-scheduled, not skipped for manual entry. **💊 Список ліків is a
+  **The bot splits the day itself** (`medications.times_from_text` = explicit "HH:MM" → part-of-day
+  phrases → frequency, + `parse_frequency`/`times_of_day`/`distribute_times`/`parse_dose`): a doctor
+  prescribes a SCHEDULE in shorthand, NOT clock times — **"зранку"→09:00, "на ніч"→21:00, "вранці та
+  ввечері"→09:00+21:00, "3 р/д"/"3 рази на день"→08/14/20** (waking-hours spread, capped at
+  `MAX_PER_DAY`=6). The add-med dialog asks "скільки разів на день?"; explicit "08:00, 20:00" still
+  works; a per-intake amount ("2 таблетки", `parse_dose`) is captured as `Medication.dose`
+  record-keeping. The prescription-photo flow applies the SAME resolution
+  (`prescription_flow._with_resolved_times`): a frequency/shorthand-only script is auto-scheduled, not
+  skipped (the bug where a real urologist script — зранку/на ніч/3 р/д — created NO reminders).
+  **Meds from one prescription are GROUPED** (migration 0020, `Medication.course`): the confirm shows
+  a default course label ("Рецепт від {date}") the user can rename by **typing** a name while
+  confirming (`on_prescription_course`, the agent auto-determines, the user overrides in their own
+  words); on confirm every med gets that `course`. The 💊 Мої ліки list groups meds under their course
+  header (`_medications_payload`; a manual med → "💊 Окремі ліки"), and the card shows `🗂 Рецепт:`.
+  **💊 Список ліків is a
   master-detail** (`_medications_payload`): a short `💊 <name>` button per LIVE medication (one with
   an active reminder) OPENS its card (`medication_view`, never a destructive turn-off tap); the card
   (`_med_card`, HTML) shows name · **dose** (record-keeping, escaped) · times · next run, and the

@@ -70,6 +70,56 @@ def test_state_roundtrip_preserves_fields() -> None:
     assert restored == med
 
 
+def test_render_confirm_shows_the_course_group() -> None:
+    text = prescription_flow._render_confirm(
+        [_med("Буспірон", times=("08:00",))], course="Рецепт від уролога"
+    )
+    assert "Рецепт від уролога" in text  # the meds are filed under a named prescription group
+
+
+async def test_typed_message_renames_the_course(monkeypatch) -> None:
+    # While confirming, a typed message renames the prescription GROUP (the agent's default → the
+    # user's own words), then re-shows the confirm.
+    state = AsyncMock()
+    state.get_data = AsyncMock(
+        return_value={"meds": [prescription_flow._med_to_state(_med("Х", times=("08:00",)))]}
+    )
+    message = AsyncMock()
+    message.text = "Уролог, червень"
+    await prescription_flow.on_prescription_course(message, state)
+    state.update_data.assert_awaited_once_with(course="Уролог, червень")
+    assert "Уролог, червень" in message.answer.call_args.args[0]
+
+
+async def test_confirm_files_meds_under_the_course_and_photo(monkeypatch) -> None:
+    @asynccontextmanager
+    async def fake_session():
+        yield AsyncMock()
+
+    monkeypatch.setattr(prescription_flow, "get_session", fake_session)
+    monkeypatch.setattr(
+        prescription_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    add = AsyncMock(return_value=(SimpleNamespace(id=1), []))
+    monkeypatch.setattr(prescription_flow.proactive, "add_medication", add)
+    state = AsyncMock()
+    state.get_data = AsyncMock(
+        return_value={
+            "meds": [prescription_flow._med_to_state(_med("Буспірон", times=("08:00",)))],
+            "course": "Рецепт від уролога",
+            "rx_path": "/data/rx/1.jpg",
+        }
+    )
+    callback = AsyncMock()
+    callback.from_user = SimpleNamespace(id=4242)
+    callback.message = AsyncMock(spec=Message)
+    callback.message.answer = AsyncMock()
+    callback.message.edit_reply_markup = AsyncMock()  # spec doesn't mark it awaitable
+    await prescription_flow.on_prescription_confirm(callback, state, reminder_scheduler=object())
+    assert add.await_args.kwargs["course"] == "Рецепт від уролога"
+    assert add.await_args.kwargs["source_file"] == "/data/rx/1.jpg"
+
+
 async def test_confirm_creates_timed_meds_with_dose_and_skips_untimed(monkeypatch) -> None:
     @asynccontextmanager
     async def fake_session():

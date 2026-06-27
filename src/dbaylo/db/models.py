@@ -184,6 +184,9 @@ class Medication(TimestampMixin, Base):
     # The original prescription photo/PDF this medication was read from (path on disk), so the user
     # can re-open it — like a lab report's source_file. None for a manually-entered medication.
     source_file: Mapped[str | None] = mapped_column(default=None)
+    # The prescription / course this med belongs to (a group label, e.g. "Рецепт від уролога") so
+    # meds from one script are grouped together. None for a standalone manually-entered med.
+    course: Mapped[str | None] = mapped_column(default=None)
 
     user: Mapped[User] = relationship(back_populates="medications")
 

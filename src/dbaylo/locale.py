@@ -665,6 +665,12 @@ PRESCRIPTION_CONFIRM_HEADER = (
     "Ось що я зчитав із рецепта. Перевір і підтвердь — і я налаштую нагадування "
     "(дозу лишаю як запис, у нагадуваннях її не буде):"
 )
+# The group label all meds from this prescription are filed under (shown in the confirm + list).
+PRESCRIPTION_CONFIRM_COURSE = "🗂 Назва рецепта: «{course}» — надішли іншу назву, щоб змінити."
+PRESCRIPTION_COURSE_DEFAULT = "Рецепт від {date}"
+PRESCRIPTION_COURSE_UPDATED = (
+    "Гаразд, назвав рецепт «{course}». Підтвердь — і я налаштую нагадування:"
+)
 PRESCRIPTION_LINE_NO_TIME = "час не вказано — додай вручну через «➕ Додати»"
 BTN_PRESCRIPTION_CONFIRM = "✅ Підтвердити"
 PRESCRIPTION_SAVED = "Готово! Налаштував нагадування: {names}. 💊"
@@ -1300,12 +1306,16 @@ MED_LIST_EMPTY = (
     "Ліків поки немає. Тисни «➕ Додати» — назви ліки й час прийому, і я нагадуватиму. 💊"
 )
 MED_LIST_ITEM = "💊 {name} ({times})"
+MED_LIST_COURSE = "🗂 {course}"  # a prescription/course header in the grouped meds list
+MED_LIST_UNGROUPED = "💊 Окремі ліки"  # meds added manually (not from a prescription)
+MED_LIST_GROUP_ITEM = "• {name}"  # a med under its course header (the button below opens it)
 BTN_MED_VIEW = (
     "💊 {name}"  # a medication in the list -> opens its card (read, not a destructive tap)
 )
 # Medication card (master-detail): name + dose (record-keeping) + times + next run. The dose is a
 # record here only — a REMINDER never carries a dose (rail #1).
 MED_CARD_TITLE = "💊 <b>{name}</b>"
+MED_CARD_COURSE = "🗂 Рецепт: {course}"  # the prescription/course this med belongs to
 MED_CARD_DOSE = "Доза: {dose}"
 MED_CARD_TIMES = "Час прийому: {times}"
 MED_CARD_NEXT = "🗓 Наступне нагадування: {when}"

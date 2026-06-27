@@ -711,16 +711,30 @@ async def _medications_payload(
     live = await _live_medications(session, user_id=user_id)
     if not live:
         return locale.MED_LIST_EMPTY, None
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=locale.BTN_MED_VIEW.format(name=_short(med.name)),
-                callback_data=callbacks.medication_view(med.id, "m"),
+    # Group meds by their prescription (course) so a script's meds read together; a manually-added
+    # med (no course) goes under "Окремі ліки". Headers live in the text (Telegram can't put them
+    # between button rows); the flat buttons below follow the same order and open each med's card.
+    groups: dict[str, list[Medication]] = {}
+    for med in live:
+        groups.setdefault(med.course or "", []).append(med)
+    ordered = [k for k in groups if k] + ([""] if "" in groups else [])
+    lines = [locale.MED_LIST_HEADER]
+    rows: list[list[InlineKeyboardButton]] = []
+    for key in ordered:
+        header = locale.MED_LIST_COURSE.format(course=key) if key else locale.MED_LIST_UNGROUPED
+        lines.append("")
+        lines.append(header)
+        for med in groups[key]:
+            lines.append(locale.MED_LIST_GROUP_ITEM.format(name=med.name))
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text=locale.BTN_MED_VIEW.format(name=_short(med.name)),
+                        callback_data=callbacks.medication_view(med.id, "m"),
+                    )
+                ]
             )
-        ]
-        for med in live
-    ]
-    return locale.MED_LIST_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
+    return "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 async def open_medications(message: Message, telegram_id: int) -> None:
@@ -886,8 +900,10 @@ async def on_reminder_view(callback: CallbackQuery, reminder_scheduler: Reminder
 
 
 def _med_card(med: Medication, *, when: str) -> str:
-    """The medication card (escaped HTML): name · dose (a record) · times · next run · hint."""
+    """The medication card (escaped HTML): name · course · dose · times · next run · hint."""
     lines = [locale.MED_CARD_TITLE.format(name=html.escape(med.name))]
+    if med.course:
+        lines.append(locale.MED_CARD_COURSE.format(course=html.escape(med.course)))
     if med.dose:
         lines.append(locale.MED_CARD_DOSE.format(dose=html.escape(med.dose)))
     lines.append(locale.MED_CARD_TIMES.format(times=html.escape(med.schedule or "?")))

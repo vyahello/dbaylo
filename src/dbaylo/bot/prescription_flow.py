@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import replace
-from datetime import time
+from datetime import date, time
 from io import BytesIO
 from pathlib import Path
 
@@ -113,21 +113,42 @@ async def present_prescription_from_path(message: Message, state: FSMContext, *,
     # A doctor writes a FREQUENCY ("3 рази на день"), not clock times — so when the page gave a
     # frequency but no hours, the bot picks the times instead of leaving the med for manual entry.
     resolved = [_with_resolved_times(med) for med in outcome]
+    course = locale.PRESCRIPTION_COURSE_DEFAULT.format(date=date.today().isoformat())
     await state.set_state(PrescriptionStates.confirming)
-    # Keep the photo path so the saved meds link back to it (the user can re-open the prescription).
-    await state.update_data(meds=[_med_to_state(med) for med in resolved], rx_path=path)
-    await message.answer(_render_confirm(resolved), reply_markup=_confirm_keyboard())
+    # Keep the photo path so the saved meds link back to it (the user can re-open the prescription),
+    # and a default course label that groups these meds — the user can rename it (see below).
+    await state.update_data(
+        meds=[_med_to_state(med) for med in resolved], rx_path=path, course=course
+    )
+    await message.answer(_render_confirm(resolved, course=course), reply_markup=_confirm_keyboard())
+
+
+@router.message(PrescriptionStates.confirming, F.text)
+async def on_prescription_course(message: Message, state: FSMContext) -> None:
+    """While confirming, a typed message renames the prescription's GROUP (course) — the agent
+    auto-determines a default, the user can override it in their own words, then re-confirm."""
+    course = (message.text or "").strip()
+    if not course:
+        return
+    data = await state.get_data()
+    raw = data.get("meds") or []
+    await state.update_data(course=course)
+    meds = [_med_from_state(item) for item in raw if isinstance(item, dict)]
+    body = locale.PRESCRIPTION_COURSE_UPDATED.format(course=course) + "\n\n"
+    body += _render_confirm(meds, course=course)
+    await message.answer(body, reply_markup=_confirm_keyboard())
 
 
 def _with_resolved_times(med: ExtractedMedication) -> ExtractedMedication:
-    """Fill a frequency-only med's times by spreading the day (the bot, not the page, picks hours).
-    Unchanged when the page already printed explicit times or no usable frequency."""
+    """Fill a med's times from its frequency phrase when the page printed no clock times — the bot
+    picks the hours from "зранку" / "на ніч" / "3 р/д" / "3 рази на день" etc. (a doctor writes the
+    schedule, not the clock). Unchanged when explicit times are present, or nothing usable found."""
     if med.times or not med.frequency:
         return med
-    freq = medications.parse_frequency(med.frequency)
-    if freq is None:
+    resolved = medications.times_from_text(med.frequency)
+    if not resolved:
         return med
-    times = tuple(t.strftime("%H:%M") for t in medications.distribute_times(freq))
+    times = tuple(t.strftime("%H:%M") for t in resolved)
     return replace(med, times=times)
 
 
@@ -138,6 +159,7 @@ async def on_prescription_confirm(
     data = await state.get_data()
     raw = data.get("meds") or []
     rx_path = data.get("rx_path")  # the original prescription photo, linked to each saved med
+    course = data.get("course") or None  # the group label these meds are filed under
     await state.clear()
     await clear_inline_keyboard(callback)  # consume the confirm/cancel buttons
     tg = callback.from_user.id if callback.from_user else None
@@ -162,6 +184,7 @@ async def on_prescription_confirm(
                     scheduler=reminder_scheduler,
                     dose=med.dose,
                     source_file=source_file,
+                    course=course,
                 )
                 created.append(med.name)
             else:
@@ -216,9 +239,12 @@ def _med_line(med: ExtractedMedication) -> str:
     return " · ".join(parts)
 
 
-def _render_confirm(meds: list[ExtractedMedication]) -> str:
+def _render_confirm(meds: list[ExtractedMedication], *, course: str | None = None) -> str:
     lines = [locale.PRESCRIPTION_CONFIRM_HEADER, ""]
     lines.extend(_med_line(med) for med in meds)
+    if course:
+        lines.append("")
+        lines.append(locale.PRESCRIPTION_CONFIRM_COURSE.format(course=course))
     return "\n".join(lines)
 
 
