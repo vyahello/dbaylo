@@ -445,7 +445,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   computes it, the auto-route passes lab_flow's), checks `medications.find_by_content_hash` BEFORE
   extracting, and on a hit shows `PRESCRIPTION_DUPLICATE` + the nav instead of a second course; the
   hash is stored on each saved med (a 🗑-deleted course leaves no row → re-add allowed, mirroring the
-  lab CONFIRMED-only rule). **The downloaded photo is named readably** (`_rx_filename` →
+  lab CONFIRMED-only rule). **The hash is checked FIRST, before any extraction** — `lab_flow`'s
+  auto-router runs `prescription_flow.is_duplicate(tg, content_hash)` (a fast lookup) BEFORE
+  `extract_document`, so a re-dropped script short-circuits with `announce_duplicate` instead of
+  paying for a full lab read just to discover it's a prescription it already has (the bug: it used to
+  extract, classify, THEN say "duplicate"). Labs already gated their own `find_confirmed_by_hash`
+  before extraction. **The downloaded photo is named readably** (`_rx_filename` →
   «Рецепт-<course/med>.<ext>», sanitized), not the random storage filename — like the lab
   `_source_filename`. **The result navigates forward** (no dead-end on "Готово!"): when any med was
   saved, the result carries `[📋 Мої ліки][🔔 Нагадування]` (`_result_keyboard`, reusing the menu

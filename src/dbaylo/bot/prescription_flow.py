@@ -93,6 +93,25 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
     )
 
 
+async def is_duplicate(telegram_id: int, content_hash: str) -> bool:
+    """Whether this exact prescription photo was already turned into meds — checked BEFORE any
+    extraction (a fast hash lookup), so a re-dropped script never pays for an LLM read. Shared with
+    the lab auto-router, so it catches a prescription duplicate before its own slow extraction."""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=telegram_id)
+        return (
+            await medications.find_by_content_hash(
+                session, user_id=user.id, content_hash=content_hash
+            )
+            is not None
+        )
+
+
+async def announce_duplicate(message: Message) -> None:
+    """Tell the user this exact prescription is already saved, with a jump to the meds."""
+    await message.answer(locale.PRESCRIPTION_DUPLICATE, reply_markup=_result_keyboard())
+
+
 async def present_prescription_from_path(
     message: Message, state: FSMContext, *, path: str, content_hash: str | None = None
 ) -> None:
@@ -102,16 +121,10 @@ async def present_prescription_from_path(
     (SHA-256 of the bytes) de-dups a re-dropped script."""
     tg = message.from_user.id if message.from_user else None
     # Same bytes already turned into meds? Don't re-extract or duplicate — point at the saved meds.
-    if content_hash is not None and tg is not None:
-        async with get_session() as session:
-            user = await ensure_user(session, telegram_id=tg)
-            existing = await medications.find_by_content_hash(
-                session, user_id=user.id, content_hash=content_hash
-            )
-        if existing is not None:
-            await message.answer(locale.PRESCRIPTION_DUPLICATE, reply_markup=_result_keyboard())
-            await state.clear()
-            return
+    if content_hash is not None and tg is not None and await is_duplicate(tg, content_hash):
+        await announce_duplicate(message)
+        await state.clear()
+        return
 
     budget = 2 * get_settings().claude_extract_timeout_s + 30
     try:

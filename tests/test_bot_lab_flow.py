@@ -74,6 +74,9 @@ def _patch_upload(monkeypatch, *, outcome: ExtractedReport) -> AsyncMock:
     monkeypatch.setattr(lab_flow, "extract_document", AsyncMock(return_value=outcome))
     present = AsyncMock()
     monkeypatch.setattr(lab_flow.prescription_flow, "present_prescription_from_path", present)
+    # The upfront prescription-dup check (real DB) — off by default, a test flips it on.
+    monkeypatch.setattr(lab_flow.prescription_flow, "is_duplicate", AsyncMock(return_value=False))
+    monkeypatch.setattr(lab_flow.prescription_flow, "announce_duplicate", AsyncMock())
     monkeypatch.setattr(lab_flow, "answer_chunked", AsyncMock())
     return present
 
@@ -95,6 +98,20 @@ async def test_dropped_prescription_is_auto_routed_to_the_meds_flow(monkeypatch)
     present.assert_awaited_once()
     assert present.await_args.kwargs["path"] == "/tmp/up.jpg"
     lab_flow.answer_chunked.assert_not_awaited()  # the lab confirm view never shows
+
+
+async def test_a_redropped_prescription_is_caught_before_extraction(monkeypatch) -> None:
+    # The hash is checked FIRST: a re-dropped script short-circuits BEFORE any (slow) extraction,
+    # instead of reading the whole file only to find it's a duplicate afterward.
+    present = _patch_upload(monkeypatch, outcome=ExtractedReport(document_type="lab"))
+    monkeypatch.setattr(lab_flow.prescription_flow, "is_duplicate", AsyncMock(return_value=True))
+    announce = AsyncMock()
+    monkeypatch.setattr(lab_flow.prescription_flow, "announce_duplicate", announce)
+    message, state = _upload_message(), AsyncMock()
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".jpg")
+    announce.assert_awaited_once()  # told it's a duplicate
+    lab_flow.extract_document.assert_not_awaited()  # ...and the file was NEVER extracted
+    present.assert_not_awaited()
 
 
 async def test_a_lab_with_results_is_never_hijacked_as_a_prescription(monkeypatch) -> None:

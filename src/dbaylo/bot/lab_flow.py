@@ -377,6 +377,13 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
     data = buffer.getvalue()
     content_hash = file_hash(data)
 
+    # The hash is checked FIRST, before any extraction. A re-dropped PRESCRIPTION is a Medication
+    # (its lab report was discarded), so the lab-report dedup below would miss it — and we'd pay for
+    # a full lab read just to discover it's a duplicate. Catch it here instead.
+    if await prescription_flow.is_duplicate(message.from_user.id, content_hash):
+        await prescription_flow.announce_duplicate(message)
+        return
+
     async with get_session() as session:
         user = await ensure_user(session, message.from_user.id, message.from_user.full_name)
         # Same bytes already confirmed before? Don't re-extract (slow) or duplicate the report —
