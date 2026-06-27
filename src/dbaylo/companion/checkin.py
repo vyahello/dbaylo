@@ -4,9 +4,11 @@ The evening prompt is sent by the scheduler. The user's free-text answer is pars
 leniently (sleep / water / mood / training) and any symptom mention is routed to
 the **deterministic** triage engine — the LLM never makes that escalation call.
 
-"One gentle reminder, never nag": a single follow-up checks whether a check-in
-arrived today; :func:`should_send_nudge` returns True at most once, and the
-scheduler sends exactly one nudge. No streak/guilt language anywhere.
+"One gentle follow-up, never nag": ~90 min after the prompt the scheduler sends a
+single follow-up whose TEXT depends on :func:`has_checkin_on` — a soft "I'm here"
+when no check-in arrived yet, or a light "anything change since the morning?" when
+the user already checked in (so the second daily touch never reads as guilt-tripping).
+No streak/guilt language anywhere.
 
 ``python -m dbaylo.companion.checkin --dry-run`` prints the prompt without sending.
 """

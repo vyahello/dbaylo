@@ -184,10 +184,15 @@ async def _fire_nudge(
     sender: Sender,
     tz: ZoneInfo,
 ) -> None:
-    """The single check-in follow-up: send one gentle nudge iff no check-in today."""
+    """The single check-in follow-up (~90 min after the prompt). It ALWAYS fires, with text matched
+    to the day: a soft "I'm here" when no check-in arrived yet, or a light "anything change?" once
+    the user already checked in — so a second daily touch never nags."""
     async with session_factory() as session:
-        if await checkin.should_send_nudge(session, user_id=user_id, day=datetime.now(tz).date()):
-            await _send(sender, session, user_id, locale.CHECKIN_NUDGE)
+        checked_in = await checkin.has_checkin_on(
+            session, user_id=user_id, day=datetime.now(tz).date()
+        )
+        text = locale.CHECKIN_FOLLOWUP if checked_in else locale.CHECKIN_NUDGE
+        await _send(sender, session, user_id, text)
 
 
 def _add_job(

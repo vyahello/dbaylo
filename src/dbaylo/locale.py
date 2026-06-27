@@ -439,6 +439,10 @@ CHECKIN_ANALYZING = (
 CHECKIN_SAVED = "Дякую, що поділився(-лась) 💚 Занотував."
 # The single, gentle follow-up — sent once if no check-in arrived; never nags.
 CHECKIN_NUDGE = "Я тут, якщо захочеш розповісти, як минув день. Без поспіху 🌿"
+# A later-day SECOND touch when the user ALREADY checked in — gentle, opt-out, never guilt.
+CHECKIN_FOLLOWUP = (
+    "Як ти зараз? Щось змінилося відтоді? Якщо все так само — можеш не відповідати 🌿"
+)
 # Periodic "still relevant?" prompt for an active concern (Tier 1.1 §B), with a button.
 # One batched review message lists every concern due for review; each gets its own
 # "✅ <name>" button. Tapping one resolves that concern and leaves the others tappable.

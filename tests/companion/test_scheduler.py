@@ -13,6 +13,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.date import DateTrigger
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from dbaylo import locale
 from dbaylo.companion import reminders, scheduler
 from dbaylo.companion.checkin import process_checkin
 from dbaylo.companion.reminders import daily_cron, once
@@ -204,21 +205,23 @@ async def test_fire_repeat_lab_deactivates_one_off(async_session: AsyncSession) 
     assert await reminders.active_reminders(async_session) == []
 
 
-async def test_nudge_only_when_no_checkin(async_session: AsyncSession) -> None:
+async def test_nudge_always_fires_with_context_appropriate_text(
+    async_session: AsyncSession,
+) -> None:
     user = await _user(async_session)
     recorder = _Recorder()
     factory = _factory(async_session)
-    # No check-in yet -> the nudge fires.
+    # No check-in yet -> the soft "I'm here" nudge.
     await scheduler._fire_nudge(user_id=user.id, session_factory=factory, sender=recorder, tz=TZ)
-    assert len(recorder.sent) == 1
+    assert recorder.sent == [(user.telegram_id, locale.CHECKIN_NUDGE)]
 
-    # After a check-in, a later nudge is suppressed.
+    # After a check-in, the follow-up STILL fires — but as a context-appropriate second touch.
     await process_checkin(
         async_session, user=user, text="спав 7 годин", check_date=datetime.now(TZ).date()
     )
     recorder.sent.clear()
     await scheduler._fire_nudge(user_id=user.id, session_factory=factory, sender=recorder, tz=TZ)
-    assert recorder.sent == []
+    assert recorder.sent == [(user.telegram_id, locale.CHECKIN_FOLLOWUP)]
 
 
 # --- Durability: startup catch-up of occurrences missed while down ---------------

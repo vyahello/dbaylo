@@ -265,8 +265,13 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   spasm/aching, and "камінь/камені" (kidney/gallstone) — phrasings that slipped past it (the owner's
   "вийшов камінь з нирки" check-in reply got only "Занотував"). When the intake CONCLUDES
   (`_run_intake_turn`, `reply.done`), it attaches `chat_affordance_keyboard()` (🔔 Нагадати ·
-  🏥 Де зробити) so "що робити далі" is one tap. One follow-up only, never nags (`should_send_nudge`).
-  The firing prompt is now
+  🏥 Де зробити) so "що робити далі" is one tap. **One follow-up ~90 min after the prompt
+  (`_fire_nudge`) ALWAYS fires now** (owner wanted the second daily touch unconditional), but its TEXT
+  is context-matched by `has_checkin_on`: `CHECKIN_NUDGE` ("я тут, якщо захочеш…") when no check-in
+  arrived yet, else `CHECKIN_FOLLOWUP` ("як ти зараз? щось змінилося? можеш не відповідати") so it
+  never reads as "haven't heard from you" guilt. (`should_send_nudge` is kept as a tested helper but
+  no longer gates the send.) The scheduled 10:00 prompt itself fires unconditionally — a same-day
+  manual check-in never suppresses it (locked by a scheduler test). The firing prompt is now
   **GROUNDED + proactive** (`build_grounded_prompt`, LLM + `assert_safe_output`, deterministic
   fallback to the static `build_prompt`): it opens by asking about the user's ACTUAL current
   concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt. The MANUAL
