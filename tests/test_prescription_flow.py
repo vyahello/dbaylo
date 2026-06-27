@@ -185,6 +185,12 @@ async def test_confirm_creates_timed_meds_with_dose_and_skips_untimed(monkeypatc
     assert add.await_args.kwargs["times"] == [time(8, 0)]
     sent = callback.message.answer.call_args.args[0]
     assert "Аспірин" in sent and "Сироп" in sent  # created + skipped both reported
+    # The result navigates forward (no dead-end): jump to 💊 Мої ліки / 🔔 Нагадування.
+    from dbaylo.companion import callbacks as cb
+
+    kb = callback.message.answer.call_args.kwargs.get("reply_markup")
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert cb.MENU_MED_LIST in datas and cb.MENU_OPEN_REMINDERS in datas
 
 
 async def test_add_medication_persists_dose_but_reminder_text_has_none(

@@ -198,7 +198,26 @@ async def on_prescription_confirm(
         await session.commit()
 
     await callback.answer()
-    await callback.message.answer(_result_text(created, skipped))
+    # Don't dead-end on "Готово!": offer a jump to the saved meds / reminders (when any saved).
+    keyboard = _result_keyboard() if created else None
+    await callback.message.answer(_result_text(created, skipped), reply_markup=keyboard)
+
+
+def _result_keyboard() -> InlineKeyboardMarkup:
+    """After saving a prescription, navigation forward: open the meds list (the new course is in it)
+    or the reminders, so the flow leads somewhere, not a plain note."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_MENU_MED_LIST, callback_data=callbacks.MENU_MED_LIST
+                ),
+                InlineKeyboardButton(
+                    text=locale.BTN_MENU_REMINDERS, callback_data=callbacks.MENU_OPEN_REMINDERS
+                ),
+            ]
+        ]
+    )
 
 
 # --- Rendering / (de)serialization ----------------------------------------------

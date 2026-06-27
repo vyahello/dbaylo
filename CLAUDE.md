@@ -440,7 +440,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   classifier misses (→ "lab") just falls back to today's behaviour (📷 button still works). The
   **dose is stored** on `Medication.dose` as record-keeping (rail #1 permits it) and shown in the
   confirm, but NEVER in a reminder; a med whose time the page didn't print is listed for manual
-  entry, never guessed. The daily check-in no longer appears as a deletable reminder — it's an
+  entry, never guessed. **The result navigates forward** (no dead-end on "Готово!"): when any med was
+  saved, the result carries `[📋 Мої ліки][🔔 Нагадування]` (`_result_keyboard`, reusing the menu
+  callbacks) so the user can jump to the new course — mirroring how a LAB confirm delivers a navigable
+  analysis card (`send_analysis`: 🩺 overview + per-section/chart buttons + sequenced follow-up offers,
+  the result given inline rather than routing to a list). The daily check-in no longer appears as a deletable reminder — it's an
   info line ("керую цим я") above the list (`_reminders_payload`). On lab confirm the bot **offers** a repeat-lab
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
