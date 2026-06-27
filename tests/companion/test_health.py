@@ -173,6 +173,33 @@ async def test_propose_problems_excludes_tracked_and_dismissed(
     assert again == set()
 
 
+async def test_checkin_focus_block_empty_without_concerns(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    assert await health.checkin_focus_block(async_session, user.id, today=_TODAY) == ""
+
+
+async def test_checkin_focus_block_names_the_tracked_concern(async_session: AsyncSession) -> None:
+    # "Під наглядом" is felt: the check-in is told to LEAD with a tracked concern, named explicitly.
+    user = await ensure_user(async_session, 1)
+    await concerns.add_active(async_session, user=user, name="Камені в нирках")
+    block = await health.checkin_focus_block(async_session, user.id, today=_TODAY)
+    assert "TODAY'S FOCUS" in block and "Камені в нирках" in block
+
+
+async def test_checkin_focus_block_nudges_retest_when_data_is_stale(
+    async_session: AsyncSession,
+) -> None:
+    # A tracked concern whose latest lab measurement is months old → the focus tells the persona to
+    # suggest re-testing (175 days >= CHECKIN_RETEST_DAYS), and carries the measurement date.
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session, user, day=date(2026, 1, 1), analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)]
+    )
+    await concerns.add_active(async_session, user=user, name="Глюкоза")
+    block = await health.checkin_focus_block(async_session, user.id, today=_TODAY)
+    assert "Глюкоза" in block and "2026-01-01" in block and "re-test" in block.lower()
+
+
 async def test_same_analyte_in_blood_and_urine_are_distinct_problems(
     async_session: AsyncSession,
 ) -> None:

@@ -345,6 +345,38 @@ async def should_have_checkin(session: AsyncSession, user_id: int, *, today: dat
     return await has_current_flags(session, user_id, today=today)
 
 
+# How old a tracked concern's latest measurement may be before the check-in nudges a re-test.
+CHECKIN_RETEST_DAYS = 90
+
+
+async def checkin_focus_block(session: AsyncSession, user_id: int, *, today: date) -> str:
+    """ONE tracked concern to focus this check-in on, rotated daily (``toordinal() % N``) so each
+    gets attention over time — named EXPLICITLY for the persona to ask about, plus a re-test nudge
+    when its latest measurement is stale (>= ``CHECKIN_RETEST_DAYS``). ``""`` when nothing tracked.
+
+    Deterministic (no LLM): just picks the concern + reads its latest measurement date. The persona
+    decides the natural phrasing; this only says WHICH concern and WHETHER it is due for a re-test.
+    """
+    conditions = await concerns.list_active(session, user_id=user_id)
+    named = [c for c in conditions if c.name and c.name.strip()]
+    if not named:
+        return ""
+    focus = named[today.toordinal() % len(named)]
+    line = (
+        "TODAY'S FOCUS — the user is actively tracking this concern; LEAD the check-in by asking "
+        f"specifically, BY NAME, how it has been going: «{focus.name}»."
+    )
+    # Best-effort: find the analyte behind the concern to read its latest measurement date.
+    indicators = await list_indicators(session, user_id)
+    match = next((f for f in indicators if _already_known(f, [focus.name])), None)
+    if match is not None and match.last_date is not None:
+        ago = describe_age(match.last_date, today=today)
+        line += f" Its latest measurement is {match.last_date.isoformat()} ({ago})."
+        if (today - match.last_date).days >= CHECKIN_RETEST_DAYS:
+            line += " That is quite old — warmly suggest it's time to re-test this one."
+    return line
+
+
 def _findings_block(picture: HealthPicture, *, today: date) -> str:
     """The deterministic indicator picture (current / early-warning / resolved) as grounded English
     lines, ``""`` when nothing is off. Shared by the chat grounding and the KIND_GENERAL consult."""

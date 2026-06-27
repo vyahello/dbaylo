@@ -262,6 +262,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   📝 Чек-ін (`companion_flow.start_checkin_dialog`) shows a `CHECKIN_ANALYZING` placeholder the moment
   it is tapped and EDITS it into the grounded prompt when ready (the multi-second LLM call otherwise
   reads as "waiting for nothing"); the grounded prompt now also references the user's active GOALS.
+  **Tracked-concern FOCUS** (`health.checkin_focus_block`, deterministic): so "Під наглядом" is FELT,
+  each check-in is handed ONE tracked concern (rotated daily by `today.toordinal() % N`) named
+  EXPLICITLY, and — if its latest measurement is `>= CHECKIN_RETEST_DAYS` (90) old — a re-test nudge
+  (the concern is matched to its analyte via `_already_known` to read `last_date`). `checkin_messages`
+  appends this focus to the grounded context (CHECK-IN ONLY — not general chat); the persona LEADS the
+  check-in with it. The focus only says WHICH concern + WHETHER to re-test; the LLM phrases it.
 - **Health analyzer** (`companion/health.py`, the "big idea" foundation): **deterministic, NO LLM,
   NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine into `current` (latest
   out of range), `watch` (still in range but trending toward — within 15% of — a bound: an EARLY

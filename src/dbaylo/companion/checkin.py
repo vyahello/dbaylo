@@ -69,7 +69,10 @@ CHECKIN_PERSONA = (
     "own words). Use the history to "
     "remember and follow up ('учора писав, що погано спав — як сьогодні?'), and notice a dynamic "
     "('настрій кілька днів просідає'). Sometimes ask how an active GOAL is going and cheer real "
-    "progress (never with numeric targets). Open warmly and SPECIFICALLY: lead with what is "
+    "progress (never with numeric targets). If the context has a 'TODAY'S FOCUS' line, LEAD this "
+    "check-in by asking specifically, by name, about THAT tracked concern (and if it says the data "
+    "is old, warmly suggest re-testing) — that is the user feeling their tracking is alive. "
+    "Otherwise open warmly and SPECIFICALLY: lead with what is "
     "relevant to them now (their main current concern, a goal in progress, OR a recent state worth "
     "following up), "
     "reference it briefly, then a light general question (sleep / mood / how the body feels). "
@@ -174,7 +177,13 @@ async def checkin_messages(
     data + recent state), then — if any concerns are due for review — ONE batched "still relevant?"
     message with a "✅ <name>" button per concern (not a separate message each)."""
     context = await grounded_context(session, user_id=user_id, today=now.date())
-    messages: list[ProactiveMessage] = [(await build_grounded_prompt(context, runner=runner), None)]
+    # Make a tracked concern VISIBLE: each check-in leads with one of them (rotated daily) and
+    # nudges a re-test when its data is stale — so "Під наглядом" is felt, not just background.
+    focus = await health.checkin_focus_block(session, user_id, today=now.date())
+    full_context = "\n\n".join(part for part in (context, focus) if part)
+    messages: list[ProactiveMessage] = [
+        (await build_grounded_prompt(full_context, runner=runner), None)
+    ]
     due = await concerns.due_for_review(session, user_id=user_id, now=now)
     if due:
         buttons = [
