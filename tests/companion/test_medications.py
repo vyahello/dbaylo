@@ -65,6 +65,44 @@ def test_parse_dose() -> None:
     assert medications.parse_dose("3 рази на день") is None  # a frequency is not a dose
 
 
+def test_safe_dose_label_returns_only_a_clean_strength() -> None:
+    from dbaylo.triage.safety import contains_dose_directive
+
+    # The drug STRENGTH only — the count/form/frequency ("по 1 таб перед сном") is dropped, since it
+    # would read as Дбайло dosing.
+    assert medications.safe_dose_label("7,5 мг - по 1 таб перед сном") == "7,5 мг"
+    assert medications.safe_dose_label("60 мг по 1 кап зранку") == "60 мг"
+    assert medications.safe_dose_label("90мг") == "90 мг"  # OCR ran them together -> spaced
+    assert medications.safe_dose_label("по 1 таб") is None  # no strength, just a count
+    assert medications.safe_dose_label("2 таблетки") is None  # a form/count is not a strength
+    assert medications.safe_dose_label(None) is None
+    # Whatever it returns must never read as a directive (defense in depth).
+    for raw in ("7,5 мг - по 1 таб", "500 мг/добу", "по 2 таблетки"):
+        label = medications.safe_dose_label(raw)
+        assert label is None or contains_dose_directive(label) is None
+
+
+def test_normalize_name_keys_same_drug_across_forms() -> None:
+    # "Т. Буспірон", "таб буспірон" and "Буспірон" are the SAME drug — one dedup key.
+    key = medications.normalize_name("Буспірон")
+    assert medications.normalize_name("Т. Буспірон") == key
+    assert medications.normalize_name("таб буспірон") == key
+    assert medications.normalize_name("К. Симода") == medications.normalize_name("Симода")
+    # Different drugs stay distinct.
+    assert medications.normalize_name("зопіклон") != key
+
+
+async def test_live_normalized_names_lists_drugs_with_active_reminders(
+    async_session: AsyncSession,
+) -> None:
+    user = await _user(async_session)
+    await medications.add_medication(
+        async_session, user=user, name="Т. Буспірон", times=[time(8, 0)]
+    )
+    names = await medications.live_normalized_names(async_session, user_id=user.id)
+    assert medications.normalize_name("буспірон") in names
+
+
 def test_course_end_from_duration() -> None:
     from datetime import date
 

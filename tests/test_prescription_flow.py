@@ -105,6 +105,56 @@ def test_result_text_created_and_skipped() -> None:
     assert prescription_flow._result_text([], ["Сироп"]) == locale.PRESCRIPTION_NOTHING_SAVED
 
 
+def test_result_text_reports_a_cross_prescription_duplicate() -> None:
+    text = prescription_flow._result_text(["Симода"], [], ["Буспірон"])
+    assert "Симода" in text and "Буспірон" in text
+    assert locale.PRESCRIPTION_SAVED_DUPLICATE.format(names="Буспірон") in text
+
+
+async def test_confirm_skips_a_drug_already_taken_from_another_prescription(monkeypatch) -> None:
+    # The owner's two scripts both list Буспірон — it must not be scheduled twice. A med whose
+    # normalized name is already firing live is reported as a duplicate, not added again.
+    @asynccontextmanager
+    async def fake_session():
+        yield AsyncMock()
+
+    monkeypatch.setattr(prescription_flow, "get_session", fake_session)
+    monkeypatch.setattr(
+        prescription_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    from dbaylo.companion import medications
+
+    monkeypatch.setattr(
+        prescription_flow.medications,
+        "live_normalized_names",
+        AsyncMock(return_value={medications.normalize_name("Буспірон")}),
+    )
+    add = AsyncMock(return_value=(SimpleNamespace(id=1), []))
+    monkeypatch.setattr(prescription_flow.proactive, "add_medication", add)
+
+    state = AsyncMock()
+    state.get_data = AsyncMock(
+        return_value={
+            "meds": [
+                prescription_flow._med_to_state(_med("Симода", times=("09:00",))),  # new
+                prescription_flow._med_to_state(_med("Т. Буспірон", times=("08:00",))),  # dup
+            ]
+        }
+    )
+    callback = AsyncMock()
+    callback.from_user = SimpleNamespace(id=4242)
+    callback.message = AsyncMock(spec=Message)
+    callback.message.answer = AsyncMock()
+    callback.message.edit_reply_markup = AsyncMock()
+
+    await prescription_flow.on_prescription_confirm(callback, state, reminder_scheduler=object())
+
+    add.assert_awaited_once()  # only the non-duplicate drug is scheduled
+    assert add.await_args.kwargs["name"] == "Симода"
+    sent = callback.message.answer.call_args.args[0]
+    assert "Симода" in sent and "Буспірон" in sent  # added + duplicate both reported
+
+
 def test_state_roundtrip_preserves_fields() -> None:
     med = _med("Метформін", dose="850 мг", times=("09:00",), frequency=None)
     restored = prescription_flow._med_from_state(prescription_flow._med_to_state(med))
@@ -141,6 +191,9 @@ async def test_confirm_files_meds_under_the_course_and_photo(monkeypatch) -> Non
     monkeypatch.setattr(
         prescription_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
     )
+    monkeypatch.setattr(
+        prescription_flow.medications, "live_normalized_names", AsyncMock(return_value=set())
+    )
     add = AsyncMock(return_value=(SimpleNamespace(id=1), []))
     monkeypatch.setattr(prescription_flow.proactive, "add_medication", add)
     state = AsyncMock()
@@ -169,6 +222,9 @@ async def test_confirm_creates_timed_meds_with_dose_and_skips_untimed(monkeypatc
     monkeypatch.setattr(prescription_flow, "get_session", fake_session)
     monkeypatch.setattr(
         prescription_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+    )
+    monkeypatch.setattr(
+        prescription_flow.medications, "live_normalized_names", AsyncMock(return_value=set())
     )
     add = AsyncMock(return_value=(SimpleNamespace(id=1), []))
     monkeypatch.setattr(prescription_flow.proactive, "add_medication", add)

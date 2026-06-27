@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.companion import reminders
 from dbaylo.db.models import Medication, Reminder, User
+from dbaylo.triage.safety import contains_dose_directive
 
 _TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
 # "N разів/раз" — the number of intakes per day. The number is the one BEFORE "раз", so in
@@ -124,9 +125,31 @@ def distribute_times(per_day: int) -> list[time]:
 
 def parse_dose(text: str) -> str | None:
     """The per-intake amount as free text for RECORD-KEEPING ("2 таблетки", "500 мг"), or ``None``.
-    Stored on ``Medication.dose`` (rail #1) — never shown in a reminder."""
+    Stored on ``Medication.dose`` (rail #1)."""
     m = _DOSE_RE.search(text)
     return m.group(0).strip() if m else None
+
+
+# A drug's STRENGTH only — a bare mass/volume amount ("7,5 мг", "60 мг", "5 мл"). NOT a count/form
+# ("по 1 таб", "2 таблетки") and NOT a frequency, which would read as Дбайло dosing (rail #1).
+_STRENGTH_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:мг|мкг|мл|г)\b", re.IGNORECASE)
+
+
+def safe_dose_label(dose: str | None) -> str | None:
+    """The doctor's drug STRENGTH ("7,5 мг") distilled from a free-text dose, for the reminder
+    note — a doctor-attributed RECORD, never a directive. Only a bare mass/volume strength returns;
+    counts, dosage forms, frequencies and verbs ("по 1 таб", "3 рази на день") are dropped, since
+    those would read as Дбайло telling the user how much to take. ``None`` when no clean strength is
+    present. The result is re-checked against :func:`contains_dose_directive` (defense in depth), so
+    a reminder can never be made to read as a prescription even if the input is unusual."""
+    if not dose:
+        return None
+    m = _STRENGTH_RE.search(dose)
+    if m is None:
+        return None
+    parts = re.match(r"(\d+(?:[.,]\d+)?)\s*(мг|мкг|мл|г)", m.group(0), re.IGNORECASE)
+    label = f"{parts.group(1)} {parts.group(2).lower()}" if parts else m.group(0).strip()
+    return label if contains_dose_directive(label) is None else None
 
 
 def times_from_text(text: str) -> list[time]:
@@ -290,3 +313,45 @@ async def list_medications(session: AsyncSession, *, user_id: int) -> list[Medic
         select(Medication).where(Medication.user_id == user_id).order_by(Medication.created_at)
     )
     return list(rows.all())
+
+
+# Leading dosage-form markers a prescription prints before the drug name ("Т. Буспірон",
+# "таб дулоксетин", "К. Симода") — stripped so the SAME drug keys the same across two scripts.
+_FORM_PREFIX_RE = re.compile(
+    r"^\s*(?:"
+    r"[тк]\.\s*"  # Т. (таблетки) / К. (капсули), the dotted form abbreviations
+    r"|табл?\.?\s+|таблетк\w*\s+|капс?\.?\s+|капсул\w*\s+"
+    r"|драже\s+|саше\s+|р-?н\.?\s+|розчин\s+|сусп\w*\s+|сироп\w*\s+"
+    r"|крем\s+|мазь\s+|гель\s+|свічк\w*\s+"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def normalize_name(name: str) -> str:
+    """A medication name reduced to a comparison key: lowercased, leading dosage-form markers ("Т.",
+    "таб", "капс") stripped, then all punctuation/whitespace removed. So "Т. Буспірон", "таб
+    буспірон" and "Буспірон" all key the same — used to avoid the SAME drug from two different
+    prescriptions firing twice."""
+    n = name.casefold().strip()
+    prev = ""
+    while prev != n:  # strip any stacked form markers ("таб капс …")
+        prev = n
+        n = _FORM_PREFIX_RE.sub("", n).strip()
+    return re.sub(r"[^\w]+", "", n)
+
+
+async def live_normalized_names(session: AsyncSession, *, user_id: int) -> set[str]:
+    """Normalized names of medications that currently have ≥1 ACTIVE reminder — the dedup set, so a
+    drug already being taken isn't scheduled again from a new prescription (the owner's two
+    overlapping scripts both listed Буспірон → one set of reminders, not two)."""
+    active = await reminders.active_reminders_for_user(session, user_id=user_id)
+    live_ids = {
+        r.medication_id
+        for r in active
+        if r.type == reminders.TYPE_MEDICATION and r.medication_id is not None
+    }
+    if not live_ids:
+        return set()
+    meds = await list_medications(session, user_id=user_id)
+    return {normalize_name(m.name) for m in meds if m.id in live_ids}

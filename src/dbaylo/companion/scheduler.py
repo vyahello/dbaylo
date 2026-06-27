@@ -35,7 +35,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.companion import checkin, health, reminders
+from dbaylo.companion import checkin, health, medications, reminders
 from dbaylo.companion.reminders import CronSpec, DateSpec, parse_schedule
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -192,7 +192,15 @@ async def _fire_reminder(
                     locale.MED_COURSE_FINISHED.format(name=med.name, until=med.until.isoformat()),
                 )
             else:
-                await _send(sender, session, reminder.user_id, reminders.render_reminder(reminder))
+                # The reminder carries the doctor's drug STRENGTH (if one was read), as a record —
+                # never a dose directive (render_reminder validates + falls back; rail #1).
+                dose = medications.safe_dose_label(med.dose) if med is not None else None
+                await _send(
+                    sender,
+                    session,
+                    reminder.user_id,
+                    reminders.render_reminder(reminder, dose=dose),
+                )
         await session.commit()
 
 

@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo import locale
 from dbaylo.config import get_settings
 from dbaylo.db.models import Reminder, User
-from dbaylo.triage.safety import assert_safe_output
+from dbaylo.triage.safety import assert_safe_output, contains_dose_directive
 
 # "через 10 днів" / "через 2 тижні" / "через місяць" / "через рік" -> a future datetime.
 _RELATIVE_RE = re.compile(
@@ -312,15 +312,23 @@ async def deactivate_medication(session: AsyncSession, medication_id: int) -> li
     return ids
 
 
-def render_reminder(reminder: Reminder) -> str:
+def render_reminder(reminder: Reminder, *, dose: str | None = None) -> str:
     """Render the Ukrainian message for a reminder; always safety-checked.
 
-    Medication reminders never carry a dose — they name the medication and defer
-    to the doctor's instructions (rail #1).
+    For a medication reminder, ``dose`` is the doctor's drug STRENGTH (e.g. "7,5 мг", from
+    :func:`dbaylo.companion.medications.safe_dose_label`) shown as a doctor-attributed RECORD —
+    never a dose DIRECTIVE. The dose-carrying text is itself validated, and falls back to the
+    dose-less line on any guard trip, so the reminder never reads as Дбайло prescribing (rail #1).
+    Callers
+    that don't pass ``dose`` (the reminders list, a repeat-lab one-off) render exactly as before.
     """
     name = reminder.payload or ""
     if reminder.type == TYPE_MEDICATION:
         body = locale.REMINDER_MEDICATION.format(name=name)
+        if dose:
+            with_dose = locale.REMINDER_MEDICATION_DOSE.format(name=name, dose=dose)
+            if contains_dose_directive(with_dose) is None:
+                body = with_dose
     elif reminder.type == TYPE_REPEAT_LAB:
         body = locale.REMINDER_REPEAT_LAB.format(name=name)
     elif reminder.type == TYPE_CONSULT:

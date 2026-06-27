@@ -683,6 +683,8 @@ PRESCRIPTION_LINE_DURATION = (
 BTN_PRESCRIPTION_CONFIRM = "✅ Підтвердити"
 PRESCRIPTION_SAVED = "Готово! Налаштував нагадування: {names}. 💊"
 PRESCRIPTION_SAVED_SKIPPED = "Без часу (додай їх вручну через «➕ Додати»): {names}."
+# A drug already firing from another prescription — not scheduled twice (one reminder, not two).
+PRESCRIPTION_SAVED_DUPLICATE = "Вже приймаєш — не дублюю (лишив один набір нагадувань): {names}."
 PRESCRIPTION_NOTHING_SAVED = (
     "У жодних ліків не було часу прийому, тож нагадувань не створив. "
     "Додай вручну через «➕ Додати» — там вкажеш час."
@@ -985,9 +987,14 @@ MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — п
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
-# Medication reminder text never carries a dose (rail #1): it names the medication
-# and defers to the doctor's instructions. The dose lives only in the DB record.
+# A medication reminder names the drug and defers to the doctor (rail #1). It may carry the doctor's
+# drug STRENGTH ("7,5 мг") as a record (REMINDER_MEDICATION_DOSE, used when one was read from the
+# prescription) but NEVER a dose DIRECTIVE — no "приймай N", "по N таб", count or frequency, which
+# the dose guard still hard-blocks. The dose-less line is the fallback when no strength is known.
 REMINDER_MEDICATION = "🔔 Нагадування про твої ліки: {name}. Прийми так, як призначив лікар. 💊"
+REMINDER_MEDICATION_DOSE = (
+    "🔔 Нагадування про твої ліки: {name} — {dose}. Прийми так, як призначив лікар. 💊"
+)
 REMINDER_REPEAT_LAB = (
     "🔔 Нагадування: можливо, час повторити аналізи ({name}). Звернись до лабораторії, "
     "коли буде зручно."

@@ -212,32 +212,41 @@ async def on_prescription_confirm(
     meds = [_med_from_state(item) for item in raw if isinstance(item, dict)]
     created: list[str] = []
     skipped: list[str] = []
+    duplicates: list[str] = []
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
+        # The same drug already firing from another prescription must not be scheduled twice —
+        # dedup by a normalized name, against live meds AND the ones added earlier in this batch.
+        seen_names = await medications.live_normalized_names(session, user_id=user.id)
         for med in meds:
             times = _parse_times(med.times)
-            if times:
-                await proactive.add_medication(
-                    session,
-                    user=user,
-                    name=med.name,
-                    times=times,
-                    scheduler=reminder_scheduler,
-                    dose=med.dose,
-                    source_file=source_file,
-                    course=course,
-                    until=medications.course_end(today, med.duration),  # the doctor's term
-                    content_hash=content_hash,  # so re-dropping the same script doesn't duplicate
-                )
-                created.append(med.name)
-            else:
+            if not times:
                 skipped.append(med.name)
+                continue
+            key = medications.normalize_name(med.name)
+            if key in seen_names:  # already taking this drug — keep one set of reminders
+                duplicates.append(med.name)
+                continue
+            seen_names.add(key)
+            await proactive.add_medication(
+                session,
+                user=user,
+                name=med.name,
+                times=times,
+                scheduler=reminder_scheduler,
+                dose=med.dose,
+                source_file=source_file,
+                course=course,
+                until=medications.course_end(today, med.duration),  # the doctor's term
+                content_hash=content_hash,  # so re-dropping the same script doesn't duplicate
+            )
+            created.append(med.name)
         await session.commit()
 
     await callback.answer()
     # Don't dead-end on "Готово!": offer a jump to the saved meds / reminders (when any saved).
     keyboard = _result_keyboard() if created else None
-    await callback.message.answer(_result_text(created, skipped), reply_markup=keyboard)
+    await callback.message.answer(_result_text(created, skipped, duplicates), reply_markup=keyboard)
 
 
 def _result_keyboard() -> InlineKeyboardMarkup:
@@ -332,10 +341,16 @@ def _confirm_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def _result_text(created: list[str], skipped: list[str]) -> str:
+def _result_text(
+    created: list[str], skipped: list[str], duplicates: list[str] | None = None
+) -> str:
+    duplicates = duplicates or []
     if not created:
-        return locale.PRESCRIPTION_NOTHING_SAVED
-    text = locale.PRESCRIPTION_SAVED.format(names=", ".join(created))
-    if skipped:
-        text += "\n" + locale.PRESCRIPTION_SAVED_SKIPPED.format(names=", ".join(skipped))
+        text = locale.PRESCRIPTION_NOTHING_SAVED
+    else:
+        text = locale.PRESCRIPTION_SAVED.format(names=", ".join(created))
+        if skipped:
+            text += "\n" + locale.PRESCRIPTION_SAVED_SKIPPED.format(names=", ".join(skipped))
+    if duplicates:
+        text += "\n" + locale.PRESCRIPTION_SAVED_DUPLICATE.format(names=", ".join(duplicates))
     return text
