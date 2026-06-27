@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import AsyncIterator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from datetime import datetime, timedelta
+from unittest.mock import AsyncMock
 from zoneinfo import ZoneInfo
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -111,6 +112,29 @@ async def test_fire_checkin_sends_prompt_and_schedules_one_nudge(
     assert recorder.sent[0][0] == user.telegram_id
     # Exactly one follow-up nudge job was scheduled.
     assert len(sched.get_jobs()) == 1
+
+
+async def test_scheduled_checkin_fires_even_after_a_manual_one(
+    async_session: AsyncSession, monkeypatch
+) -> None:
+    # A manual 📝 check-in today logs a CheckIn row, but the scheduled check-in must STILL fire —
+    # only the optional follow-up nudge is suppressed by a same-day check-in, never the main prompt.
+    monkeypatch.setattr(
+        scheduler.checkin, "build_grounded_prompt", AsyncMock(return_value="ранковий чек-ін")
+    )
+    user = await _user(async_session)
+    rem = await reminders.ensure_checkin_reminder(async_session, user=user)
+    await process_checkin(async_session, user=user, text="спав 7 годин, все ок")  # the manual one
+    recorder = _Recorder()
+    await scheduler._fire_reminder(
+        rem.id,
+        session_factory=_factory(async_session),
+        sender=recorder,
+        scheduler=AsyncIOScheduler(timezone=TZ),
+        tz=TZ,
+    )
+    assert len(recorder.sent) == 1  # the scheduled prompt STILL goes out
+    assert recorder.sent[0][0] == user.telegram_id
 
 
 async def test_fire_checkin_resets_any_stale_dialog_first(async_session: AsyncSession) -> None:
