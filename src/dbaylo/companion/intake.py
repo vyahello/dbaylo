@@ -71,11 +71,15 @@ class IntakeReply:
 
 
 # Physical-complaint stems with word boundaries (Unicode-aware). The "біль" alternative
-# uses a lookahead so it does NOT fire on "більше / більший" (more/bigger).
+# uses a lookahead so it does NOT fire on "більше / більший" (more/bigger). Kept deliberately wide
+# (it only decides whether to START the gated interview): besides pain/nausea/fever it catches
+# pressure/heaviness ("тисне", "важкіст"), region+sensation ("поперек"), colic/spasm/aching, and
+# "камінь/камені" (kidney/gallstone) — the phrasings that slipped past the narrow pain vocabulary.
 _COMPLAINT_RE = re.compile(
     r"\b(?:бол(?:ить|ять|ю|іло|яч)|біль(?!ш)|ниє|нудит|нудот|блюва|температур|гарячк|"
     r"лихоман|запаморо|паморо|кашл|кашель|нежит|висип|свербіж|свербить|набряк|печія|"
-    r"задишк|задих|серцебитт|слабкіст|пронос|діаре|закреп|оніміння|поколюван|запален)",
+    r"задишк|задих|серцебитт|слабкіст|пронос|діаре|закреп|оніміння|поколюван|запален|"
+    r"тисне|важкіст|поперек|камінь|камен|спазм|кольк|колик|ломот|ломит|різь)",
     re.IGNORECASE,
 )
 

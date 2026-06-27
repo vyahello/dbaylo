@@ -504,19 +504,27 @@ async def cmd_checkin(message: Message, state: FSMContext) -> None:
 
 
 @router.message(CheckinStates.waiting_for_answer, F.text)
-async def on_checkin_answer(message: Message, state: FSMContext) -> None:
+async def on_checkin_answer(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
     await state.clear()
     tg_id = _telegram_id(message)
     if tg_id is None:
         return
-    if not (message.text or "").strip():
+    text = (message.text or "").strip()
+    if not text:
         await message.answer(locale.NOTHING_SAVED)  # blank answer -> no empty check-in row
         return
+    # Log the check-in state (sleep / mood / their own words -> state memory) — but silently.
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg_id)
-        result = await checkin.process_checkin(session, user=user, text=message.text or "")
+        await checkin.process_checkin(session, user=user, text=text)
         await session.commit()
-    await message.answer(result.message)
+    # Then CONTINUE the conversation instead of dead-ending at "Занотував": route the answer through
+    # the same engine as any free-text turn — a symptom/complaint opens the history-taking interview
+    # (clarifying questions + triage + next steps), else a grounded companion reply. The check-in is
+    # a real conversation starter, not a one-shot logger.
+    await _engage_with_text(message, state, text, reminder_scheduler)
 
 
 # --- Symptom intake (history-taking) --------------------------------------------
@@ -545,12 +553,18 @@ async def _run_intake_turn(
     async with keep_typing(message):  # 'typing…' stays up for the whole LLM call, not ~5 s
         reply = await intake.advance(transcript, context=context)
     transcript.append({"role": "assistant", "text": reply.text})
+    keyboard = None
     if reply.done:
         await state.clear()
+        # When the interview wraps up, offer the next-step actions one tap away: 🔔 set a reminder
+        # (re-test / appointment) · 🏥 where to do the exam — so "що робити далі" is actionable.
+        keyboard = consult_flow.chat_affordance_keyboard()
     else:
         await state.set_state(IntakeStates.in_progress)
         await state.update_data(intake=transcript)
-    await answer_chunked(message, render_companion_html(reply.text), parse_mode=ParseMode.HTML)
+    await answer_chunked(
+        message, render_companion_html(reply.text), parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
 
 
 @router.message(IntakeStates.in_progress, F.text & ~F.text.startswith("/"))
@@ -671,11 +685,12 @@ async def _run_companion_turn(message: Message, state: FSMContext, text: str) ->
     )
 
 
-@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
-async def on_free_text(
-    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+async def _engage_with_text(
+    message: Message, state: FSMContext, text: str, reminder_scheduler: ReminderScheduler
 ) -> None:
-    text = message.text or ""
+    """Route one free-text utterance into the right conversational engine. Shared by the catch-all
+    free-text handler AND the check-in answer — so answering a check-in CONTINUES into a real
+    conversation (clarifying questions, triage, next steps), never dead-ends at "saved"."""
     decision = screen(text)
     # The wellness guardrail (disordered eating / unsafe goals) owns its own response.
     if decision.source is GateSource.GUARDRAIL:
@@ -704,3 +719,10 @@ async def on_free_text(
         return
     # Otherwise — ordinary companion chat: a continuous, grounded, memory-backed thread.
     await _run_companion_turn(message, state, text)
+
+
+@router.message(StateFilter(None), F.text & ~F.text.startswith("/"))
+async def on_free_text(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
+    await _engage_with_text(message, state, message.text or "", reminder_scheduler)

@@ -144,3 +144,50 @@ def test_thread_fresh_rejects_old_or_malformed_timestamps() -> None:
     assert not companion_flow._thread_fresh("2020-01-01T00:00:00+02:00")
     assert not companion_flow._thread_fresh(None)
     assert not companion_flow._thread_fresh("not-a-date")
+
+
+# --- The check-in answer CONTINUES the conversation (no dead-end "Занотував") ------
+
+
+@asynccontextmanager
+async def _fake_session():
+    yield AsyncMock()
+
+
+def _patch_checkin_engage(monkeypatch):
+    """Stub the check-in answer's collaborators; return the (intake, companion) turn spies."""
+    monkeypatch.setattr(companion_flow, "get_session", _fake_session)
+    monkeypatch.setattr(
+        companion_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=1))
+    )
+    monkeypatch.setattr(companion_flow.checkin, "process_checkin", AsyncMock())
+    monkeypatch.setattr(companion_flow, "_grounded_context", AsyncMock(return_value="CTX"))
+    intake_turn = AsyncMock()
+    companion = AsyncMock()
+    monkeypatch.setattr(companion_flow, "_run_intake_turn", intake_turn)
+    monkeypatch.setattr(companion_flow, "_run_companion_turn", companion)
+    for name in ("start_data_question_consult", "start_primed_consult", "start_typed_affordance"):
+        monkeypatch.setattr(companion_flow.consult_flow, name, AsyncMock(return_value=False))
+    return intake_turn, companion
+
+
+async def test_checkin_answer_with_a_complaint_continues_into_the_interview(monkeypatch) -> None:
+    # The owner's bug: answering the check-in with a symptom dead-ended at "Занотував". Now it LOGS
+    # the state (process_checkin) AND flows into the history-taking interview.
+    intake_turn, companion = _patch_checkin_engage(monkeypatch)
+    message = _message()
+    message.text = "тисне таз і важкість у попереку — тиждень тому вийшов камінь з нирки"
+    await companion_flow.on_checkin_answer(message, _state({}), AsyncMock())
+    companion_flow.checkin.process_checkin.assert_awaited_once()  # the state was still logged
+    intake_turn.assert_awaited_once()  # ...and the conversation CONTINUED into the interview
+    companion.assert_not_awaited()
+
+
+async def test_checkin_answer_benign_continues_into_companion_chat(monkeypatch) -> None:
+    # A benign check-in answer still ENGAGES — a grounded companion reply, not a one-shot ack.
+    intake_turn, companion = _patch_checkin_engage(monkeypatch)
+    message = _message()
+    message.text = "спав 7 годин, настрій нормальний"
+    await companion_flow.on_checkin_answer(message, _state({}), AsyncMock())
+    intake_turn.assert_not_awaited()
+    companion.assert_awaited_once()

@@ -255,7 +255,18 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **disjoint** from the wellness purging signals (involuntary vs. self-induced vomiting) so
   triage's earlier pass can't mask a purging signal.
 - **Check-in** (`companion/checkin.py`): lenient parse of sleep/water/mood/training; symptoms route
-  to triage. One follow-up only, never nags (`should_send_nudge`). The firing prompt is now
+  to triage. **The answer CONTINUES into a real conversation — it does NOT dead-end at "Занотував"**:
+  `companion_flow.on_checkin_answer` logs the state (`process_checkin` — sleep/mood/their words →
+  state memory) SILENTLY, then routes the text through the SHARED `_engage_with_text` (extracted from
+  `on_free_text`): a symptom / complaint opens the history-taking **intake** (clarifying questions +
+  triage backstop + next steps), else a grounded companion reply. So answering the check-in is a
+  conversation starter, not a one-shot logger. `intake.looks_like_complaint` was **widened** beyond
+  the pain vocabulary to catch pressure/heaviness ("тисне"/"важкіст"), region ("поперек"), colic/
+  spasm/aching, and "камінь/камені" (kidney/gallstone) — phrasings that slipped past it (the owner's
+  "вийшов камінь з нирки" check-in reply got only "Занотував"). When the intake CONCLUDES
+  (`_run_intake_turn`, `reply.done`), it attaches `chat_affordance_keyboard()` (🔔 Нагадати ·
+  🏥 Де зробити) so "що робити далі" is one tap. One follow-up only, never nags (`should_send_nudge`).
+  The firing prompt is now
   **GROUNDED + proactive** (`build_grounded_prompt`, LLM + `assert_safe_output`, deterministic
   fallback to the static `build_prompt`): it opens by asking about the user's ACTUAL current
   concerns/data, like an assistant who knows them. `--dry-run` prints the static prompt. The MANUAL

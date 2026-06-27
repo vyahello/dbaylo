@@ -53,7 +53,7 @@ async def test_blank_checkin_writes_no_row(monkeypatch, async_session: AsyncSess
     flag = _guard_session(monkeypatch, "companion_flow", async_session)
     message = _message("  ")
     state = AsyncMock()
-    await companion_flow.on_checkin_answer(message, state)
+    await companion_flow.on_checkin_answer(message, state, AsyncMock())  # reminder_scheduler unused
     state.clear.assert_awaited_once()
     message.answer.assert_awaited_once_with(locale.NOTHING_SAVED)
     assert not flag["opened"]
