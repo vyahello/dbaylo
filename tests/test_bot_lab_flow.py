@@ -336,3 +336,26 @@ def test_repeat_keyboard_every_button_carries_the_report_id() -> None:
 
 def test_concern_keyboard_carries_the_report_id() -> None:
     assert _cb_datas(_concern_keyboard(3)) == [f"{_CB_CONCERN_YES}:3", f"{_CB_CONCERN_NO}:3"]
+
+
+def test_to_analyses_keyboard_jumps_to_history() -> None:
+    from dbaylo.companion import callbacks
+
+    assert _cb_datas(lab_flow._to_analyses_keyboard()) == [callbacks.MENU_OPEN_HISTORY]
+
+
+async def test_declining_charts_offers_the_to_analyses_nav() -> None:
+    # The lab flow no longer dead-ends after the charts offer: declining still leaves a 📊 jump.
+    from unittest.mock import AsyncMock
+
+    from aiogram.types import Message
+
+    from dbaylo.companion import callbacks
+
+    callback = AsyncMock()
+    callback.message = AsyncMock(spec=Message)
+    callback.message.answer = AsyncMock()
+    callback.message.edit_reply_markup = AsyncMock()  # spec doesn't mark it awaitable
+    await lab_flow.on_charts_no(callback)
+    kb = callback.message.answer.call_args.kwargs["reply_markup"]
+    assert _cb_datas(kb) == [callbacks.MENU_OPEN_HISTORY]

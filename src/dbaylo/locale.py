@@ -557,6 +557,9 @@ LAB_CHARTS_EMPTY = (
 LAB_CHARTS_PROMPT = "📈 Показати динаміку показників у часі?"
 BTN_CHARTS_SHOW = "📈 Так, показати"
 BTN_CHARTS_SKIP = "Ні, дякую"
+# End-of-intake navigation (symmetry with the prescription flow): a one-tap jump to the saved labs.
+LAB_INTAKE_DONE = "Готово 💚 Аналіз збережено."
+BTN_TO_ANALYSES = "📊 До аналізів"
 CHART_PICK_HEADER = "📈 Обери показник, щоб побачити його динаміку:"
 # Shown at the TOP of the picker (rendered as HTML): a clean bold count of the report's out-of-range
 # indicators. The flagged ones with dynamics are the ⚠️ buttons below; any WITHOUT a chart/table (a

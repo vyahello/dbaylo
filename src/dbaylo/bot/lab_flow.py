@@ -826,9 +826,24 @@ def _charts_offer_keyboard(report_id: int) -> InlineKeyboardMarkup:
     )
 
 
+def _to_analyses_keyboard() -> InlineKeyboardMarkup:
+    """End-of-intake navigation: a one-tap jump to the saved analyses (the /history list), so the
+    lab flow LEADS somewhere — symmetry with the prescription result's «Мої ліки / Нагадування»."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=locale.BTN_TO_ANALYSES, callback_data=callbacks.MENU_OPEN_HISTORY
+                )
+            ]
+        ]
+    )
+
+
 async def _advance_after_concern(answer_to: Message, *, owner_tg: int, report_id: int) -> None:
     """The final step: OFFER the charts (yes/no) — never auto-open a big picker. Shown only if the
-    report has a real trend; tapping 'Так' opens the picker (`callbacks.chart_open`)."""
+    report has a real trend; tapping 'Так' opens the picker (`callbacks.chart_open`). With no trend
+    the chain ends here, so we close it with a «📊 До аналізів» jump."""
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=owner_tg)
         has_trend = bool(
@@ -838,12 +853,16 @@ async def _advance_after_concern(answer_to: Message, *, owner_tg: int, report_id
         await answer_to.answer(
             locale.LAB_CHARTS_PROMPT, reply_markup=_charts_offer_keyboard(report_id)
         )
+    else:
+        await answer_to.answer(locale.LAB_INTAKE_DONE, reply_markup=_to_analyses_keyboard())
 
 
 @router.callback_query(F.data.startswith(_CB_CHART_NO + ":"))
 async def on_charts_no(callback: CallbackQuery) -> None:
-    """Decline the charts offer — consume the buttons, end the chain cleanly."""
+    """Decline the charts offer — consume the buttons, then close with a «📊 До аналізів»."""
     await clear_inline_keyboard(callback)
+    if isinstance(callback.message, Message):
+        await callback.message.answer(locale.LAB_INTAKE_DONE, reply_markup=_to_analyses_keyboard())
     await callback.answer()
 
 

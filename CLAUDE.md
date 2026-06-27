@@ -444,7 +444,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   saved, the result carries `[📋 Мої ліки][🔔 Нагадування]` (`_result_keyboard`, reusing the menu
   callbacks) so the user can jump to the new course — mirroring how a LAB confirm delivers a navigable
   analysis card (`send_analysis`: 🩺 overview + per-section/chart buttons + sequenced follow-up offers,
-  the result given inline rather than routing to a list). The daily check-in no longer appears as a deletable reminder — it's an
+  the result given inline rather than routing to a list). **The lab follow-up chain also ends with a
+  `📊 До аналізів` jump** (`_to_analyses_keyboard` → `MENU_OPEN_HISTORY`) at BOTH terminal points —
+  `_advance_after_concern` when there's no chart trend, and `on_charts_no` when the charts offer is
+  declined — so the lab flow never dead-ends either (full symmetry with the prescription result). The daily check-in no longer appears as a deletable reminder — it's an
   info line ("керую цим я") above the list (`_reminders_payload`). On lab confirm the bot **offers** a repeat-lab
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
   (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
