@@ -595,6 +595,7 @@ CONSULT_RESUME = "consult_resume"  # back to the consultation from a sub-flow
 # an exam — they enter a grounded GENERAL consultation, then reuse the consult reminder/clinic flow.
 CHAT_REMIND = "chat_remind"
 CHAT_CLINICS = "chat_clinics"
+CHAT_OTC = "chat_otc"  # for a minor complaint: name OTC options + show prices (owner-authorized)
 
 
 def consult_remind_when(days: int) -> str:

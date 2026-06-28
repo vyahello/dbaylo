@@ -40,6 +40,8 @@ from dbaylo.companion import (
     grouping,
     health,
     intake,
+    medications,
+    otc,
     proactive,
 )
 from dbaylo.companion.conversation import Turn, generate_reply
@@ -49,6 +51,7 @@ from dbaylo.db import get_session
 from dbaylo.db.models import GoalStatus
 from dbaylo.labs.intake import ensure_user
 from dbaylo.safety import GateSource, screen
+from dbaylo.triage.types import Action
 
 router = Router(name="companion")
 
@@ -549,21 +552,53 @@ async def _grounded_context(message: Message, *, exclude: frozenset[str] = froze
     return "\n\n".join(part for part in (grounded, memory) if part)
 
 
+async def _user_med_names(message: Message) -> str:
+    """The user's current Rx-medication names (deduped, form-marker stripped) for the OTC
+    interaction caution — '' when none / unknown."""
+    tg = _telegram_id(message)
+    if tg is None:
+        return ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds = await medications.list_medications(session, user_id=user.id)
+    names: list[str] = []
+    seen: set[str] = set()
+    for med in meds:
+        key = medications.normalize_name(med.name)
+        if key and key not in seen:
+            seen.add(key)
+            names.append(medications.clean_drug_name(med.name))
+    return ", ".join(names)
+
+
 async def _run_intake_turn(
     message: Message, state: FSMContext, transcript: list[Turn], *, context: str = ""
 ) -> None:
+    # OTC gate (owner-authorized, safe): offer безрецептурні options ONLY at triage MONITOR (no red
+    # flag) AND for an OTC-amenable minor complaint. A red flag escalates inside intake.advance and
+    # shows no OTC.
+    accumulated = "\n".join(t["text"] for t in transcript if t.get("role") == "user")
+    decision = screen(accumulated)
+    low_acuity = decision.triage is None or decision.triage.action == Action.MONITOR
+    allow_otc = low_acuity and otc.otc_amenable(accumulated)
+    meds = await _user_med_names(message) if allow_otc else ""
     async with keep_typing(message):  # 'typing…' stays up for the whole LLM call, not ~5 s
-        reply = await intake.advance(transcript, context=context)
+        reply = await intake.advance(transcript, context=context, allow_otc=allow_otc, meds=meds)
     transcript.append({"role": "assistant", "text": reply.text})
     keyboard = None
     if reply.done:
         await state.clear()
-        # When the interview wraps up, offer the next-step actions one tap away: 🔔 set a reminder
-        # (re-test / appointment) · 🏥 where to do the exam — so "що робити далі" is actionable.
-        keyboard = consult_flow.chat_affordance_keyboard()
     else:
         await state.set_state(IntakeStates.in_progress)
         await state.update_data(intake=transcript)
+    if allow_otc:
+        # 🔔 reminder · 🏥 clinic · 💊 OTC + prices. Store the complaint so the 💊 tap can price it
+        # (survives the `done` state.clear above, since update_data re-writes after the clear).
+        keyboard = consult_flow.otc_affordance_keyboard()
+        await state.update_data(otc_complaint=accumulated)
+    elif reply.done:
+        # Wrap-up next-steps one tap away: 🔔 set a reminder (re-test / appointment) · 🏥 where.
+        keyboard = consult_flow.chat_affordance_keyboard()
     await answer_chunked(
         message, render_companion_html(reply.text), parse_mode=ParseMode.HTML, reply_markup=keyboard
     )

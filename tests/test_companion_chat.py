@@ -162,6 +162,32 @@ async def test_ordinary_chat_does_not_route_to_the_price_agent(monkeypatch) -> N
     generate.assert_awaited()  # not a price turn -> stays in the companion chat
 
 
+async def test_intake_offers_otc_only_for_a_minor_low_acuity_complaint(monkeypatch) -> None:
+    # "болить голова" is MONITOR + OTC-amenable -> allow_otc True + the complaint is stored for the
+    # 💊 price tap. "температура і озноб" is a red flag -> allow_otc False (no OTC).
+    monkeypatch.setattr(companion_flow, "keep_typing", _noop_typing)
+    advance = AsyncMock(
+        return_value=companion_flow.intake.IntakeReply(text="Розкажи більше.", done=False)
+    )
+    monkeypatch.setattr(companion_flow.intake, "advance", advance)
+    monkeypatch.setattr(companion_flow, "_user_med_names", AsyncMock(return_value="буспірон"))
+
+    msg, st = _message(), _state({})
+    await companion_flow._run_intake_turn(msg, st, [{"role": "user", "text": "болить голова"}])
+    assert advance.await_args.kwargs["allow_otc"] is True
+    assert advance.await_args.kwargs["meds"] == "буспірон"
+    stored = [c for c in st.update_data.await_args_list if "otc_complaint" in c.kwargs]
+    assert stored  # the complaint is remembered for the price tap
+
+    advance.reset_mock()
+    msg2, st2 = _message(), _state({})
+    await companion_flow._run_intake_turn(
+        msg2, st2, [{"role": "user", "text": "температура і озноб"}]
+    )
+    assert advance.await_args.kwargs["allow_otc"] is False  # red flag -> no OTC
+    assert not [c for c in st2.update_data.await_args_list if "otc_complaint" in c.kwargs]
+
+
 def test_worth_remembering_filters_trivial_turns() -> None:
     assert companion_flow._worth_remembering("чому в мене низький гемоглобін?")
     assert not companion_flow._worth_remembering("  Дякую  ")

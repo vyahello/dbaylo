@@ -52,6 +52,21 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
    `safe_dose_label`; the owner asked for the actual tablet count because the prior generic "як
    призначив лікар" line was useless when he couldn't remember the prescription.) So the rail's intent
    (Дбайло is not a prescriber — it never *orders* a dose) holds while the doctor's amount shows.
+   **OTC-suggestion exception (OWNER-AUTHORIZED, personal bot):** for a **MINOR, low-acuity** complaint
+   Дбайло MAY now NAME general over-the-counter (no-prescription) options + show prices (the owner
+   wanted "болить голова → пропонуй безрецептурні + ціни"). Made safe by HARD gates, NOT trust:
+   (a) **triage is the backstop** — it is offered ONLY at `Action.MONITOR`; any red flag escalates
+   (the existing intake leads with escalation, no OTC). (b) **OTC-amenable allow-list**
+   (`companion/otc.otc_amenable`, deterministic) keeps it off non-minor complaints. (c) **never a
+   dose** — the OTC text STILL passes `assert_safe_output`, so a drug NAME is allowed but any dose
+   directive (`приймай N`, `по N таб`, `N мг/добу`) hard-fails to a deterministic fallback. (d)
+   **interaction-aware** — the user's own Rx meds are passed in and the agent flags a "спитай
+   фармацевта" caution. (e) **info-framed** — a deterministic `OTC_FOOTER` (інформація, не
+   призначення · фармацевт · лікар-якщо-не-минає) is always appended. Implemented as the
+   intake naming options inline (`intake.advance(allow_otc=…)`, gated in `companion_flow._run_intake_turn`)
+   + a `💊 Безрецептурні + ціни` button → `navigator/pipeline.find_otc_prices` (the price agent,
+   guarded). The named-drug boundary (`is_drug_recommendation_request`) is intentionally NOT applied to
+   THIS one owner-authorized path; the gate, the no-dose guard, and escalation all still hold.
 2. **Triage asymmetry — escalate UP only.** `triage.engine.evaluate` returns
    `max(matched rule actions, floored at MONITOR)`. There is no code path that concludes
    "you can skip the doctor." Formalised by the **monotonicity** test: adding any symptom

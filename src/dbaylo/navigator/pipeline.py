@@ -30,7 +30,7 @@ from dbaylo.navigator.prices import LlmFallback, cheapest, lookup_drug_price, re
 from dbaylo.navigator.services import lookup_service
 from dbaylo.navigator.types import CeilingCheck, CeilingStatus, MedPrice, NavResult
 from dbaylo.safety import screen
-from dbaylo.triage.safety import DISCLAIMER
+from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
 
 
 def _gate(text: str) -> NavResult | None:
@@ -342,6 +342,86 @@ async def find_coverage(
     except ValueError:
         return f"{_coverage_fallback()}\n\n{DISCLAIMER}"
     return f"{body}\n\n{_coverage_footer()}\n\n{DISCLAIMER}"
+
+
+# --- OTC self-care agent (the bot path) -----------------------------------------
+# OWNER-AUTHORIZED relaxation of rail #1 (personal bot): for a MINOR, low-acuity complaint, name a
+# few common OVER-THE-COUNTER (no-prescription) options people use + their prices. Made safe by: the
+# caller only reaches this at triage MONITOR (a red flag escalates, never here); the output STILL
+# passes assert_safe_output (a NAME is allowed but any DOSE directive hard-fails) AND the navigator
+# guard (no skip-doctor); the user's own Rx meds are passed in for an interaction caution; and a
+# deterministic footer (info-not-prescription · pharmacist · doctor-if-persists) is always appended.
+OTC_PRICE_PERSONA = (
+    "You are Дбайло helping with a MINOR, everyday health complaint by naming general OVER-THE-"
+    "COUNTER (no-prescription, безрецептурні) options people commonly use for it, and the prices. "
+    "Use web search + web fetch for REAL current prices. This is GENERAL INFORMATION, not a "
+    "prescription or a diagnosis.\n"
+    "Name 2-4 well-known OTC options (by product or active-substance name) that people in Ukraine "
+    "buy WITHOUT a prescription for this complaint. NEVER state or imply a DOSE or 'take this' / "
+    "'приймай' — just name the options as info; tell the user to confirm the choice AND the dose "
+    "with a pharmacist. NEVER suggest a prescription-only medicine.\n"
+    "INTERACTIONS: the user already takes these prescription medicines: {meds}. If a named OTC "
+    "option commonly interacts with any of them (e.g. NSAIDs with blood-thinners/SSRIs), add a "
+    "brief plain caution to check with a pharmacist before combining — do NOT give a definitive "
+    "verdict.\n"
+    "If the complaint could actually be serious, or connects to a condition the user is tracking, "
+    "do NOT push OTC — say it is better to see a doctor.\n"
+    "PRICES: for each named option, web-search REAL in-stock offers and give a few, cheapest "
+    "first, each '• <ціна> грн — <аптека> — [переглянути](https://exact-product-url)'; open pages "
+    "to confirm in stock; prefer aggregators (tabletki.ua, apteki.ua); '№N' is the pack count — "
+    "write 'N таблеток/капсул', no '№'; for a city, prefer offers there, else national. "
+    "If you cannot confirm a price for an option, say so for it — never invent a link or number.\n"
+    "Reply EXCLUSIVELY in natural Ukrainian, 'ти'. Short bold *headers* per option, '• ' price "
+    "lines, clickable links. No other markup. Do NOT add your own 'я не лікар' / disclaimer line — "
+    "it is appended automatically.\n" + NATURAL_VOICE
+)
+
+
+def _otc_footer() -> str:
+    return locale.OTC_FOOTER
+
+
+async def find_otc_prices(
+    complaint: str,
+    *,
+    city: str | None = None,
+    meds: str = "",
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> str:
+    """For a MINOR complaint: name common OTC options + prices (owner-authorized self-care path).
+    Gate-screened FIRST (a red flag → triage, never OTC); output passes BOTH ``assert_safe_output``
+    (a drug NAME is fine, any DOSE directive hard-fails) and the navigator guard; an interaction
+    caution is grounded in ``meds``; the info-not-prescription footer is always appended. The CALLER
+    must only invoke this at triage MONITOR for an OTC-amenable complaint."""
+    text = complaint.strip()
+    if not text:
+        return f"{_otc_footer()}\n\n{DISCLAIMER}"
+    if (short_circuit := _gate(text)) is not None:
+        return short_circuit.text  # a red flag in the complaint escalates — never OTC
+    query = locale.OTC_QUERY.format(complaint=text, city=city or locale.NAV_PRICE_FREEFORM_NO_CITY)
+    persona = OTC_PRICE_PERSONA.format(meds=meds or locale.OTC_NO_MEDS)
+    try:
+        result = await runner(
+            query,
+            append_system_prompt=persona,
+            allowed_tools=["WebSearch", "WebFetch"],
+            model=model,
+            timeout_s=get_settings().claude_price_timeout_s,
+        )
+    except ClaudeUnavailable:
+        result = None
+    if result is None or not result.ok or not result.text.strip():
+        return f"{locale.OTC_FALLBACK}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
+    body = strip_self_disclaimer(result.text.strip())
+    try:
+        # The dose guard (assert_safe_output) is the key safeguard: a NAME passes, a DOSE fails.
+        clean = strip_markup(body)
+        assert_safe_output(clean)
+        assert_safe_navigator_output(clean)
+    except ValueError:
+        return f"{locale.OTC_FALLBACK}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
+    return f"{body}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
 
 
 # --- Dry-run CLI (fixture mode, no network) -------------------------------------

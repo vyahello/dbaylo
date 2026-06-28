@@ -789,6 +789,21 @@ def chat_affordance_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def otc_affordance_keyboard() -> InlineKeyboardMarkup:
+    """The intake affordances for a MINOR, low-acuity complaint: the usual reminder / clinic pair
+    PLUS 💊 name безрецептурні options + prices (owner-authorized OTC path). Shown only when the
+    caller has confirmed triage MONITOR + an OTC-amenable complaint."""
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                _btn(locale.CONSULT_BTN_REMIND, callbacks.CHAT_REMIND),
+                _btn(locale.CONSULT_BTN_CLINICS, callbacks.CHAT_CLINICS),
+            ],
+            [_btn(locale.BTN_CHAT_OTC, callbacks.CHAT_OTC)],
+        ]
+    )
+
+
 async def _seed_general_consult(state: FSMContext) -> None:
     """Open a grounded GENERAL consultation seeded from the running chat thread, so the consult's
     reminder/clinic flow has the conversation + a resolvable subject to work from."""

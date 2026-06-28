@@ -70,6 +70,20 @@ class IntakeReply:
     done: bool
 
 
+# Appended to the prompt ONLY when the caller has confirmed the complaint is minor + low-acuity
+# (triage MONITOR + otc_amenable). Owner-authorized rail-#1 relaxation: the bot may NAME OTC options
+# but NEVER a dose (assert_safe_output enforces it), grounded in the user's Rx meds for interaction.
+_OTC_CLAUSE = (
+    "This complaint is MINOR and low-acuity. You MAY ALSO briefly name 1-3 well-known OVER-THE-"
+    "COUNTER (no-prescription, безрецептурні) options people commonly use for it, as GENERAL INFO "
+    "— NEVER a dose, NEVER 'приймай' / 'take this'; tell the user to confirm the choice AND the "
+    "dose with a pharmacist. The user currently takes these prescription meds: {meds}. If a common "
+    "OTC option could interact with any of them, add a brief plain caution to check with a "
+    "pharmacist (no definitive verdict). If the complaint could actually be serious or connects to "
+    "a condition they track, do NOT suggest OTC — steer to a doctor instead."
+)
+
+
 # Physical-complaint stems with word boundaries (Unicode-aware). The "біль" alternative
 # uses a lookahead so it does NOT fire on "більше / більший" (more/bigger). Kept deliberately wide
 # (it only decides whether to START the gated interview): besides pain/nausea/fever it catches
@@ -132,6 +146,8 @@ async def advance(
     transcript: list[Turn],
     *,
     context: str = "",
+    allow_otc: bool = False,
+    meds: str = "",
     runner: object = run_claude,
     model: str | None = None,
 ) -> IntakeReply:
@@ -140,6 +156,9 @@ async def advance(
     Runs the deterministic triage backstop, then the (guarded) LLM interview; a high
     escalation always leads the reply and is never softened. ``context`` is an optional grounded
     patient profile (problems + recent analyses) the interview connects the complaint to.
+    ``allow_otc`` (owner-authorized, set by the caller ONLY at triage MONITOR for an OTC-amenable
+    complaint) lets the reply also name безрецептурні options — never a dose (``assert_safe_output``
+    still enforces it); ``meds`` is the user's Rx-med list for an interaction caution.
     """
     user_turns = sum(1 for t in transcript if t.get("role") == "user")
     done = user_turns >= MAX_TURNS
@@ -149,16 +168,21 @@ async def advance(
     triage_level = triage.action.name if triage is not None else Action.MONITOR.name
     lead = _safety_lead(decision.source, decision)
 
+    prompt = _prompt(
+        transcript,
+        triage_level=triage_level,
+        exchanges_left=0 if done else MAX_TURNS - user_turns,
+        context=context,
+    )
+    # A red flag overrides any OTC offer — never suggest self-care when escalating.
+    if allow_otc and lead is None:
+        prompt = f"{prompt}\n\n{_OTC_CLAUSE.format(meds=meds or '—')}"
+
     body = locale.INTAKE_FALLBACK
     model = model or get_settings().claude_chat_model or None  # the (optional) sharper chat model
     try:
         result = await runner(  # type: ignore[operator]
-            _prompt(
-                transcript,
-                triage_level=triage_level,
-                exchanges_left=0 if done else MAX_TURNS - user_turns,
-                context=context,
-            ),
+            prompt,
             append_system_prompt=INTAKE_PERSONA,
             model=model,
         )

@@ -154,6 +154,38 @@ def test_is_coverage_request_detects_pmg_questions() -> None:
     assert not priceintent.is_coverage_request("як ти?")
 
 
+async def test_find_otc_prices_names_options_with_footer_and_grounds_meds() -> None:
+    runner = _runner("*Парацетамол*\n• 30 грн — Аптека X — [переглянути](https://apteki.ua/p)")
+    out = await pipeline.find_otc_prices(
+        "болить голова", city="Львів", meds="буспірон", runner=runner
+    )
+    assert "Парацетамол" in out
+    assert locale.OTC_FOOTER in out and out.endswith(DISCLAIMER)  # info-not-prescription footer
+    # The user's Rx meds are in the system prompt for the interaction caution.
+    assert "буспірон" in runner.kwargs["append_system_prompt"]  # type: ignore[attr-defined]
+
+
+async def test_find_otc_prices_blocks_a_dose_directive() -> None:
+    # The no-dose guard (assert_safe_output) is the key safeguard: a NAME is fine, a DOSE is not.
+    runner = _runner("*Парацетамол*\n• по 2 таблетки 3 рази на день")
+    out = await pipeline.find_otc_prices("болить голова", runner=runner)
+    assert "таблетки" not in out  # failed closed
+    assert locale.OTC_FALLBACK in out
+
+
+async def test_find_otc_prices_blocks_skip_the_doctor() -> None:
+    runner = _runner("Візьми парацетамол. Можеш не йти до лікаря.")
+    out = await pipeline.find_otc_prices("болить голова", runner=runner)
+    assert "не йти до лікаря" not in out
+    assert locale.OTC_FALLBACK in out
+
+
+async def test_find_otc_prices_red_flag_short_circuits_to_triage() -> None:
+    # Defense in depth: even if a red flag reaches it, the gate escalates — never OTC.
+    out = await pipeline.find_otc_prices("температура і озноб")
+    assert "лікар" in out.lower()
+
+
 async def test_run_price_web_agent_still_refuses_a_drug_pick() -> None:
     # The named-drug boundary holds on the web path: "ліки від тиску" is a pick request, refused.
     ran = {"x": False}

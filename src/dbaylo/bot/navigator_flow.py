@@ -32,6 +32,7 @@ from dbaylo.labs.intake import ensure_user, get_city, set_city
 from dbaylo.navigator import priceintent
 from dbaylo.navigator.pipeline import (
     find_coverage,
+    find_otc_prices,
     find_prices_freeform,
     find_prices_web,
     run_price,
@@ -253,6 +254,36 @@ async def maybe_handle_price(
         price_ts=_now().isoformat(),
     )
     return True
+
+
+@router.callback_query(F.data == callbacks.CHAT_OTC)
+async def on_chat_otc(callback: CallbackQuery, state: FSMContext) -> None:
+    """💊 (owner-authorized OTC path) — for the stored minor complaint, name безрецептурні options +
+    prices, with an interaction caution vs the user's Rx meds. Only shown by the intake at triage
+    MONITOR; the agent re-screens, so a red flag still escalates."""
+    await callback.answer()
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    data = await state.get_data()
+    complaint = str(data.get("otc_complaint") or "").strip()
+    if not complaint:
+        return
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds_list = await medications.list_medications(session, user_id=user.id)
+        city = (user.city or "").strip() or None
+    seen: set[str] = set()
+    meds_names: list[str] = []
+    for med in meds_list:
+        key = medications.normalize_name(med.name)
+        if key and key not in seen:
+            seen.add(key)
+            meds_names.append(medications.clean_drug_name(med.name))
+    await callback.message.answer(locale.OTC_SEARCHING)
+    async with keep_typing(callback.message):
+        text = await find_otc_prices(complaint, city=city, meds=", ".join(meds_names))
+    await answer_chunked(callback.message, render_companion_html(text), parse_mode=ParseMode.HTML)
 
 
 async def maybe_handle_coverage(message: Message, text: str, *, telegram_id: int | None) -> bool:
