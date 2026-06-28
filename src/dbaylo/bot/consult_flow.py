@@ -797,9 +797,7 @@ def otc_affordance_keyboard() -> InlineKeyboardMarkup:
     """For a MINOR, low-acuity complaint where OTC options were named: ONLY 💊 безрецептурні + ціни.
     The 🔔/🏥 affordances are NOT shown here — irrelevant to "болить голова → які ліки" (the owner
     asked "що він буде нагадувати / де робити?"); reminders/clinics still work by asking."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[[_btn(locale.BTN_CHAT_OTC, callbacks.CHAT_OTC)]]
-    )
+    return InlineKeyboardMarkup(inline_keyboard=[[_btn(locale.BTN_CHAT_OTC, callbacks.CHAT_OTC)]])
 
 
 async def _seed_general_consult(state: FSMContext) -> None:
