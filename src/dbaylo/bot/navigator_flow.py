@@ -11,6 +11,7 @@ field, short-circuits to triage instead of a price search.
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 
 from aiogram import F, Router
 from aiogram.enums import ParseMode
@@ -28,6 +29,7 @@ from dbaylo.companion import callbacks, cities, medications
 from dbaylo.db import get_session
 from dbaylo.db.models import Medication
 from dbaylo.labs.intake import ensure_user, get_city, set_city
+from dbaylo.navigator import priceintent
 from dbaylo.navigator.pipeline import (
     find_prices_freeform,
     find_prices_web,
@@ -194,16 +196,63 @@ async def _send_meds_prices(
     await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
 
 
-async def send_freeform_price(message: Message, request: str, *, telegram_id: int | None) -> None:
-    """Answer a FREE-FORM price request from chat ("знайди Но-шпа у Львові, ціни"): the agent
-    extracts the named drug(s) + city itself. City = the one named in the message, else the saved
-    one. Gate + named-drug boundary stay inside the pipeline. Called by the companion free-text
-    router, so a plain message about prices is acted on, not just chatted about."""
-    city = cities.parse_city(request) or await _city_for(telegram_id)
+# A price conversation kept in FSM data (like the companion chat thread): so a follow-up ("а
+# дешевше?", "а в Києві?") is answered remembering the drug + city, a real back-and-forth. Wiped on
+# any /command or menu tap (the reset middleware clears FSM data); a gap past the TTL starts fresh.
+_PRICE_TTL = timedelta(minutes=30)
+_PRICE_MAX_TURNS = 4  # keep the last N user+assistant pairs
+_PRICE_ASSISTANT_CAP = 1500  # trim a stored answer so FSM data stays small
+
+
+def _now() -> datetime:
+    return datetime.now(UTC)
+
+
+def price_thread_fresh(data: dict[str, object]) -> bool:
+    """True when a recent (within the TTL) price conversation is stored in ``data`` — so a short
+    follow-up should continue it instead of falling to general chat."""
+    raw = data.get("price_ts")
+    if not raw or not data.get("price_transcript"):
+        return False
+    try:
+        ts = datetime.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    return ts.tzinfo is not None and _now() - ts < _PRICE_TTL
+
+
+async def maybe_handle_price(
+    message: Message, state: FSMContext, text: str, *, telegram_id: int | None
+) -> bool:
+    """If ``text`` is a price request (or a follow-up to a fresh price thread), answer it via the
+    web-search agent — remembering the prior turns — and return ``True``. Else return ``False`` so
+    the caller continues its own routing. The gate already cleared ``text`` upstream."""
+    data = await state.get_data()
+    fresh = price_thread_fresh(data)
+    new_request = priceintent.is_price_request(text)
+    if not (new_request or (fresh and priceintent.is_price_followup(text))):
+        return False
+    # An explicit new request starts a fresh thread; a bare follow-up continues the existing one.
+    continuing = fresh and not new_request
+    history: list[tuple[str, str]] = (
+        [(t["role"], t["text"]) for t in data.get("price_transcript") or []] if continuing else []
+    )
+    city = (
+        cities.parse_city(text)
+        or (str(data.get("price_city")) if continuing and data.get("price_city") else None)
+        or await _city_for(telegram_id)
+    )
     await message.answer(locale.NAV_PRICE_SEARCHING)
     async with keep_typing(message):
-        text = await find_prices_freeform(request, city=city)
-    await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
+        answer = await find_prices_freeform(text, city=city, history=history)
+    await answer_chunked(message, render_companion_html(answer), parse_mode=ParseMode.HTML)
+    updated = [*history, ("user", text), ("assistant", answer[:_PRICE_ASSISTANT_CAP])]
+    await state.update_data(
+        price_transcript=[{"role": r, "text": b} for r, b in updated[-2 * _PRICE_MAX_TURNS :]],
+        price_city=city,
+        price_ts=_now().isoformat(),
+    )
+    return True
 
 
 @router.message(Command("price"))

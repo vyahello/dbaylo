@@ -43,3 +43,42 @@ def is_price_request(text: str) -> bool:
     """True when ``text`` reads as a request for a medicine's price (route to the price agent)."""
     low = (text or "").casefold()
     return any(trigger in low for trigger in _PRICE_TRIGGERS)
+
+
+# Continuation phrasings — only consulted while a FRESH price thread exists, so a short follow-up
+# like "а дешевше?" / "а в іншій аптеці?" / "а в Києві?" continues the SAME price conversation
+# (the drug is remembered from the thread) instead of falling through to general chat.
+_FOLLOWUP_TRIGGERS: tuple[str, ...] = (
+    "дешевш",
+    "інша аптек",
+    "іншій аптец",
+    "інші аптек",
+    "ще аптек",
+    "ще варіант",
+    "ще десь",
+    "ще варто",
+    "доставк",
+    "самовивіз",
+    "наявн",
+    "інша пачк",
+    "більша пачк",
+    "менша пачк",
+    "інше дозув",
+    "інше місто",
+    "в іншому міст",
+    "знижк",
+    "акці",
+    "а в ",
+    "а є ",
+    "а скільки",
+    "а ціна",
+    "а де ",
+    "а що",
+)
+
+
+def is_price_followup(text: str) -> bool:
+    """True when ``text`` reads as a follow-up to an ongoing price conversation (continue the
+    thread). Only meaningful while a fresh price thread exists — the caller gates on that."""
+    low = (text or "").casefold().strip()
+    return any(trigger in low for trigger in _FOLLOWUP_TRIGGERS)

@@ -717,10 +717,15 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `pipeline.find_prices_freeform`, which has the agent EXTRACT the named drug(s) + city from the
   sentence (city = one named in the text, else `User.city`). It sits after the symptom/data-question/
   affordance routers and before the general companion; the gate still clears the text first and the
-  named-drug boundary still refuses a symptom-based pick. The persona is tuned for **verified, exact
-  product links only** (open each page, in-stock + visible price; drop category/search/out-of-stock;
-  one `[переглянути](exact-product-url)` per line, never a bare-domain pseudo-link), reads `№N` as a
-  plain **pack count** (`N таблеток/капсул`, no `№`), sorts cheapest-first, and skips preamble filler
+  named-drug boundary still refuses a symptom-based pick. **The price chat is a remembered THREAD**
+  (`navigator_flow.maybe_handle_price` + a `price_transcript`/`price_city`/`price_ts` bundle in FSM
+  data, 30-min TTL, wiped on any /command or menu tap): a follow-up that `priceintent.is_price_followup`
+  flags («а дешевше?», «а в Києві?») continues the SAME conversation — the prior turns are fed to
+  `find_prices_freeform(history=…)` so the agent remembers the drug + city and doesn't re-ask (an
+  explicit new request starts a fresh thread). The persona is tuned for **verified, exact product
+  links only** (open each page, in-stock + visible price; drop category/search/out-of-stock; one
+  `[переглянути](exact-product-url)` per line, never a bare-domain pseudo-link), reads `№N` as a plain
+  **pack count** (`N таблеток/капсул`, no `№`), sorts cheapest-first, and skips preamble filler
   («Маю все, що треба»).
 - **Fetch** (`navigator/fetch.py`): async `httpx` (the one new runtime dep), fail-soft (a dead
   source returns `ok=False`, never raises/fabricates), descriptive UA, short-TTL on-disk cache,

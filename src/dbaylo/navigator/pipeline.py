@@ -132,12 +132,15 @@ async def find_prices_freeform(
     request: str,
     *,
     city: str | None = None,
+    history: list[tuple[str, str]] | None = None,
     runner: Runner = run_claude,
     model: str | None = None,
 ) -> str:
     """Price meds from a FREE-FORM user request ("знайди Но-шпа у Львові, покажи ціни"): the agent
-    figures out which NAMED medicine(s) + city the user means and prices them. Gate-screened first;
-    the named-drug boundary still refuses a 'pick a drug for a symptom' request (rail #1)."""
+    figures out which NAMED medicine(s) + city the user means and prices them. ``history`` is the
+    prior (role, text) turns of an ongoing price conversation — so a follow-up ("а дешевше?", "а в
+    Києві?") is answered in context, remembering the drug. Gate-screened first; the named-drug
+    boundary still refuses a 'pick a drug for a symptom' request (rail #1)."""
     text = request.strip()
     if not text:
         return f"{assert_safe_navigator_output(locale.NAV_NO_RESULTS)}\n\n{DISCLAIMER}"
@@ -145,7 +148,11 @@ async def find_prices_freeform(
         return short_circuit.text
     if is_drug_recommendation_request(text):
         return f"{locale.NAV_NAMED_DRUG_ONLY}\n\n{DISCLAIMER}"
-    query = locale.NAV_PRICE_FREEFORM_QUERY.format(
+    convo = ""
+    if history:
+        turns = "\n".join(f"{role}: {body}" for role, body in history)
+        convo = locale.NAV_PRICE_FREEFORM_HISTORY.format(history=turns)
+    query = convo + locale.NAV_PRICE_FREEFORM_QUERY.format(
         city=city or locale.NAV_PRICE_FREEFORM_NO_CITY, request=text
     )
     return await _run_price_agent(query, runner=runner, model=model)

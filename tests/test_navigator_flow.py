@@ -165,6 +165,71 @@ async def test_change_city_persists_a_canonical_form(monkeypatch) -> None:
     assert saved["city"] == "Львів"  # canonicalized from the locative "львові"
 
 
+async def test_price_thread_starts_and_remembers_drug_and_city(monkeypatch) -> None:
+    # A free-form price request starts a remembered conversation (drug + city stored in FSM data).
+    monkeypatch.setattr(navigator_flow, "_city_for", AsyncMock(return_value="Львів"))
+    ff = AsyncMock(return_value="*Но-шпа*\n• 50 грн\n\nP.S.")
+    monkeypatch.setattr(navigator_flow, "find_prices_freeform", ff)
+    message = AsyncMock()
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={})
+    handled = await navigator_flow.maybe_handle_price(
+        message, state, "знайди ціни на Но-шпа", telegram_id=1
+    )
+    assert handled is True
+    assert ff.await_args.kwargs["history"] == []  # first turn, no prior context
+    saved = state.update_data.await_args.kwargs
+    assert saved["price_city"] == "Львів" and saved["price_ts"]
+    assert any(t["text"] == "знайди ціни на Но-шпа" for t in saved["price_transcript"])
+
+
+async def test_price_followup_continues_with_remembered_context(monkeypatch) -> None:
+    # "а дешевше є?" continues the SAME thread — the drug + city come from the stored transcript.
+    monkeypatch.setattr(navigator_flow, "_city_for", AsyncMock(return_value=None))
+    ff = AsyncMock(return_value="ще дешевше…\n\nP.S.")
+    monkeypatch.setattr(navigator_flow, "find_prices_freeform", ff)
+    data = {
+        "price_transcript": [
+            {"role": "user", "text": "ціни на Но-шпа"},
+            {"role": "assistant", "text": "50 грн"},
+        ],
+        "price_city": "Львів",
+        "price_ts": navigator_flow._now().isoformat(),
+    }
+    message = AsyncMock()
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value=data)
+    handled = await navigator_flow.maybe_handle_price(message, state, "а дешевше є?", telegram_id=1)
+    assert handled is True
+    assert ff.await_args.kwargs["history"] == [
+        ("user", "ціни на Но-шпа"),
+        ("assistant", "50 грн"),
+    ]
+    assert ff.await_args.kwargs["city"] == "Львів"  # remembered, not re-asked
+
+
+async def test_non_price_text_without_a_thread_is_not_handled() -> None:
+    message = AsyncMock()
+    state = AsyncMock()
+    state.get_data = AsyncMock(return_value={})
+    handled = await navigator_flow.maybe_handle_price(message, state, "як справи?", telegram_id=1)
+    assert handled is False  # falls back to the companion chat
+
+
+def test_price_thread_freshness_honours_the_ttl() -> None:
+    live = {
+        "price_transcript": [{"role": "user", "text": "x"}],
+        "price_ts": navigator_flow._now().isoformat(),
+    }
+    assert navigator_flow.price_thread_fresh(live)
+    stale = {
+        "price_transcript": [{"role": "user", "text": "x"}],
+        "price_ts": "2020-01-01T00:00:00+00:00",
+    }
+    assert not navigator_flow.price_thread_fresh(stale)
+    assert not navigator_flow.price_thread_fresh({})  # nothing stored
+
+
 async def test_start_price_dialog_is_cancellable() -> None:
     from dbaylo.companion import callbacks
 
