@@ -81,6 +81,10 @@ class Settings:
     # at once — 3 fits a small (~4 GB) VPS (~1.4 GB) and cuts the wait by ~40%; raise it on a
     # bigger box (4 = all sections at once ≈ slowest single section).
     claude_interpret_concurrency: int = 3
+    # The price / coverage WebSearch+WebFetch agent. It opens pages to verify in-stock prices, which
+    # is slow — but it must NOT hang the chat for minutes. A tighter cap than interpret: on a
+    # timeout it falls back to "не вдалося" fast instead of leaving "typing…" for 10 min.
+    claude_price_timeout_s: int = 150
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -106,6 +110,7 @@ class Settings:
             claude_extract_concurrency=int(_get("CLAUDE_EXTRACT_CONCURRENCY", "2")),
             claude_interpret_timeout_s=int(_get("CLAUDE_INTERPRET_TIMEOUT_S", "600")),
             claude_interpret_concurrency=int(_get("CLAUDE_INTERPRET_CONCURRENCY", "3")),
+            claude_price_timeout_s=int(_get("CLAUDE_PRICE_TIMEOUT_S", "150")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

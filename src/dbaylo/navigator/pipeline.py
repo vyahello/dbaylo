@@ -79,6 +79,9 @@ PRICE_AGENT_PERSONA = (
     "has to land on the page for THIS medicine, never a category or a search. If you cannot get "
     "the exact in-stock product URL, do NOT show a misleading link — say you could not confirm it "
     "for that medicine; never guess, never invent a number, a pharmacy, or a link.\n"
+    "BE FAST — you have a limited time budget. Verify only the few BEST candidate pages (about 3-5 "
+    "fetches total across all medicines), not dozens; per medicine 1-2 search queries are enough. "
+    "Return the offers you have already confirmed rather than chasing more.\n"
     "Sort the options by price — the CHEAPEST in-stock offer FIRST.\n"
     "Pack size: a '№N' you see (e.g. №28) means the pack holds N units. Do NOT write the '№' "
     "notation — write it plainly as 'N таблеток' or 'N капсул' (match the form). Show the pack "
@@ -168,7 +171,9 @@ async def _run_price_agent(query: str, *, runner: Runner, model: str | None) -> 
             # visible price — so it reports verified offers, not dead/out-of-stock/search links.
             allowed_tools=["WebSearch", "WebFetch"],
             model=model,
-            timeout_s=get_settings().claude_interpret_timeout_s,
+            # A tight timeout (not the 10-min interpret one): on a slow/hung search it falls back to
+            # "не вдалося" fast instead of leaving the chat on "typing…" for minutes.
+            timeout_s=get_settings().claude_price_timeout_s,
         )
     except ClaudeUnavailable:
         result = None
