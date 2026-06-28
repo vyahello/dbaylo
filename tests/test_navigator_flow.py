@@ -33,8 +33,8 @@ async def test_price_options_propose_the_users_meds(monkeypatch) -> None:
         "_unique_meds",
         AsyncMock(
             return_value=[
-                SimpleNamespace(name="Метформін", dose="850 мг"),
-                SimpleNamespace(name="Аспірин", dose=None),
+                SimpleNamespace(name="Метформін", dose="850 мг", course="Курс А"),
+                SimpleNamespace(name="Аспірин", dose=None, course=None),
             ]
         ),
     )
@@ -49,13 +49,17 @@ async def test_price_options_propose_the_users_meds(monkeypatch) -> None:
     assert callbacks.PRICE_TYPE in datas  # ✏️ type another
     assert callbacks.MENU_MED_LIST in datas  # 📋 manage meds (single source of truth)
     assert callbacks.PRICE_CHANGE_CITY in datas  # 📍 set/change the city
-    # The med with a recorded strength shows it on the button; the dose-less one does not.
+    # The med with a recorded strength shows it; the course med is marked ①, standalone 💊.
     labels = [
         b.text
         for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard
         for b in row
     ]
     assert any("850 мг" in label for label in labels)
+    assert any(label.startswith("①") for label in labels)  # the course med is numbered
+    # The legend in the message body maps ① to its prescription name.
+    body = message.answer.call_args.args[0]
+    assert "Курс А" in body and "①" in body
 
 
 async def test_price_options_fall_back_to_typing_without_meds(monkeypatch) -> None:

@@ -29,7 +29,8 @@ async def test_find_prices_web_returns_guarded_text_with_links() -> None:
     assert out.endswith(DISCLAIMER)
     # The agent saw the exact dosage + the city in its request.
     assert "40 мг" in runner.prompt and "Львів" in runner.prompt  # type: ignore[attr-defined]
-    assert runner.kwargs["allowed_tools"] == ["WebSearch"]  # type: ignore[attr-defined]
+    # The agent gets WebFetch too, so it can OPEN each page to confirm in-stock + price.
+    assert runner.kwargs["allowed_tools"] == ["WebSearch", "WebFetch"]  # type: ignore[attr-defined]
 
 
 async def test_find_prices_web_no_city_searches_nationally() -> None:

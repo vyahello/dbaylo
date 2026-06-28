@@ -683,21 +683,27 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `run_claude`** (the Claude fallback is invoked post-gate). `--dry-run` runs the pipeline over a
   built-in HTML fixture (no network). **The bot path is a SMART web-search agent** (`run_price(…,
   use_web_agent=True)` → `find_prices_web`, mirroring `consult.find_clinics`): a gate-screened,
-  guard-checked Claude **WebSearch** agent that finds REAL Ukrainian-pharmacy prices for the named
-  drug — fixing an obvious misspelling (the owner's `ношпа` → the product `Но-шпа`), preferring the
-  doctor's **exact dosage** when recorded (else the first/most common form), in the user's **city**
-  when known, and returning a few options with **clickable `[текст](url)` links**, framed approximate
-  («перевір за посиланням»). The deterministic regex-scrape path (`lookup_drug_price` + the
-  `_claude_fallback` HTML re-parse, `use_llm_fallback`) stays for `--dry-run` / offline tests. **💊
-  Ціна ліків is agent-driven** (`open_price_options`): it proposes the owner's OWN medications as
-  one-tap `[💊 <name> · <strength>]` buttons (dosage shown; `price_med` by index, re-derived) +
-  `[✏️ Інші ліки]` + `[📋 Керувати ліками]` (jump to 💊 Мої ліки — meds are managed there, the single
-  source; the price screen doesn't duplicate add/delete) + `[📍 Змінити місто]`. `_send_price` runs
-  the gate FIRST (a symptom → triage before any «шукаю…»/city/DB), then `keep_typing` + the agent,
-  rendered as HTML (`render_companion_html`, links clickable). **Prescription ↔ price link:** the
-  prescription-confirm result, every course card, and every med card carry a `💰` button
-  (`course_prices`/`medication_price`, re-derived by id) that prices the whole saved course (or one
-  med) via the SAME agent — so a dropped рецепт leads straight to "скільки це коштує".
+  guard-checked Claude **WebSearch + WebFetch** agent that finds REAL Ukrainian-pharmacy prices for
+  the named drug — fixing an obvious misspelling (the owner's `ношпа` → the product `Но-шпа`),
+  preferring the doctor's **exact dosage** when recorded (else the first/most common form). It
+  **OPENS each candidate page (WebFetch) to confirm it is IN STOCK with a visible price** and DROPS
+  out-of-stock / dead / generic `/search/` / drug-encyclopedia links (the owner got 3 out-of-stock
+  Соннат links before this), reads **`№N` as the PACK SIZE** (tablets/capsules per pack, not a
+  catalogue number), sorts **cheapest-first**, ties prices + availability to the user's **city**
+  (strictly, when set), and returns options with **clickable `[текст](url)` links**, framed
+  approximate («перевір за посиланням»). The deterministic regex-scrape path (`lookup_drug_price` +
+  the `_claude_fallback` HTML re-parse, `use_llm_fallback`) stays for `--dry-run` / offline tests.
+  **💊 Ціна ліків is agent-driven** (`open_price_options`): it proposes the owner's OWN medications
+  as one-tap buttons **grouped by prescription** — each med marked `①②…` for its course (legend maps
+  the numbers to course names) or `💊` standalone, with the dosage shown (`price_med` by index, the
+  grouped order shared with the on-tap re-derivation) + `[✏️ Інші ліки]` + `[📋 Керувати ліками]`
+  (jump to 💊 Мої ліки — meds are managed there, the single source; the price screen doesn't
+  duplicate add/delete) + `[📍 Змінити місто]`. `_send_price` runs the gate FIRST (a symptom → triage
+  before any «шукаю…»/city/DB), then `keep_typing` + the agent, rendered as HTML
+  (`render_companion_html`, links clickable). **Prescription ↔ price link:** the prescription-confirm
+  result, every course card, and every med card carry a `💰` button (`course_prices`/
+  `medication_price`, re-derived by id) that prices the whole saved course (or one med) via the SAME
+  agent — so a dropped рецепт leads straight to "скільки це коштує".
 - **Fetch** (`navigator/fetch.py`): async `httpx` (the one new runtime dep), fail-soft (a dead
   source returns `ok=False`, never raises/fabricates), descriptive UA, short-TTL on-disk cache,
   on-demand only — **no price DB**.

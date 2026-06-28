@@ -70,8 +70,16 @@ async def start_price_dialog(message: Message, state: FSMContext) -> None:
     await message.answer(locale.NAV_ASK_DRUG, reply_markup=cancel_keyboard())
 
 
+# Per-prescription marks for the price-options buttons: ① for the 1st course, ② for the 2nd, …
+# (🗂 past ten), so it is clear which рецепт each med belongs to. A standalone med is marked 💊.
+_COURSE_MARKS = "①②③④⑤⑥⑦⑧⑨⑩"
+_STANDALONE_MARK = "💊"
+
+
 async def _unique_meds(session: AsyncSession, *, user_id: int) -> list[Medication]:
-    """The user's medications, de-duplicated by name (order kept) — the price proposals."""
+    """The user's medications, de-duplicated by name and GROUPED BY COURSE (prescription) — courses
+    in first-seen order, standalone meds last. The price screen + the on-tap re-derivation share
+    this order, so a button's index addresses the same med."""
     seen: set[str] = set()
     out: list[Medication] = []
     for med in await medications.list_medications(session, user_id=user_id):
@@ -79,7 +87,22 @@ async def _unique_meds(session: AsyncSession, *, user_id: int) -> list[Medicatio
         if key and key not in seen:
             seen.add(key)
             out.append(med)
-    return out
+    course_order: dict[str, int] = {}
+    for med in out:
+        if med.course and med.course not in course_order:
+            course_order[med.course] = len(course_order)
+    # Stable sort: course meds first (by first-seen course), standalone meds after.
+    return sorted(
+        out,
+        key=lambda m: (
+            course_order.get(m.course, len(course_order)) if m.course else len(course_order) + 1
+        ),
+    )
+
+
+def _course_mark(number: int) -> str:
+    """The display mark for the N-th prescription (1-based): ①..⑩, then 🗂."""
+    return _COURSE_MARKS[number - 1] if 1 <= number <= len(_COURSE_MARKS) else "🗂"
 
 
 async def open_price_options(message: Message, state: FSMContext, *, telegram_id: int) -> None:
@@ -94,13 +117,19 @@ async def open_price_options(message: Message, state: FSMContext, *, telegram_id
     if not meds:
         await start_price_dialog(message, state)
         return
+    # Number each prescription so a med button shows which рецепт it is from (①②… / 💊 standalone).
+    course_num: dict[str, int] = {}
+    for med in meds:
+        if med.course and med.course not in course_num:
+            course_num[med.course] = len(course_num) + 1
     rows: list[list[InlineKeyboardButton]] = []
     for index, med in enumerate(meds):
+        mark = _course_mark(course_num[med.course]) if med.course else _STANDALONE_MARK
         strength = _strength(med.dose)
         label = (
-            locale.BTN_PRICE_MED_DOSE.format(name=_short(med.name, 22), dose=strength)
+            locale.BTN_PRICE_MED_DOSE.format(mark=mark, name=_short(med.name, 20), dose=strength)
             if strength
-            else locale.BTN_PRICE_MED.format(name=_short(med.name))
+            else locale.BTN_PRICE_MED.format(mark=mark, name=_short(med.name, 24))
         )
         rows.append([InlineKeyboardButton(text=label, callback_data=callbacks.price_med(index))])
     rows.append(
@@ -121,8 +150,15 @@ async def open_price_options(message: Message, state: FSMContext, *, telegram_id
     city_line = (
         locale.NAV_PRICE_CITY_LINE.format(city=city) if city else locale.NAV_PRICE_NO_CITY_LINE
     )
-    header = f"{locale.NAV_PRICE_OPTIONS}\n{locale.NAV_PRICE_MEDS_NOTE}\n{city_line}"
-    await message.answer(header, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    parts = [locale.NAV_PRICE_OPTIONS, locale.NAV_PRICE_MEDS_NOTE, city_line]
+    if course_num:  # the legend: which рецепт each ①②… mark stands for
+        parts.append("")
+        parts.append(locale.NAV_PRICE_LEGEND_HEADER)
+        parts += [
+            locale.NAV_PRICE_COURSE_LEGEND.format(mark=_course_mark(num), course=course)
+            for course, num in course_num.items()
+        ]
+    await message.answer("\n".join(parts), reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 async def _send_price(
