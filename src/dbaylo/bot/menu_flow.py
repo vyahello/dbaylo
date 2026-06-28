@@ -75,10 +75,11 @@ async def menu_health(message: Message) -> None:
 async def menu_care(message: Message) -> None:
     """💊 Ліки та нагадування — medications (list / add) + the reminders list, in one hub. Accepts
     the legacy "Ліки й нагадування" label too, so a cached old keyboard still opens the hub."""
+    # No dedicated "З фото рецепта" button: a freely-dropped prescription photo/PDF is auto-routed
+    # to the meds flow (lab_flow classifies it), so the intro just TELLS the user to send one.
     await message.answer(
         locale.MENU_CARE_INTRO,
         reply_markup=section_keyboard(
-            (locale.BTN_MENU_MED_PHOTO, callbacks.MENU_MED_PHOTO),
             (locale.BTN_MENU_MED_LIST, callbacks.MENU_MED_LIST),
             (locale.BTN_MENU_MED_NEW, callbacks.MENU_MED_NEW),
             (locale.BTN_MENU_REMINDERS, callbacks.MENU_OPEN_REMINDERS),

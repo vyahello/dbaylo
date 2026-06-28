@@ -139,15 +139,17 @@ async def test_menu_health_hub_offers_analyses_problems_goals_checkin() -> None:
 
 
 async def test_menu_care_hub_bundles_meds_and_reminders() -> None:
+    # No dedicated photo button (a dropped рецепт auto-routes); the intro tells the user to send it.
     message = AsyncMock()
     await menu_flow.menu_care(message)
-    _, kwargs = message.answer.call_args
+    text, kwargs = message.answer.call_args.args[0], message.answer.call_args.kwargs
     assert _cb_datas(kwargs["reply_markup"]) == [
-        callbacks.MENU_MED_PHOTO,  # 📷 read a prescription photo leads the hub
         callbacks.MENU_MED_LIST,
         callbacks.MENU_MED_NEW,
         callbacks.MENU_OPEN_REMINDERS,
     ]
+    assert callbacks.MENU_MED_PHOTO not in _cb_datas(kwargs["reply_markup"])
+    assert "фото або PDF" in text  # the hint that a dropped prescription is read automatically
 
 
 async def test_cb_med_photo_starts_the_prescription_dialog(monkeypatch) -> None:

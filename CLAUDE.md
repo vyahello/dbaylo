@@ -442,11 +442,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   manually-entered med has none. The orphan purge (`history.cleanup_orphans`) **skips a file any
   `Medication.source_file` still references** (an auto-routed prescription shares its file with the
   DISCARDED lab report it came from). **💊 з фото рецепта** (`labs/prescription.py`
-  extractor + `bot/prescription_flow.py`, the 📷 button): a prescription photo/PDF is OCR'd to
+  extractor + `bot/prescription_flow.py`): a prescription photo/PDF is OCR'd to
   drug · dose · times (claude, defensive parser, like lab extraction), shown for confirmation
   (rail #5; nothing persists until confirm, rail #2), then a `Medication`+reminders per timed drug.
   The router is registered BEFORE `lab_flow`, state-filtered to `PrescriptionStates.waiting_photo`,
-  so an EXPLICIT prescription upload (📷 button) routes here. **Auto-routing of a freely-dropped
+  so an EXPLICIT prescription upload (the `cb_med_photo` flow) routes here. **The 💊 Ліки hub no
+  longer shows a dedicated "📷 З фото рецепта" button** — a freely-dropped photo/PDF AUTO-routes
+  anyway (see below), so the `MENU_CARE_INTRO` just tells the user to send one; the `MENU_MED_PHOTO`
+  callback + `cb_med_photo` handler stay (a cached old keyboard still works). **Auto-routing of a freely-dropped
   photo** (no button first): the lab read now also CLASSIFIES the upload — the extraction JSON
   carries `document_type` ("lab" | "prescription"), parsed onto `ExtractedReport.document_type` /
   `is_prescription` (merge propagates it across PDF chunks). In `lab_flow._handle_upload`, when the
@@ -563,7 +566,9 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   [🙈 Відкладені]` on one row, then a separated `🎯 Мої цілі` row, then ➕; a legend header
   (`PROBLEM_GROUP_HEADER`) labels the ⚕️-problems vs 🎯-goals split. "Вже відстежую"→"Під наглядом",
   "Приховані"→"Відкладені" (clearer; the dismissed header explains they are findings you ✖-ed)) ·
-  **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування) · 💰 Ціни / НСЗУ ·
+  **💊 Ліки й нагадування** (a hub → meds list/add + 🔔 Нагадування; a dropped рецепт photo/PDF
+  auto-routes, so there is no separate "З фото рецепта" button — the intro says to just send one) ·
+  💰 Ціни / НСЗУ ·
   🧠 Памʼять · ❓ Довідка — shown from `/start`. The two hubs post a section message whose inline
   buttons delegate to the SAME leaf helpers as before (`MENU_OPEN_ANALYSES`/`MENU_PROB_LIST`/
   `MENU_OPEN_GOALS`/`MENU_OPEN_CHECKIN`/`MENU_OPEN_REMINDERS`); the old single-purpose labels
