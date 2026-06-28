@@ -261,6 +261,21 @@ async def test_confirm_creates_timed_meds_with_dose_and_skips_untimed(monkeypatc
     assert cb.MENU_MED_LIST in datas and cb.MENU_OPEN_REMINDERS in datas
 
 
+def test_result_keyboard_offers_prices_only_when_a_med_was_saved() -> None:
+    from dbaylo.bot import prescription_flow
+    from dbaylo.companion import callbacks
+
+    saved = prescription_flow._result_keyboard(42)  # a med was saved -> 💰 price the new course
+    datas = [b.callback_data for row in saved.inline_keyboard for b in row]
+    assert callbacks.course_prices(42, "m") in datas
+    assert callbacks.MENU_MED_LIST in datas and callbacks.MENU_OPEN_REMINDERS in datas
+
+    dup = prescription_flow._result_keyboard()  # the duplicate-guard message: nothing new to price
+    dup_datas = [b.callback_data for row in dup.inline_keyboard for b in row]
+    assert not any(d.startswith(callbacks.COURSE_PRICES) for d in dup_datas)
+    assert callbacks.MENU_MED_LIST in dup_datas
+
+
 async def test_add_medication_persists_dose_and_reminder_shows_the_amount(
     async_session: AsyncSession,
 ) -> None:

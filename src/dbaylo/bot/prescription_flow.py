@@ -213,6 +213,7 @@ async def on_prescription_confirm(
     created: list[str] = []
     skipped: list[str] = []
     duplicates: list[str] = []
+    rep_med_id: int | None = None  # a representative saved med — addresses the course for 💰 prices
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
         # The same drug already firing from another prescription must not be scheduled twice —
@@ -228,7 +229,7 @@ async def on_prescription_confirm(
                 duplicates.append(med.name)
                 continue
             seen_names.add(key)
-            await proactive.add_medication(
+            medication, _ = await proactive.add_medication(
                 session,
                 user=user,
                 name=med.name,
@@ -240,30 +241,42 @@ async def on_prescription_confirm(
                 until=medications.course_end(today, med.duration),  # the doctor's term
                 content_hash=content_hash,  # so re-dropping the same script doesn't duplicate
             )
+            if rep_med_id is None:
+                rep_med_id = medication.id
             created.append(med.name)
         await session.commit()
 
     await callback.answer()
-    # Don't dead-end on "Готово!": offer a jump to the saved meds / reminders (when any saved).
-    keyboard = _result_keyboard() if created else None
+    # Don't dead-end on "Готово!": offer a jump to the saved meds / reminders + 💰 their prices.
+    keyboard = _result_keyboard(rep_med_id) if rep_med_id is not None else None
     await callback.message.answer(_result_text(created, skipped, duplicates), reply_markup=keyboard)
 
 
-def _result_keyboard() -> InlineKeyboardMarkup:
+def _result_keyboard(rep_med_id: int | None = None) -> InlineKeyboardMarkup:
     """After saving a prescription, navigation forward: open the meds list (the new course is in it)
-    or the reminders, so the flow leads somewhere, not a plain note."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    or the reminders — and, when a med was saved, 💰 price the new meds. The duplicate-guard message
+    reuses this without a ``rep_med_id`` (nothing new to price)."""
+    rows: list[list[InlineKeyboardButton]] = []
+    if rep_med_id is not None:
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text=locale.BTN_MENU_MED_LIST, callback_data=callbacks.MENU_MED_LIST
-                ),
-                InlineKeyboardButton(
-                    text=locale.BTN_MENU_REMINDERS, callback_data=callbacks.MENU_OPEN_REMINDERS
-                ),
+                    text=locale.BTN_PRICE_RX,
+                    callback_data=callbacks.course_prices(rep_med_id, "m"),
+                )
             ]
+        )
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_MENU_MED_LIST, callback_data=callbacks.MENU_MED_LIST
+            ),
+            InlineKeyboardButton(
+                text=locale.BTN_MENU_REMINDERS, callback_data=callbacks.MENU_OPEN_REMINDERS
+            ),
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 # --- Rendering / (de)serialization ----------------------------------------------

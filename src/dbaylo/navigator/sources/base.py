@@ -7,8 +7,15 @@ price (a parse miss yields ``[]``, which is the signal for the Claude fallback).
 
 Robots posture is verified per source (see CLAUDE.md / the Stage 4 notes):
 tabletki.ua returns 403 on robots.txt (anti-bot) and apteki.ua disallows query
-strings (its search), so both are **disabled** and never fetched — declared here
-for transparency rather than silently scraped.
+strings (its search), so both are **disabled** for this DETERMINISTIC scraper and
+never fetched here — declared for transparency rather than silently scraped.
+
+Note: the bot's primary price path is now the web-search agent
+(:func:`dbaylo.navigator.pipeline.find_prices_web`), which the owner authorized to
+cite ANY public pharmacy page (incl. tabletki.ua / apteki.ua). That is search-result
+citation of public pages a search engine already indexed, NOT hitting their search
+endpoints — a different posture from this scraper, which stays narrow and is used only
+by the offline ``--dry-run`` / tests.
 """
 
 from __future__ import annotations

@@ -84,6 +84,8 @@ class User(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     telegram_id: Mapped[int | None] = mapped_column(unique=True, index=True, default=None)
     name: Mapped[str | None] = mapped_column(default=None)
+    # The user's city, asked once and reused (medicine-price search, clinic finder). NULL until set.
+    city: Mapped[str | None] = mapped_column(default=None)
 
     lab_reports: Mapped[list[LabReport]] = relationship(
         back_populates="user", cascade="all, delete-orphan"

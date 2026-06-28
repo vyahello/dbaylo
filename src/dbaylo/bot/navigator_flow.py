@@ -10,7 +10,10 @@ field, short-circuits to triage instead of a price search.
 
 from __future__ import annotations
 
+import re
+
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -18,13 +21,15 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
-from dbaylo.companion import callbacks, medications
+from dbaylo.companion import callbacks, cities, medications
 from dbaylo.db import get_session
 from dbaylo.db.models import Medication
-from dbaylo.labs.intake import ensure_user
-from dbaylo.navigator.pipeline import run_coverage, run_price
+from dbaylo.labs.intake import ensure_user, get_city, set_city
+from dbaylo.navigator.pipeline import find_prices_web, run_coverage, run_price
+from dbaylo.safety import screen
 
 router = Router(name="navigator")
 
@@ -32,6 +37,7 @@ router = Router(name="navigator")
 class NavStates(StatesGroup):
     waiting_drug = State()
     waiting_service = State()
+    waiting_city = State()
 
 
 def _short(name: str, limit: int = 30) -> str:
@@ -41,6 +47,18 @@ def _short(name: str, limit: int = 30) -> str:
 
 def _telegram_id(event: Message | CallbackQuery) -> int | None:
     return event.from_user.id if event.from_user else None
+
+
+# A drug's bare STRENGTH ("40 мг") pulled from the stored dose, for the button label + the agent
+# query — so the price search targets the doctor's exact dosage when it was recorded.
+_STRENGTH_RE = re.compile(r"\d+(?:[.,]\d+)?\s*(?:мг|мкг|мл|г)\b", re.IGNORECASE)
+
+
+def _strength(dose: str | None) -> str | None:
+    if not dose:
+        return None
+    match = _STRENGTH_RE.search(dose)
+    return match.group(0).strip() if match else None
 
 
 # --- Price ----------------------------------------------------------------------
@@ -65,48 +83,85 @@ async def _unique_meds(session: AsyncSession, *, user_id: int) -> list[Medicatio
 
 
 async def open_price_options(message: Message, state: FSMContext, *, telegram_id: int) -> None:
-    """The agent's price screen: propose the user's OWN meds (one-tap price) + ✏️ to type another.
-    Falls back to the type dialog when there are no meds yet."""
+    """The agent's price screen: propose the user's OWN meds (one-tap price, dosage shown) + ✏️ to
+    type another + 📋 manage them (in 💊 Мої ліки) + 📍 set/change the city. Falls back to the type
+    dialog when there are no meds yet."""
+    await state.clear()
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=telegram_id)
         meds = await _unique_meds(session, user_id=user.id)
+        city = (user.city or "").strip() or None
     if not meds:
         await start_price_dialog(message, state)
         return
-    rows = [
+    rows: list[list[InlineKeyboardButton]] = []
+    for index, med in enumerate(meds):
+        strength = _strength(med.dose)
+        label = (
+            locale.BTN_PRICE_MED_DOSE.format(name=_short(med.name, 22), dose=strength)
+            if strength
+            else locale.BTN_PRICE_MED.format(name=_short(med.name))
+        )
+        rows.append([InlineKeyboardButton(text=label, callback_data=callbacks.price_med(index))])
+    rows.append(
+        [
+            InlineKeyboardButton(text=locale.BTN_PRICE_TYPE, callback_data=callbacks.PRICE_TYPE),
+            InlineKeyboardButton(
+                text=locale.BTN_PRICE_MANAGE, callback_data=callbacks.MENU_MED_LIST
+            ),
+        ]
+    )
+    rows.append(
         [
             InlineKeyboardButton(
-                text=locale.BTN_PRICE_MED.format(name=_short(med.name)),
-                callback_data=callbacks.price_med(index),
+                text=locale.BTN_PRICE_CHANGE_CITY, callback_data=callbacks.PRICE_CHANGE_CITY
             )
         ]
-        for index, med in enumerate(meds)
-    ]
-    rows.append(
-        [InlineKeyboardButton(text=locale.BTN_PRICE_TYPE, callback_data=callbacks.PRICE_TYPE)]
     )
-    await message.answer(
-        locale.NAV_PRICE_OPTIONS, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows)
+    city_line = (
+        locale.NAV_PRICE_CITY_LINE.format(city=city) if city else locale.NAV_PRICE_NO_CITY_LINE
     )
+    header = f"{locale.NAV_PRICE_OPTIONS}\n{locale.NAV_PRICE_MEDS_NOTE}\n{city_line}"
+    await message.answer(header, reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
-async def _send_price(message: Message, drug: str) -> None:
-    """Run the gated price lookup (LLM re-parse fallback ON — marked «перевір») with a typing
-    indicator, then send the result."""
+async def _send_price(
+    message: Message, drug: str, *, telegram_id: int | None, dose: str | None = None
+) -> None:
+    """Gate FIRST (a symptom short-circuits to triage — no "searching" message, no city fetch), then
+    run the smart web-search price lookup (real prices + links) and send it as HTML."""
+    decision = screen(drug)
+    if decision.short_circuited:  # same gate as the pipeline — surfaced before any search chrome
+        await message.answer(decision.message)
+        return
+    city = await _city_for(telegram_id)
+    await message.answer(locale.NAV_PRICE_SEARCHING)
     async with keep_typing(message):
-        result = await run_price(drug, use_llm_fallback=True)
-    await message.answer(result.text)
+        result = await run_price(drug, use_web_agent=True, city=city, dose=dose)
+    await answer_chunked(message, render_companion_html(result.text), parse_mode=ParseMode.HTML)
+
+
+async def _send_meds_prices(
+    message: Message, items: list[tuple[str, str | None]], *, city: str | None
+) -> None:
+    """Price a whole prescription/course (a list of named meds + doses) via the web-search agent."""
+    if not items:
+        return
+    await message.answer(locale.NAV_PRICE_SEARCHING)
+    async with keep_typing(message):
+        text = await find_prices_web(items, city=city)
+    await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
 
 
 @router.message(Command("price"))
 async def cmd_price(message: Message, command: CommandObject, state: FSMContext) -> None:
     arg = (command.args or "").strip()
+    tg = _telegram_id(message)
     if not arg:
-        tg = _telegram_id(message)
         if tg is not None:
             await open_price_options(message, state, telegram_id=tg)
         return
-    await _send_price(message, arg)  # gated inside the pipeline
+    await _send_price(message, arg, telegram_id=tg)  # gated inside _send_price
 
 
 @router.message(NavStates.waiting_drug, F.text)
@@ -116,7 +171,8 @@ async def on_price_text(message: Message, state: FSMContext) -> None:
     if not text:
         await message.answer(locale.NOTHING_SAVED)
         return
-    await _send_price(message, text)  # SAME gate as the command arg — a symptom -> triage
+    # SAME gate as the command arg — a symptom typed into the drug field short-circuits to triage.
+    await _send_price(message, text, telegram_id=_telegram_id(message))
 
 
 @router.callback_query(F.data == callbacks.PRICE_TYPE)
@@ -128,8 +184,8 @@ async def on_price_type(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data.startswith(callbacks.PRICE_MED + ":"))
 async def on_price_med(callback: CallbackQuery, state: FSMContext) -> None:
-    """One-tap price for a proposed medication (re-derived by index on tap)."""
-    # Ack first: the lookup is a multi-second fetch (+ maybe an LLM re-parse).
+    """One-tap price for a proposed medication (re-derived by index on tap; dosage folded in)."""
+    # Ack first: the lookup is a multi-second web search.
     await callback.answer()
     index = callbacks.parse_price_med(callback.data or "")
     tg = _telegram_id(callback)
@@ -140,7 +196,100 @@ async def on_price_med(callback: CallbackQuery, state: FSMContext) -> None:
         user = await ensure_user(session, telegram_id=tg)
         meds = await _unique_meds(session, user_id=user.id)
     if 0 <= index < len(meds):
-        await _send_price(callback.message, meds[index].name)
+        med = meds[index]
+        await _send_price(callback.message, med.name, telegram_id=tg, dose=_strength(med.dose))
+
+
+# --- City (asked once, remembered on User.city; reused by price + clinic search) -------
+
+
+async def _city_for(telegram_id: int | None) -> str | None:
+    """The user's saved city (or ``None``) — folded into the price search for local results."""
+    if telegram_id is None:
+        return None
+    async with get_session() as session:
+        return await get_city(session, telegram_id=telegram_id)
+
+
+@router.callback_query(F.data == callbacks.PRICE_CHANGE_CITY)
+async def on_price_change_city(callback: CallbackQuery, state: FSMContext) -> None:
+    """📍 Set / change the saved city used for price (and clinic) search."""
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await state.set_state(NavStates.waiting_city)
+        await callback.message.answer(locale.NAV_ASK_CITY, reply_markup=cancel_keyboard())
+
+
+@router.message(NavStates.waiting_city, F.text & ~F.text.startswith("/"))
+async def on_city_text(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    raw = (message.text or "").strip()
+    tg = _telegram_id(message)
+    if not raw or tg is None:
+        await message.answer(locale.NOTHING_SAVED)
+        return
+    city = cities.parse_city(raw) or raw  # canonical if known, else the typed town as-is
+    async with get_session() as session:
+        await set_city(session, telegram_id=tg, city=city)
+        await session.commit()
+    await message.answer(locale.NAV_CITY_SAVED.format(city=city))
+    await open_price_options(message, state, telegram_id=tg)
+
+
+# --- Prescription ↔ price: price a saved course / single med (the 💰 buttons) ----------
+
+
+def _price_items(meds: list[Medication]) -> list[tuple[str, str | None]]:
+    """(name, strength?) pairs for the price agent — de-duplicated by normalized drug name."""
+    items: list[tuple[str, str | None]] = []
+    seen: set[str] = set()
+    for med in meds:
+        key = medications.normalize_name(med.name)
+        if key and key not in seen:
+            seen.add(key)
+            items.append((med.name, _strength(med.dose)))
+    return items
+
+
+@router.callback_query(F.data.startswith(callbacks.COURSE_PRICES + ":"))
+async def on_course_prices(callback: CallbackQuery) -> None:
+    """💰 Price a whole prescription (course) — or the single med, when it has no course."""
+    await callback.answer()
+    parsed = callbacks.parse_course_prices(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        return
+    rep_med_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        rep = await session.get(Medication, rep_med_id)
+        if rep is None or rep.user_id != user.id:
+            return
+        meds = (
+            await medications.list_by_course(session, user_id=user.id, course=rep.course)
+            if rep.course
+            else [rep]
+        )
+        city = (user.city or "").strip() or None
+    await _send_meds_prices(callback.message, _price_items(meds), city=city)
+
+
+@router.callback_query(F.data.startswith(callbacks.MEDICATION_PRICE + ":"))
+async def on_medication_price(callback: CallbackQuery) -> None:
+    """💰 Price a single saved medication (from its card)."""
+    await callback.answer()
+    parsed = callbacks.parse_medication_price(callback.data or "")
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None or not isinstance(callback.message, Message):
+        return
+    medication_id, _origin = parsed
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        med = await session.get(Medication, medication_id)
+        if med is None or med.user_id != user.id:
+            return
+        name, dose = med.name, _strength(med.dose)
+    await _send_price(callback.message, name, telegram_id=tg, dose=dose)
 
 
 # --- Coverage -------------------------------------------------------------------

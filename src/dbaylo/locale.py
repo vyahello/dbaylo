@@ -1155,6 +1155,28 @@ NAV_NO_RESULTS = (
 )
 NAV_SOURCE_UNAVAILABLE = "Не вдалося отримати дані з: {sources}."
 
+# Smart web-search price agent (the bot path). The query handed to the agent (English code, but the
+# request itself is Ukrainian so the model answers in kind) + the user-facing chrome.
+NAV_PRICE_QUERY_INTRO = "Знайди ціни на ці ліки в українських аптеках:"
+NAV_PRICE_QUERY_CITY = "Місто користувача: {city} (шукай пропозиції там або з доставкою туди)."
+NAV_PRICE_QUERY_NO_CITY = "Місто не вказане — дай ціни в українських онлайн-аптеках по Україні."
+NAV_PRICE_SEARCHING = "Шукаю ціни в аптеках… 🔎 Це може зайняти трохи часу."
+# 💊 Ціна ліків screen chrome.
+BTN_PRICE_MED_DOSE = "💊 {name} · {dose}"  # a saved med WITH its strength
+BTN_PRICE_MANAGE = "📋 Керувати ліками"  # jump to 💊 Мої ліки (add/remove there — single source)
+BTN_PRICE_CHANGE_CITY = "📍 Змінити місто"
+NAV_PRICE_CITY_LINE = "📍 Місто: {city}"
+NAV_PRICE_NO_CITY_LINE = "📍 Місто не вказане — шукаю по Україні (зміни, щоб точніше)."
+NAV_PRICE_MEDS_NOTE = "Ліки нижче — з твого списку «💊 Мої ліки»."
+# City capture (asked once, then remembered on User.city).
+NAV_ASK_CITY = (
+    "У якому ти місті? Напиши назву — шукатиму ціни й заклади саме там. Можна змінити будь-коли. 📍"
+)
+NAV_CITY_SAVED = "Запамʼятав: {city}. 📍"
+# 💰 Price a saved prescription (course) / a single med — the prescription↔price link.
+BTN_PRICE_RX = "💰 Ціни на ці ліки"  # on the prescription result + the course card
+BTN_MED_PRICE = "💰 Ціна"  # on a single med card
+
 # Price ceiling (МОЗ граничні ціни). Exists ONLY for the reimbursement subset — for
 # anything else we must NOT imply a price is normal or inflated (rail #4 extended).
 NAV_CEILING_ABOVE = "⚠️ Вище за граничну (регульовану державою) ціну {limit} грн."

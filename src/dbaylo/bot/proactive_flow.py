@@ -842,6 +842,13 @@ def _course_card_keyboard(rep_med_id: int, origin: str, *, has_file: bool) -> In
     rows.append(
         [
             InlineKeyboardButton(
+                text=locale.BTN_PRICE_RX, callback_data=callbacks.course_prices(rep_med_id, origin)
+            )
+        ]
+    )
+    rows.append(
+        [
+            InlineKeyboardButton(
                 text=locale.BTN_COURSE_TURN_OFF,
                 callback_data=callbacks.course_off(rep_med_id, origin),
             ),
@@ -1086,12 +1093,16 @@ def _med_card_keyboard(
     rows.append(
         [
             InlineKeyboardButton(
+                text=locale.BTN_MED_PRICE,
+                callback_data=callbacks.medication_price(medication_id, origin),
+            ),
+            InlineKeyboardButton(
                 text=locale.BTN_MED_TURN_OFF,
                 callback_data=callbacks.medication_off(medication_id, origin),
             ),
-            InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back),
         ]
     )
+    rows.append([InlineKeyboardButton(text=locale.BTN_REMINDER_BACK, callback_data=back)])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

@@ -592,6 +592,16 @@ def test_med_card_shows_the_dose_as_a_record() -> None:
     assert "09:00, 21:00" in card  # the times are shown
 
 
+def test_course_card_keyboard_offers_prices() -> None:
+    from dbaylo.bot import proactive_flow
+    from dbaylo.companion import callbacks
+
+    kb = proactive_flow._course_card_keyboard(9, "m", has_file=True)
+    datas = [b.callback_data for row in kb.inline_keyboard for b in row]
+    assert callbacks.course_prices(9, "m") in datas  # 💰 price the whole prescription
+    assert callbacks.course_off(9, "m") in datas and callbacks.course_delete(9, "m") in datas
+
+
 def test_med_card_keyboard_back_follows_the_origin() -> None:
     from dbaylo.bot import proactive_flow
     from dbaylo.companion import callbacks
@@ -600,6 +610,14 @@ def test_med_card_keyboard_back_follows_the_origin() -> None:
     from_rems = proactive_flow._med_card_keyboard(5, "r")
     meds_datas = [b.callback_data for row in from_meds.inline_keyboard for b in row]
     rems_datas = [b.callback_data for row in from_rems.inline_keyboard for b in row]
-    # Both offer a deliberate turn-off; back returns to the list the card was opened from.
-    assert meds_datas == [callbacks.medication_off(5, "m"), callbacks.MED_LIST_BACK]
-    assert rems_datas == [callbacks.medication_off(5, "r"), callbacks.REMINDERS_BACK]
+    # Both offer 💰 a price check + a deliberate turn-off; back returns to the list it opened from.
+    assert meds_datas == [
+        callbacks.medication_price(5, "m"),
+        callbacks.medication_off(5, "m"),
+        callbacks.MED_LIST_BACK,
+    ]
+    assert rems_datas == [
+        callbacks.medication_price(5, "r"),
+        callbacks.medication_off(5, "r"),
+        callbacks.REMINDERS_BACK,
+    ]

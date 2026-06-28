@@ -39,6 +39,22 @@ async def ensure_user(session: AsyncSession, telegram_id: int, name: str | None 
     return user
 
 
+async def get_city(session: AsyncSession, *, telegram_id: int) -> str | None:
+    """The user's saved city (for price / clinic search), or ``None`` if not set yet."""
+    user = await ensure_user(session, telegram_id=telegram_id)
+    return (user.city or "").strip() or None
+
+
+async def set_city(session: AsyncSession, *, telegram_id: int, city: str) -> None:
+    """Remember the user's city (already canonicalized by the caller). A blank value is ignored."""
+    cleaned = city.strip()
+    if not cleaned:
+        return
+    user = await ensure_user(session, telegram_id=telegram_id)
+    user.city = cleaned
+    await session.flush()
+
+
 def save_original_file(
     data: bytes, *, user_id: int, suffix: str, settings: Settings | None = None
 ) -> Path:

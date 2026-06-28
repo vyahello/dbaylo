@@ -674,6 +674,11 @@ MENU_COVERAGE = "menu_coverage"
 # re-derived medication list), plus ✏️ type-another.
 PRICE_MED = "price_med"
 PRICE_TYPE = "price_type"
+PRICE_CHANGE_CITY = "price_city"  # ask/change the saved city used for price + clinic search
+# Price a saved prescription (course) / a single med — the prescription↔price link. Addressed by a
+# representative / single medication id + origin (re-derived on tap, like course_view).
+COURSE_PRICES = "course_price"
+MEDICATION_PRICE = "med_price"
 # The one shared dialog-cancel callback (handled centrally; clears any active FSM).
 CANCEL_DIALOG = "menu_cancel"
 
@@ -684,6 +689,22 @@ def price_med(index: int) -> str:
 
 def parse_price_med(data: str) -> int | None:
     return _parse(PRICE_MED, data)
+
+
+def course_prices(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(COURSE_PRICES, medication_id, origin)
+
+
+def parse_course_prices(data: str) -> tuple[int, str] | None:
+    return _parse_origin(COURSE_PRICES, data)
+
+
+def medication_price(medication_id: int, origin: str = "m") -> str:
+    return _make_origin(MEDICATION_PRICE, medication_id, origin)
+
+
+def parse_medication_price(data: str) -> tuple[int, str] | None:
+    return _parse_origin(MEDICATION_PRICE, data)
 
 
 # --- Consult memory: grouped view + forget-all / forget-one (two-step confirm) ---

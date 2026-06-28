@@ -23,16 +23,19 @@ async def _fake_session():
 
 
 async def test_price_options_propose_the_users_meds(monkeypatch) -> None:
-    # 💊 Ціна ліків proposes the user's OWN meds for a one-tap price + ✏️ type-another.
+    # 💊 Ціна ліків proposes the user's OWN meds for a one-tap price + ✏️ type-another + 📋 manage.
     monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
     monkeypatch.setattr(
-        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7, city=None))
     )
     monkeypatch.setattr(
         navigator_flow,
         "_unique_meds",
         AsyncMock(
-            return_value=[SimpleNamespace(name="Метформін"), SimpleNamespace(name="Аспірин")]
+            return_value=[
+                SimpleNamespace(name="Метформін", dose="850 мг"),
+                SimpleNamespace(name="Аспірин", dose=None),
+            ]
         ),
     )
     message = AsyncMock()
@@ -44,12 +47,21 @@ async def test_price_options_propose_the_users_meds(monkeypatch) -> None:
     ]
     assert callbacks.price_med(0) in datas and callbacks.price_med(1) in datas  # one per med
     assert callbacks.PRICE_TYPE in datas  # ✏️ type another
+    assert callbacks.MENU_MED_LIST in datas  # 📋 manage meds (single source of truth)
+    assert callbacks.PRICE_CHANGE_CITY in datas  # 📍 set/change the city
+    # The med with a recorded strength shows it on the button; the dose-less one does not.
+    labels = [
+        b.text
+        for row in message.answer.call_args.kwargs["reply_markup"].inline_keyboard
+        for b in row
+    ]
+    assert any("850 мг" in label for label in labels)
 
 
 async def test_price_options_fall_back_to_typing_without_meds(monkeypatch) -> None:
     monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
     monkeypatch.setattr(
-        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7, city=None))
     )
     monkeypatch.setattr(navigator_flow, "_unique_meds", AsyncMock(return_value=[]))
     started = {}
@@ -62,15 +74,18 @@ async def test_price_options_fall_back_to_typing_without_meds(monkeypatch) -> No
     assert started.get("called")  # no meds -> the type-a-drug dialog
 
 
-async def test_price_med_tap_prices_by_index_with_the_llm_fallback(monkeypatch) -> None:
-    # Tapping a proposed med runs the gated price lookup WITH the LLM re-parse fallback on.
+async def test_price_med_tap_prices_by_index_with_the_web_agent(monkeypatch) -> None:
+    # Tapping a proposed med runs the smart web-search price lookup, folding in its dosage.
     monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
     monkeypatch.setattr(
-        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7))
+        navigator_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=7, city="Львів"))
     )
     monkeypatch.setattr(
-        navigator_flow, "_unique_meds", AsyncMock(return_value=[SimpleNamespace(name="Метформін")])
+        navigator_flow,
+        "_unique_meds",
+        AsyncMock(return_value=[SimpleNamespace(name="Метформін", dose="850 мг")]),
     )
+    monkeypatch.setattr(navigator_flow, "_city_for", AsyncMock(return_value="Львів"))
     run_price = AsyncMock(return_value=SimpleNamespace(text="ціни…"))
     monkeypatch.setattr(navigator_flow, "run_price", run_price)
     callback = AsyncMock()
@@ -79,9 +94,11 @@ async def test_price_med_tap_prices_by_index_with_the_llm_fallback(monkeypatch) 
     callback.message = AsyncMock(spec=Message)
     callback.message.answer = AsyncMock()
     await navigator_flow.on_price_med(callback, AsyncMock())
-    callback.answer.assert_awaited()  # ack first (the fetch is slow)
+    callback.answer.assert_awaited()  # ack first (the search is slow)
     assert run_price.await_args.args[0] == "Метформін"
-    assert run_price.await_args.kwargs["use_llm_fallback"] is True  # fallback ON
+    assert run_price.await_args.kwargs["use_web_agent"] is True  # smart web-search path
+    assert run_price.await_args.kwargs["dose"] == "850 мг"  # the doctor's strength is searched
+    assert run_price.await_args.kwargs["city"] == "Львів"  # in the user's city
 
 
 async def test_price_field_symptom_short_circuits_to_triage() -> None:
@@ -113,6 +130,35 @@ async def test_blank_price_answer_searches_nothing() -> None:
     await navigator_flow.on_price_text(message, state)
     state.clear.assert_awaited_once()
     message.answer.assert_awaited_once_with(locale.NOTHING_SAVED)
+
+
+async def test_city_round_trips_and_ignores_blank(async_session) -> None:
+    # The city is asked once and remembered on User.city (reused by price + clinic search).
+    from dbaylo.labs.intake import ensure_user, get_city, set_city
+
+    await ensure_user(async_session, telegram_id=555)
+    assert await get_city(async_session, telegram_id=555) is None
+    await set_city(async_session, telegram_id=555, city="Львів")
+    assert await get_city(async_session, telegram_id=555) == "Львів"
+    await set_city(async_session, telegram_id=555, city="   ")  # blank is ignored, not cleared
+    assert await get_city(async_session, telegram_id=555) == "Львів"
+
+
+async def test_change_city_persists_a_canonical_form(monkeypatch) -> None:
+    # Typing a city in any case form stores the canonical name (cities.parse_city), then re-opens.
+    saved = {}
+
+    async def fake_set_city(session, *, telegram_id, city):
+        saved["city"] = city
+
+    monkeypatch.setattr(navigator_flow, "get_session", _fake_session)
+    monkeypatch.setattr(navigator_flow, "set_city", fake_set_city)
+    monkeypatch.setattr(navigator_flow, "open_price_options", AsyncMock())
+    message = AsyncMock()
+    message.text = "у львові"
+    message.from_user = SimpleNamespace(id=4242)
+    await navigator_flow.on_city_text(message, AsyncMock())
+    assert saved["city"] == "Львів"  # canonicalized from the locative "львові"
 
 
 async def test_start_price_dialog_is_cancellable() -> None:
