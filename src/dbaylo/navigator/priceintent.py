@@ -36,6 +36,15 @@ _PRICE_TRIGGERS: tuple[str, ...] = (
     "знайди мені ліки",
     "пошукай ліки",
     "скільки за",
+    # bare "find me X" search verbs — by the time routing reaches the price intent, symptoms,
+    # complaints, clinic/booking and history queries are already handled, so "знайди мені ношпу"
+    # here means "find me the drug" (the agent extracts it; asks to name one if none is given).
+    "знайди мені",
+    "знайди ",
+    "знайти ",
+    "пошукай ",
+    "пошукати ",
+    "знайди де купити",
 )
 
 
