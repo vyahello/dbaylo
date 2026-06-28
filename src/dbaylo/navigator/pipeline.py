@@ -396,7 +396,7 @@ async def find_otc_prices(
     must only invoke this at triage MONITOR for an OTC-amenable complaint."""
     text = complaint.strip()
     if not text:
-        return f"{_otc_footer()}\n\n{DISCLAIMER}"
+        return _otc_footer()  # the OTC footer IS the single disclaimer (no extra P.S.)
     if (short_circuit := _gate(text)) is not None:
         return short_circuit.text  # a red flag in the complaint escalates — never OTC
     query = locale.OTC_QUERY.format(complaint=text, city=city or locale.NAV_PRICE_FREEFORM_NO_CITY)
@@ -412,7 +412,7 @@ async def find_otc_prices(
     except ClaudeUnavailable:
         result = None
     if result is None or not result.ok or not result.text.strip():
-        return f"{locale.OTC_FALLBACK}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
+        return locale.OTC_FALLBACK  # self-contained (mentions pharmacist + doctor)
     body = strip_self_disclaimer(result.text.strip())
     try:
         # The dose guard (assert_safe_output) is the key safeguard: a NAME passes, a DOSE fails.
@@ -420,8 +420,9 @@ async def find_otc_prices(
         assert_safe_output(clean)
         assert_safe_navigator_output(clean)
     except ValueError:
-        return f"{locale.OTC_FALLBACK}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
-    return f"{body}\n\n{_otc_footer()}\n\n{DISCLAIMER}"
+        return locale.OTC_FALLBACK
+    # ONE disclaimer: the OTC footer (info-not-prescription · pharmacist · doctor), no generic P.S.
+    return f"{body}\n\n{_otc_footer()}"
 
 
 # --- Dry-run CLI (fixture mode, no network) -------------------------------------

@@ -33,6 +33,7 @@ from aiogram.types import (
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
+from dbaylo.bot import navigator_flow
 from dbaylo.bot.formatting import answer_chunked, render_interpretation_html
 from dbaylo.bot.typing import keep_typing
 from dbaylo.companion import (
@@ -129,15 +130,12 @@ async def _remember(tg: int, subject: Subject, turns: list[tuple[str, str]]) -> 
 
 
 def _reply_keyboard() -> InlineKeyboardMarkup:
-    """Under each consult reply: set a reminder (#4d), find where to do an exam (#3), or finish."""
+    """Under each consult reply: just a way back to ordinary chat. The owner found the per-reply
+    🔔/🏥 buttons intrusive ("ми просто спілкувались"); those actions still work by ASKING
+    ("нагадай мені…" / "де це зробити?" / "скільки коштує…" — routed in the turn handler), so the
+    keyboard stays out of the way with a single exit."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(locale.CONSULT_BTN_REMIND, callbacks.CONSULT_REMIND),
-                _btn(locale.CONSULT_BTN_CLINICS, callbacks.CONSULT_CLINICS),
-            ],
-            [_btn(locale.CONSULT_BTN_END, callbacks.CONSULT_END)],
-        ]
+        inline_keyboard=[[_btn(locale.CONSULT_BTN_END, callbacks.CONSULT_END)]]
     )
 
 
@@ -397,6 +395,12 @@ async def _run_consult_turn(
     text = text.strip()
     if not text:
         await message.answer(locale.CONSULT_EMPTY)
+        return
+    # A typed price / coverage ask IN the consult actually does it (the agent), instead of the LLM
+    # claiming it can or inventing a "💰 button". Stays in the consult (these don't change state).
+    if await navigator_flow.maybe_handle_coverage(message, text, telegram_id=tg):
+        return
+    if await navigator_flow.maybe_handle_price(message, state, text, telegram_id=tg):
         return
     # A typed ask to be reminded — OR to be "booked" (which Дбайло can't do, so it saves a reminder
     # instead of repeating that it can't) — opens the smart reminder mini-flow (never the LLM). The

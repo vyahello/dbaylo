@@ -53,6 +53,14 @@ def test_strip_self_disclaimer_drops_only_a_trailing_model_disclaimer() -> None:
     )
     assert strip_self_disclaimer("Просто текст без дисклеймера.") == "Просто текст без дисклеймера."
     assert strip_self_disclaimer("Я не лікар.") == "Я не лікар."  # never strips everything
+    # The OTC self-care self-disclaimer the model adds despite being told not to (P.S. covers it).
+    assert (
+        strip_self_disclaimer(
+            "Парацетамол — мʼякий варіант.\n\nЦе інформація, не призначення. Дозу узгодь "
+            "із фармацевтом."
+        )
+        == "Парацетамол — мʼякий варіант."
+    )
 
 
 def test_deterministic_summary_is_safe_and_mentions_values() -> None:

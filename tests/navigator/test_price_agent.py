@@ -160,7 +160,8 @@ async def test_find_otc_prices_names_options_with_footer_and_grounds_meds() -> N
         "болить голова", city="Львів", meds="буспірон", runner=runner
     )
     assert "Парацетамол" in out
-    assert locale.OTC_FOOTER in out and out.endswith(DISCLAIMER)  # info-not-prescription footer
+    # ONE disclaimer — the info-not-prescription footer (no extra generic P.S.).
+    assert out.rstrip().endswith(locale.OTC_FOOTER) and DISCLAIMER not in out
     # The user's Rx meds are in the system prompt for the interaction caution.
     assert "буспірон" in runner.kwargs["append_system_prompt"]  # type: ignore[attr-defined]
 

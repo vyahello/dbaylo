@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from dbaylo import locale, persona
 from dbaylo.config import get_settings
+from dbaylo.labs.humanize import strip_self_disclaimer
 from dbaylo.llm import NATURAL_VOICE, ClaudeUnavailable, run_claude
 from dbaylo.safety import GateSource, screen
 from dbaylo.triage.safety import DISCLAIMER, assert_safe_output
@@ -80,7 +81,9 @@ _OTC_CLAUSE = (
     "dose with a pharmacist. The user currently takes these prescription meds: {meds}. If a common "
     "OTC option could interact with any of them, add a brief plain caution to check with a "
     "pharmacist (no definitive verdict). If the complaint could actually be serious or connects to "
-    "a condition they track, do NOT suggest OTC — steer to a doctor instead."
+    "a condition they track, do NOT suggest OTC — steer to a doctor instead. Do NOT tell the user "
+    "to press a button or emoji, and do NOT add your own 'це інформація, не призначення' "
+    "disclaimer line — one is appended automatically; mention the pharmacist naturally, once."
 )
 
 
@@ -190,7 +193,9 @@ async def advance(
         result = None
     if result is not None and result.ok and result.text.strip():
         try:
-            body = assert_safe_output(result.text.strip())
+            # Drop a model-added disclaimer ('я не лікар' / 'це інформація, не призначення') — the
+            # canonical P.S. is appended once, so a self-disclaimer would just duplicate it.
+            body = assert_safe_output(strip_self_disclaimer(result.text.strip()))
         except ValueError:
             body = locale.INTAKE_FALLBACK
 
