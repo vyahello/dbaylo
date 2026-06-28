@@ -76,9 +76,10 @@ class IntakeReply:
 # but NEVER a dose (assert_safe_output enforces it), grounded in the user's Rx meds for interaction.
 _OTC_CLAUSE = (
     "This complaint is MINOR and low-acuity. You MAY ALSO briefly name 1-3 well-known OVER-THE-"
-    "COUNTER (no-prescription, безрецептурні) options people commonly use for it, as GENERAL INFO "
-    "— NEVER a dose, NEVER 'приймай' / 'take this'; tell the user to confirm the choice AND the "
-    "dose with a pharmacist. The user currently takes these prescription meds: {meds}. If a common "
+    "COUNTER (no-prescription) options people commonly use for it, as GENERAL INFO. Do NOT use the "
+    "clinical word 'безрецептурні' — phrase it naturally ('звичайні аптечні засоби', 'те, що є в "
+    "аптеці'). NEVER a dose, NEVER 'приймай' / 'take this'; tell the user to confirm the choice "
+    "and dose with a pharmacist. The user currently takes these prescription meds: {meds}. If a "
     "OTC option could interact with any of them, add a brief plain caution to check with a "
     "pharmacist (no definitive verdict). If the complaint could actually be serious or connects to "
     "a condition they track, do NOT suggest OTC — steer to a doctor instead. Do NOT tell the user "

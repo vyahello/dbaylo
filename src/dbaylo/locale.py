@@ -1196,25 +1196,27 @@ NAV_CITY_SAVED = "Запамʼятав: {city}. 📍"
 BTN_PRICE_RX = "💰 Ціни на ці ліки"  # on the prescription result + the course card
 BTN_MED_PRICE = "💰 Ціна"  # on a single med card
 
-# --- OTC self-care (owner-authorized rail-#1 relaxation): name безрецептурні options + prices ----
+# --- OTC self-care (owner-authorized rail-#1 relaxation): name no-prescription options + prices ---
 # Offered ONLY for a minor, low-acuity complaint (triage MONITOR + otc.otc_amenable); a red flag
 # escalates and shows none. The agent names options (no dose — the guard enforces it), flags
 # interactions with the user's Rx meds, and prices them; this footer is ALWAYS appended.
-BTN_CHAT_OTC = "💊 Безрецептурні + ціни"
-OTC_SEARCHING = "Підбираю безрецептурні варіанти й шукаю ціни… 🔎 Це може зайняти трохи часу."
+BTN_CHAT_OTC = "💊 Ціни на ліки"
+OTC_SEARCHING = "Підбираю варіанти й шукаю ціни… 🔎 Це може зайняти трохи часу."
 OTC_NO_MEDS = "(рецептурних ліків не вказано)"
+# Internal prompt (not shown). The agent finds no-prescription options but is told (in the persona)
+# to phrase its REPLY naturally — never the jarring clinical word "безрецептурні".
 OTC_QUERY = (
-    "Користувач має легку скаргу: «{complaint}». Назви кілька загальновідомих БЕЗРЕЦЕПТУРНИХ "
-    "засобів, які при цьому зазвичай беруть, і знайди їхні ціни за правилами вище. Без дози. "
-    "Місто: {city}."
+    "Користувач має легку скаргу: «{complaint}». Назви кілька загальновідомих засобів без рецепта, "
+    "які при цьому зазвичай беруть, і знайди їхні ціни за правилами вище. Без дози. Місто: {city}."
 )
 OTC_FOOTER = (
-    "ℹ️ Це загальна інформація про безрецептурні засоби, а не призначення чи діагноз. Вибір і "
-    "дозу узгодь із фармацевтом, а якщо не минає або погіршується — звернись до лікаря."
+    "ℹ️ Це загальна інформація, а не призначення чи діагноз. Вибір і дозу узгодь із фармацевтом, "
+    "а якщо не минає або погіршується — звернись до лікаря."
 )
 OTC_FALLBACK = (
-    "Зараз не вийшло підібрати варіанти й ціни. При легких симптомах люди часто беруть "
-    "безрецептурні засоби — підкаже фармацевт в аптеці; якщо не минає чи погіршується — до лікаря."
+    "Не вдалося зібрати ціни просто зараз 🤔 Спробуй ще раз трохи пізніше. А щодо вибору ліків — "
+    "найкраще підкаже фармацевт прямо в аптеці. Якщо ж біль не минає або стає сильнішим, не "
+    "відкладай візит до лікаря."
 )
 
 # Price ceiling (МОЗ граничні ціни). Exists ONLY for the reimbursement subset — for
