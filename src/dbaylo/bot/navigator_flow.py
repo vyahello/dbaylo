@@ -28,7 +28,12 @@ from dbaylo.companion import callbacks, cities, medications
 from dbaylo.db import get_session
 from dbaylo.db.models import Medication
 from dbaylo.labs.intake import ensure_user, get_city, set_city
-from dbaylo.navigator.pipeline import find_prices_web, run_coverage, run_price
+from dbaylo.navigator.pipeline import (
+    find_prices_freeform,
+    find_prices_web,
+    run_coverage,
+    run_price,
+)
 from dbaylo.safety import screen
 
 router = Router(name="navigator")
@@ -189,6 +194,18 @@ async def _send_meds_prices(
     await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
 
 
+async def send_freeform_price(message: Message, request: str, *, telegram_id: int | None) -> None:
+    """Answer a FREE-FORM price request from chat ("знайди Но-шпа у Львові, ціни"): the agent
+    extracts the named drug(s) + city itself. City = the one named in the message, else the saved
+    one. Gate + named-drug boundary stay inside the pipeline. Called by the companion free-text
+    router, so a plain message about prices is acted on, not just chatted about."""
+    city = cities.parse_city(request) or await _city_for(telegram_id)
+    await message.answer(locale.NAV_PRICE_SEARCHING)
+    async with keep_typing(message):
+        text = await find_prices_freeform(request, city=city)
+    await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
+
+
 @router.message(Command("price"))
 async def cmd_price(message: Message, command: CommandObject, state: FSMContext) -> None:
     arg = (command.args or "").strip()
@@ -233,7 +250,8 @@ async def on_price_med(callback: CallbackQuery, state: FSMContext) -> None:
         meds = await _unique_meds(session, user_id=user.id)
     if 0 <= index < len(meds):
         med = meds[index]
-        await _send_price(callback.message, med.name, telegram_id=tg, dose=_strength(med.dose))
+        drug = medications.clean_drug_name(med.name)  # strip "К."/"Т." before searching
+        await _send_price(callback.message, drug, telegram_id=tg, dose=_strength(med.dose))
 
 
 # --- City (asked once, remembered on User.city; reused by price + clinic search) -------
@@ -276,14 +294,15 @@ async def on_city_text(message: Message, state: FSMContext) -> None:
 
 
 def _price_items(meds: list[Medication]) -> list[tuple[str, str | None]]:
-    """(name, strength?) pairs for the price agent — de-duplicated by normalized drug name."""
+    """(name, strength?) pairs for the price agent — de-duplicated by normalized drug name, with the
+    leading form marker ("К."/"Т.") stripped so the agent searches the plain product."""
     items: list[tuple[str, str | None]] = []
     seen: set[str] = set()
     for med in meds:
         key = medications.normalize_name(med.name)
         if key and key not in seen:
             seen.add(key)
-            items.append((med.name, _strength(med.dose)))
+            items.append((medications.clean_drug_name(med.name), _strength(med.dose)))
     return items
 
 
@@ -324,7 +343,7 @@ async def on_medication_price(callback: CallbackQuery) -> None:
         med = await session.get(Medication, medication_id)
         if med is None or med.user_id != user.id:
             return
-        name, dose = med.name, _strength(med.dose)
+        name, dose = medications.clean_drug_name(med.name), _strength(med.dose)
     await _send_price(callback.message, name, telegram_id=tg, dose=dose)
 
 

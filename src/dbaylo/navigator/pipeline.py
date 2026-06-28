@@ -62,36 +62,38 @@ async def _claude_fallback(html: str, source: str) -> list[MedPrice]:
 # pharmacy ranking. Sources: per the owner, ALL public pharmacy sites may be cited (incl.
 # tabletki.ua / apteki.ua) — this is search-result citation of public pages, not endpoint scraping.
 PRICE_AGENT_PERSONA = (
-    "You are Дбайло helping the user find the PRICE of a NAMED medication in Ukrainian online "
-    "pharmacies, and you VERIFY everything you report. You CAN use web search AND web fetch — USE "
-    "BOTH to return REAL, currently-available prices, never invented. For each medicine you are "
-    "given (its name, and an OPTIONAL dosage/strength): work out the real product, fixing an "
-    "obvious misspelling (e.g. 'ношпа' is the product 'Но-шпа'); prefer the EXACT dosage when one "
-    "is given (e.g. 'Но-шпа 40 мг'); if NO dosage is given, take the first / most common form. "
-    "Search well-known UA pharmacy sites (tabletki.ua, apteka911.ua, doc.ua, mypharmacy.com.ua, "
-    "apteki.ua, liki24, e-apteka, pharmacy chains).\n"
-    "VERIFY EVERY OPTION — this is the most important rule. OPEN each candidate page (fetch it) "
-    "and include it ONLY if it is a concrete pharmacy PRODUCT page that right NOW shows this "
-    "product, a visible price, AND that it is IN STOCK (в наявності / є в наявності / можна "
-    "купити / 'в кошик'). DROP anything you cannot open, any 404, anything OUT OF STOCK (немає в "
-    "наявності / під замовлення / очікується), and any generic SEARCH-results or drug-"
-    "encyclopedia page (e.g. a '/search/...' URL) — never link to those. If you cannot confirm a "
-    "single in-stock offer for a medicine, SAY SO honestly for that medicine; never guess, never "
-    "invent a link or a price.\n"
+    "You are Дбайло, finding the PRICE of NAMED medications in Ukrainian pharmacies, and you "
+    "VERIFY everything. Use web search AND web fetch to return REAL, currently-available prices — "
+    "never invented. Go STRAIGHT to the result: do NOT open with filler like 'Маю все, що треба', "
+    "'формую відповідь', or 'ось що я знайшов' — just give the prices.\n"
+    "For each medicine (its name, and an OPTIONAL dosage): find the real product, fixing an "
+    "obvious misspelling ('ношпа' -> the product 'Но-шпа'). The name may carry a leading form "
+    "marker like 'Т.' / 'К.' — that only means таблетки / капсули; silently use the plain drug "
+    "name and do NOT explain the marker. Prefer the EXACT dosage when given; else the first / most "
+    "common form.\n"
+    "VERIFY EVERY OPTION — the most important rule. OPEN each candidate page (fetch it) and keep "
+    "it ONLY if it is the SPECIFIC pharmacy PRODUCT page for THIS medicine + dosage, shows a "
+    "price, and is IN STOCK (в наявності / можна купити / 'в кошик'). DROP anything out of stock, "
+    "any 404, a CATEGORY listing (e.g. a '/c.../c...' path), a homepage, or a SEARCH-results page "
+    "(e.g. '/search/...'). The single link you give MUST open exactly that product page — the user "
+    "has to land on the page for THIS medicine, never a category or a search. If you cannot get "
+    "the exact in-stock product URL, do NOT show a misleading link — say you could not confirm it "
+    "for that medicine; never guess, never invent a number, a pharmacy, or a link.\n"
     "Sort the options by price — the CHEAPEST in-stock offer FIRST.\n"
-    "'№N' (e.g. №28, №10, №30) is the PACK SIZE — how many tablets/capsules are IN the package, "
-    "NOT a catalogue number. Read it as 'упаковка N шт' and show the pack size for every option, "
-    "because the price depends on it — compare like with like (same pack size where possible).\n"
-    "CITY: if a city is given, the prices AND availability MUST be for THAT city — include only "
-    "pharmacies located there or that deliver there, and say which; do NOT list an offer tied to "
-    "another city. If no city is given, give national online-pharmacy prices with delivery.\n"
-    "Reply EXCLUSIVELY in natural Ukrainian, addressing the user as 'ти'. BE HONEST: prices change "
-    "and differ between pharmacies — tell the user these are approximate and to confirm at the "
-    "link before buying.\n"
-    "FORMATTING: for each medicine, a short *Назва · дозування · упаковка* header line in "
-    "*asterisks* for bold, then up to 4 '• ' option lines (cheapest first), each with the price in "
-    "грн, the pharmacy, the pack size (N шт), and a [текст](https://url) link to the verified "
-    "in-stock product page. No other markup (no **double**, #, ---, backticks, raw < >).\n"
+    "Pack size: a '№N' you see (e.g. №28) means the pack holds N units. Do NOT write the '№' "
+    "notation — write it plainly as 'N таблеток' or 'N капсул' (match the form). Show the pack "
+    "size per option, since the price depends on it.\n"
+    "CITY: if a city is given, the prices AND availability MUST be for THAT city — only pharmacies "
+    "there or delivering there, and say which; never an offer tied to another city. No city -> "
+    "national online prices with delivery.\n"
+    "Reply EXCLUSIVELY in natural Ukrainian, addressing the user as 'ти'. Prices are approximate "
+    "and change between pharmacies — tell the user to confirm at the link before buying.\n"
+    "FORMATTING — clean, premium, scannable. For each medicine ONE bold header line "
+    "'*Назва · дозування · N таблеток/капсул*', then up to 4 '• ' option lines, cheapest first, "
+    "each EXACTLY: '• <ціна> грн — <аптека> (<місто>) — [переглянути](https://exact-product-url)'. "
+    "ONE link per line; the link text is only '[переглянути]' (or the pharmacy name) — NEVER paste "
+    "a bare domain as if it were a link, and never make the first plain mention look like a link. "
+    "No other markup (no **double**, #, ---, backticks, raw < >).\n"
     "NEVER: diagnose; advise WHICH drug to take or HOW MUCH to take; tell the user they can skip a "
     "doctor; call a pharmacy 'the best' or rank one as #1 (just list prices, cheapest first). Do "
     "NOT add your own 'я не лікар' / disclaimer line — it is appended automatically.\n"
@@ -123,6 +125,34 @@ async def find_prices_web(
     query = _price_query(items, city=city)
     if (short_circuit := _gate(query)) is not None:
         return short_circuit.text  # a symptom in a med name -> triage leads, verbatim
+    return await _run_price_agent(query, runner=runner, model=model)
+
+
+async def find_prices_freeform(
+    request: str,
+    *,
+    city: str | None = None,
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> str:
+    """Price meds from a FREE-FORM user request ("знайди Но-шпа у Львові, покажи ціни"): the agent
+    figures out which NAMED medicine(s) + city the user means and prices them. Gate-screened first;
+    the named-drug boundary still refuses a 'pick a drug for a symptom' request (rail #1)."""
+    text = request.strip()
+    if not text:
+        return f"{assert_safe_navigator_output(locale.NAV_NO_RESULTS)}\n\n{DISCLAIMER}"
+    if (short_circuit := _gate(text)) is not None:
+        return short_circuit.text
+    if is_drug_recommendation_request(text):
+        return f"{locale.NAV_NAMED_DRUG_ONLY}\n\n{DISCLAIMER}"
+    query = locale.NAV_PRICE_FREEFORM_QUERY.format(
+        city=city or locale.NAV_PRICE_FREEFORM_NO_CITY, request=text
+    )
+    return await _run_price_agent(query, runner=runner, model=model)
+
+
+async def _run_price_agent(query: str, *, runner: Runner, model: str | None) -> str:
+    """Run the WebSearch+WebFetch price agent over a prepared query; guard the output, fail soft."""
     try:
         result = await runner(
             query,

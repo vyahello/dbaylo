@@ -708,7 +708,20 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (`render_companion_html`, links clickable). **Prescription ↔ price link:** the prescription-confirm
   result, every course card, and every med card carry a `💰` button (`course_prices`/
   `medication_price`, re-derived by id) that prices the whole saved course (or one med) via the SAME
-  agent — so a dropped рецепт leads straight to "скільки це коштує".
+  agent — so a dropped рецепт leads straight to "скільки це коштує". A stored name's form marker
+  (`К.`/`Т.`) is stripped via `medications.clean_drug_name` before the search (the agent prices
+  `Симода`, not `К. Симода`, and never explains the marker). **Free-form price requests in chat
+  (no menu/command):** `companion_flow._engage_with_text` routes a turn that
+  `navigator.priceintent.is_price_request` flags (a specific cost/buy phrasing — «скільки коштує…»,
+  «знайди ліки … ціни», «де купити…», not a bare «ціна») to `navigator_flow.send_freeform_price` →
+  `pipeline.find_prices_freeform`, which has the agent EXTRACT the named drug(s) + city from the
+  sentence (city = one named in the text, else `User.city`). It sits after the symptom/data-question/
+  affordance routers and before the general companion; the gate still clears the text first and the
+  named-drug boundary still refuses a symptom-based pick. The persona is tuned for **verified, exact
+  product links only** (open each page, in-stock + visible price; drop category/search/out-of-stock;
+  one `[переглянути](exact-product-url)` per line, never a bare-domain pseudo-link), reads `№N` as a
+  plain **pack count** (`N таблеток/капсул`, no `№`), sorts cheapest-first, and skips preamble filler
+  («Маю все, що треба»).
 - **Fetch** (`navigator/fetch.py`): async `httpx` (the one new runtime dep), fail-soft (a dead
   source returns `ok=False`, never raises/fabricates), descriptive UA, short-TTL on-disk cache,
   on-demand only — **no price DB**.

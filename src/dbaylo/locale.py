@@ -1159,6 +1159,14 @@ NAV_SOURCE_UNAVAILABLE = "Не вдалося отримати дані з: {sou
 NAV_PRICE_QUERY_INTRO = "Знайди ціни на ці ліки в українських аптеках:"
 NAV_PRICE_QUERY_CITY = "Місто користувача: {city} (шукай пропозиції там або з доставкою туди)."
 NAV_PRICE_QUERY_NO_CITY = "Місто не вказане — дай ціни в українських онлайн-аптеках по Україні."
+# Free-form price request: the user wrote a sentence; the agent extracts the named meds + city.
+NAV_PRICE_FREEFORM_NO_CITY = "не вказане"
+NAV_PRICE_FREEFORM_QUERY = (
+    "Користувач написав довільний запит про ціну ліків. Визнач, які САМЕ названі ним ліки (і "
+    "дозування / місто, якщо назвав) він має на увазі, і знайди ціни за правилами вище. НЕ "
+    "вибирай ліки за симптомом — лише ті, що він назвав явно. Якщо назви ліків у запиті немає — "
+    "коротко попроси назвати конкретні ліки.\nМісто: {city}.\nЗапит користувача: {request}"
+)
 NAV_PRICE_SEARCHING = "Шукаю ціни в аптеках… 🔎 Це може зайняти трохи часу."
 # 💊 Ціна ліків screen chrome. Each med button is marked with its prescription number (①②…), so it
 # is clear which рецепт it belongs to; a standalone (non-course) med is marked 💊. The legend maps

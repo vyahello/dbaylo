@@ -132,6 +132,35 @@ async def test_trivial_turn_has_no_affordance_keyboard(monkeypatch) -> None:
     assert message.answer.call_args.kwargs.get("reply_markup") is None  # no buttons on a bare ack
 
 
+def _patch_routers_off(monkeypatch):
+    """Turn off the consult sub-routers so _engage_with_text falls to the price/chat step."""
+    for name in ("start_data_question_consult", "start_primed_consult", "start_typed_affordance"):
+        monkeypatch.setattr(companion_flow.consult_flow, name, AsyncMock(return_value=False))
+
+
+async def test_free_form_price_request_routes_to_the_price_agent(monkeypatch) -> None:
+    # "знайди ціни на парацетамол" is ACTED on (price agent), not just chatted about.
+    _patch_routers_off(monkeypatch)
+    sent = AsyncMock()
+    monkeypatch.setattr(companion_flow.navigator_flow, "send_freeform_price", sent)
+    message, state = _message(), _state({})
+    await companion_flow._engage_with_text(
+        message, state, "знайди ціни на парацетамол", AsyncMock()
+    )
+    sent.assert_awaited_once()
+    assert sent.await_args.args[1] == "знайди ціни на парацетамол"  # the request text is passed
+
+
+async def test_ordinary_chat_does_not_route_to_the_price_agent(monkeypatch) -> None:
+    _patch_routers_off(monkeypatch)
+    _patch_common(monkeypatch)
+    sent = AsyncMock()
+    monkeypatch.setattr(companion_flow.navigator_flow, "send_freeform_price", sent)
+    message, state = _message(), _state({})
+    await companion_flow._engage_with_text(message, state, "розкажи про сон", AsyncMock())
+    sent.assert_not_awaited()  # a non-price turn stays in the companion chat
+
+
 def test_worth_remembering_filters_trivial_turns() -> None:
     assert companion_flow._worth_remembering("чому в мене низький гемоглобін?")
     assert not companion_flow._worth_remembering("  Дякую  ")

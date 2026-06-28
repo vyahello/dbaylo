@@ -356,6 +356,19 @@ def normalize_name(name: str) -> str:
     return re.sub(r"[^\w]+", "", n)
 
 
+def clean_drug_name(name: str) -> str:
+    """The plain product name for SEARCH / display: drop a leading dosage-form marker ("Т.", "К.",
+    "таб", "капс") but KEEP the real name + its case ("К. Симода" -> "Симода"). Unlike
+    :func:`normalize_name` (a lowercased, punctuation-free dedup key), this stays human-readable, so
+    the price agent searches the actual drug and need not explain the marker."""
+    n = name.strip()
+    prev = ""
+    while prev != n:
+        prev = n
+        n = _FORM_PREFIX_RE.sub("", n).strip()
+    return n or name.strip()
+
+
 async def live_normalized_names(session: AsyncSession, *, user_id: int) -> set[str]:
     """Normalized names of medications that currently have ≥1 ACTIVE reminder — the dedup set, so a
     drug already being taken isn't scheduled again from a new prescription (the owner's two

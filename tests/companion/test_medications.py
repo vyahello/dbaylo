@@ -87,6 +87,14 @@ def test_safe_dose_record_keeps_the_amount_but_refuses_a_directive() -> None:
         assert rec is None or contains_dose_verb(rec) is None
 
 
+def test_clean_drug_name_strips_the_form_marker_but_keeps_the_name() -> None:
+    # For SEARCH/display: drop the leading "К."/"Т." form marker, keep the real product name + case.
+    assert medications.clean_drug_name("К. Симода") == "Симода"
+    assert medications.clean_drug_name("Т. Соннат") == "Соннат"
+    assert medications.clean_drug_name("таб Буспірон") == "Буспірон"
+    assert medications.clean_drug_name("Но-шпа") == "Но-шпа"  # no marker -> unchanged
+
+
 def test_normalize_name_keys_same_drug_across_forms() -> None:
     # "Т. Буспірон", "таб буспірон" and "Буспірон" are the SAME drug — one dedup key.
     key = medications.normalize_name("Буспірон")

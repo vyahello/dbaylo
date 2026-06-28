@@ -28,7 +28,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
-from dbaylo.bot import consult_flow
+from dbaylo.bot import consult_flow, navigator_flow
 from dbaylo.bot.formatting import answer_chunked, render_companion_html
 from dbaylo.bot.keyboards import cancel_keyboard
 from dbaylo.bot.typing import keep_typing
@@ -48,6 +48,7 @@ from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import GoalStatus
 from dbaylo.labs.intake import ensure_user
+from dbaylo.navigator import priceintent
 from dbaylo.safety import GateSource, screen
 
 router = Router(name="companion")
@@ -718,6 +719,13 @@ async def _engage_with_text(
     # A TYPED "нагадай мені…" / "запиши мене…" / "де зробити…" opens the reminder/clinic mini-flow
     # (entering a grounded general consult) so Дбайло ACTS on it — never just claims it will (#6).
     if await consult_flow.start_typed_affordance(message, state, scheduler=reminder_scheduler):
+        return
+    # A FREE-FORM price request ("знайди Но-шпа у Львові, ціни") — ACT on it via the price agent
+    # (it extracts the named drug + city), instead of just chatting. The gate already cleared the
+    # text above; the named-drug boundary still refuses a symptom-based pick inside the pipeline.
+    if priceintent.is_price_request(text):
+        tg = message.from_user.id if message.from_user else None
+        await navigator_flow.send_freeform_price(message, text, telegram_id=tg)
         return
     # Otherwise — ordinary companion chat: a continuous, grounded, memory-backed thread.
     await _run_companion_turn(message, state, text)

@@ -76,6 +76,45 @@ async def test_run_price_web_agent_routes_through_find_prices_web() -> None:
     assert "ношпа 40 мг" in runner.prompt and "Київ" in runner.prompt  # type: ignore[attr-defined]
 
 
+async def test_find_prices_freeform_extracts_from_a_sentence() -> None:
+    runner = _runner(
+        "*Но-шпа 40 мг · 24 таблетки*\n• 95 грн — Аптека X (Львів) — [переглянути](https://doc.ua/p/x)"
+    )
+    out = await pipeline.find_prices_freeform(
+        "знайди мені ліки Но-шпа у Львові і покажи ціни", city="Львів", runner=runner
+    )
+    assert "Но-шпа" in out and out.endswith(DISCLAIMER)
+    # The whole free-form request + the city are handed to the agent to parse.
+    assert "Но-шпа" in runner.prompt and "Львів" in runner.prompt  # type: ignore[attr-defined]
+
+
+async def test_find_prices_freeform_refuses_a_symptom_based_pick() -> None:
+    ran = {"x": False}
+
+    async def runner(prompt: str, **kwargs):
+        ran["x"] = True
+        return SimpleNamespace(ok=True, text="…")
+
+    out = await pipeline.find_prices_freeform("підбери ліки від тиску і ціну", runner=runner)
+    assert not ran["x"]
+    assert pipeline.locale.NAV_NAMED_DRUG_ONLY in out
+
+
+async def test_find_prices_freeform_symptom_short_circuits() -> None:
+    out = await pipeline.find_prices_freeform("температура і озноб, скільки коштує")
+    assert "лікар" in out.lower()
+
+
+def test_is_price_request_detects_cost_phrasings() -> None:
+    from dbaylo.navigator import priceintent
+
+    assert priceintent.is_price_request("знайди мені ліки Но-шпа у Львові і покажи ціни")
+    assert priceintent.is_price_request("скільки коштує парацетамол?")
+    assert priceintent.is_price_request("де купити зопіклон")
+    assert not priceintent.is_price_request("як ти сьогодні?")
+    assert not priceintent.is_price_request("у мене болить голова")  # not a price ask
+
+
 async def test_run_price_web_agent_still_refuses_a_drug_pick() -> None:
     # The named-drug boundary holds on the web path: "ліки від тиску" is a pick request, refused.
     ran = {"x": False}
