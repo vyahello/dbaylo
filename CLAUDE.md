@@ -38,13 +38,20 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
    Bot **output text** is scanned for dose directives (`safety.contains_dose_directive`).
    *Scope:* the guard inspects what Дбайло *says* — never DB field names. Storing what a
    doctor prescribed (`Medication.dose`/`schedule`) is record-keeping and is allowed.
-   **Strength-as-record boundary:** a medication reminder MAY now show the doctor's drug
-   *strength* (`зопіклон — 7,5 мг`, via `medications.safe_dose_label` → only a bare `N мг/мкг/
-   мл/г`, doctor-attributed) — a strength is record-keeping, NOT a directive. It is NEVER a dose
-   *directive*: no `приймай N`, `по N таб`, count, form, or frequency — `safe_dose_label` strips
-   those, `render_reminder` re-validates the text and falls back to the dose-less line on any guard
-   trip, and `assert_safe_output` (still run on every reminder) is the hard backstop. So the rail's
-   intent (Дбайло is not a prescriber) holds while the owner-requested strength shows.
+   **Amount-as-record boundary (OWNER-AUTHORIZED, personal bot):** a medication reminder MAY show
+   the doctor's prescribed per-intake **AMOUNT** as a record so the owner need not recall each script
+   (`💊 Час прийняти ліки: Буспірон — 1 таблетка · 5 мг. За призначенням лікаря.`) — the count, dosage
+   FORM and STRENGTH the prescription printed, doctor-attributed. The amount is record-keeping, NOT a
+   directive. The line we never cross is a dosing **verb** or a **frequency** (`приймай N`, `3 рази на
+   день`): `medications.safe_dose_record` keeps the amount but refuses any verb/frequency,
+   `safety.contains_dose_verb` is the narrow vetting helper, and `render_reminder` masks the vetted
+   amount out before running `assert_safe_output` on the rest — so a forbidden phrase or any *other*
+   dose directive in the copy still hard-fails while the doctor's amount shows. `parse_dose` captures
+   BOTH the count/form and the strength (`1 таблетка · 5 мг`); the prescription extractor's `dose`
+   field asks for both too. (Earlier this was a narrower *strength-only* boundary via the now-removed
+   `safe_dose_label`; the owner asked for the actual tablet count because the prior generic "як
+   призначив лікар" line was useless when he couldn't remember the prescription.) So the rail's intent
+   (Дбайло is not a prescriber — it never *orders* a dose) holds while the doctor's amount shows.
 2. **Triage asymmetry — escalate UP only.** `triage.engine.evaluate` returns
    `max(matched rule actions, floored at MONITOR)`. There is no code path that concludes
    "you can skip the doctor." Formalised by the **monotonicity** test: adding any symptom
@@ -320,11 +327,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   coalesced to one delivery per reminder (`last_due_occurrence`); an overdue one-off is delivered
   then retired, a future one just scheduled. `create_reminder` anchors `last_fired_at` at creation
   so a new reminder is never caught up for an occurrence before it existed. `--dry-run` lists jobs
-  without firing. A medication reminder carries the doctor's drug **strength** as a record
-  (`зопіклон — 7,5 мг`) but **never a dose directive** — at fire time the scheduler passes
-  `medications.safe_dose_label(med.dose)` (a bare `N мг/мкг/мл/г` only; counts/forms/frequencies
-  stripped) to `render_reminder(reminder, *, dose=)`, which validates the dose-carrying text and
-  falls back to the dose-less line on any guard trip (rail #1; the strength-as-record boundary).
+  without firing. A medication reminder carries the doctor's prescribed **amount** as a record
+  (`Буспірон — 1 таблетка · 5 мг`) but **never a dose directive** — at fire time the scheduler passes
+  `medications.safe_dose_record(med.dose)` (the count/form + strength; a dosing verb or frequency is
+  refused) to `render_reminder(reminder, *, dose=)`, which masks the vetted amount out before running
+  `assert_safe_output` on the rest, and falls back to the dose-less line if the amount carries a verb
+  (rail #1; the amount-as-record boundary).
 - **Tier 1.1 — proactive behavior** (`companion/{concerns,medications,proactive,callbacks}.py`,
   `bot/proactive_flow.py`): the check-in is **conditional** — a daily check-in is scheduled **iff**
   `health.should_have_checkin` (≥1 active `Condition`, `ConditionStatus`, migration 0004 — OR a
@@ -450,8 +458,8 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   prescription pays a second, dedicated read — the common path is unchanged. A prescription the
   classifier misses (→ "lab") just falls back to today's behaviour (📷 button still works). The
   **dose is stored** on `Medication.dose` as record-keeping (rail #1 permits it) and shown in the
-  confirm; the reminder shows the doctor's drug **strength** as a record (never a directive — see
-  rail #1's strength-as-record boundary); a med whose time the page didn't print is listed for manual
+  confirm; the reminder shows the doctor's prescribed **amount** (count/form + strength) as a record
+  (never a directive — see rail #1's amount-as-record boundary); a med whose time the page didn't print is listed for manual
   entry, never guessed. **Cross-prescription dedup** (the owner's two scripts both listed Буспірон →
   two reminder sets): `on_prescription_confirm` skips a med whose `medications.normalize_name` (lower-
   cased, dosage-form prefixes "Т."/"таб"/"капс" stripped, punctuation removed) is already firing live

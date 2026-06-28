@@ -192,9 +192,10 @@ async def _fire_reminder(
                     locale.MED_COURSE_FINISHED.format(name=med.name, until=med.until.isoformat()),
                 )
             else:
-                # The reminder carries the doctor's drug STRENGTH (if one was read), as a record —
-                # never a dose directive (render_reminder validates + falls back; rail #1).
-                dose = medications.safe_dose_label(med.dose) if med is not None else None
+                # The reminder carries the doctor's prescribed AMOUNT (if one was read), as a record
+                # so the user need not recall the script — never a dose directive (render_reminder
+                # masks + re-validates; rail #1, the amount-as-record boundary).
+                dose = medications.safe_dose_record(med.dose) if med is not None else None
                 await _send(
                     sender,
                     session,

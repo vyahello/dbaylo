@@ -77,22 +77,29 @@ def test_medication_reminder_text_carries_no_dose() -> None:
     assert contains_dose_directive(text) is None
 
 
+def test_medication_reminder_shows_the_doctors_amount() -> None:
+    # The owner asked to SEE the per-intake amount (count + strength) so they need not recall each
+    # script — shown as a doctor-attributed record (rail #1, the amount-as-record boundary).
+    rem = Reminder(type=reminders.TYPE_MEDICATION, schedule=daily_cron(21), payload="зопіклон")
+    text = reminders.render_reminder(rem, dose="1 таблетка · 5 мг")
+    assert "зопіклон" in text and "1 таблетка" in text and "5 мг" in text
+
+
 def test_medication_reminder_can_show_the_doctors_strength() -> None:
-    # The doctor's drug STRENGTH is shown as a record (rail #1) — never a dose directive: the text
-    # still passes the dose-directive guard.
+    # A strength-only amount is shown and (being a bare mass) still passes the dose-directive guard.
     rem = Reminder(type=reminders.TYPE_MEDICATION, schedule=daily_cron(21), payload="зопіклон")
     text = reminders.render_reminder(rem, dose="7,5 мг")
     assert "зопіклон" in text and "7,5 мг" in text
     assert contains_dose_directive(text) is None
 
 
-def test_medication_reminder_falls_back_when_dose_reads_as_a_directive() -> None:
-    # Defense in depth: if a malformed "dose" would read as a directive, the reminder drops it and
-    # renders the safe dose-less line rather than ever emitting a prescription.
+def test_medication_reminder_refuses_a_dose_with_a_dosing_verb() -> None:
+    # Defense in depth: a "dose" carrying an imperative dosing VERB would read as Дбайло ordering a
+    # dose — it is dropped and the safe dose-less line renders instead (a bare count/strength is the
+    # allowed record; only the verb is the line we never cross).
     rem = Reminder(type=reminders.TYPE_MEDICATION, schedule=daily_cron(9), payload="Аспірин")
-    text = reminders.render_reminder(rem, dose="по 2 таблетки")
-    assert "Аспірин" in text and "таблетки" not in text
-    assert contains_dose_directive(text) is None
+    text = reminders.render_reminder(rem, dose="приймай 2 таблетки")
+    assert "Аспірин" in text and "приймай" not in text and "2 таблетки" not in text
 
 
 def test_repeat_lab_reminder_text() -> None:

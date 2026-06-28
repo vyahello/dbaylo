@@ -32,6 +32,7 @@ _DOSE_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern, re.IGNORECASE) for pattern in locale.DOSE_DIRECTIVE_PATTERNS
 )
 _DOSE_UNIT_SOFT: re.Pattern[str] = re.compile(locale.DOSE_UNIT_SOFT_PATTERN, re.IGNORECASE)
+_DOSE_VERB: re.Pattern[str] = re.compile(locale.DOSE_VERB_PATTERN, re.IGNORECASE)
 _DIET_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
     re.compile(pattern, re.IGNORECASE) for pattern in locale.DIET_PRESCRIPTION_PATTERNS
 )
@@ -72,6 +73,19 @@ def contains_dose_unit_mention(text: str) -> str | None:
     routing / telemetry only.
     """
     match = _DOSE_UNIT_SOFT.search(text)
+    return match.group(0) if match else None
+
+
+def contains_dose_verb(text: str) -> str | None:
+    """Return the first imperative dosing verb in ``text`` (приймай / випий / …), else ``None``.
+
+    Narrow helper used to vet a medication reminder's doctor-attributed AMOUNT record: the count,
+    dosage form, and strength the doctor wrote are shown as record-keeping, but if such a record
+    also carries a dosing *verb* it would read as Дбайло *ordering* a dose (rail #1) and must be
+    refused. Unlike :func:`contains_dose_directive`, this keys on the verb alone — the amount
+    itself is allowed in the reminder's record by design.
+    """
+    match = _DOSE_VERB.search(text)
     return match.group(0) if match else None
 
 

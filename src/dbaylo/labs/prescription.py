@@ -5,10 +5,10 @@ and return JSON of a fixed shape (drug name · dose · times · frequency), and 
 parsed defensively — malformed / fenced / partial output degrades to
 :class:`~dbaylo.labs.extraction.ExtractionFailed`, never an exception.
 
-Rail #1: this is RECORD-KEEPING of what a clinician prescribed. We capture the dose so it can
-be stored on :class:`~dbaylo.db.models.Medication` (record), but the bot never advises a dose
-and the reminder text never carries one. The extractor only reports what the page shows — it
-never invents a drug, dose, time, or frequency.
+Rail #1: this is RECORD-KEEPING of what a clinician prescribed. We capture the dose so it can be
+stored on :class:`~dbaylo.db.models.Medication` (record) and shown in the reminder as the doctor's
+amount — never a dose *directive* (a dosing verb/frequency is refused downstream). The extractor
+only reports what the page shows — it never invents a drug, dose, time, or frequency.
 
 Lives in ``labs/`` (not ``bot/``/``companion/``) so importing ``run_claude`` here is fine: the
 safety choke-point test scans only the bot-facing packages, exactly as for lab extraction.
@@ -40,8 +40,10 @@ PRESCRIPTION_PERSONA = (
     '  "medications": [\n'
     "    {\n"
     '      "name": string,         // drug name exactly as printed (Ukrainian/Latin)\n'
-    '      "dose": string | null,  // dose PER INTAKE as printed: "500 мг", "1 таблетка",\n'
-    '                              // "10 крапель"; null if not printed\n'
+    '      "dose": string | null,  // FULL per-intake amount as printed — BOTH the count/form\n'
+    '                              // AND the strength when shown: "1 таблетка (5 мг)", "5 мг",\n'
+    '                              // "10 крапель"; null if not printed. Do NOT include the\n'
+    "                              // frequency or a verb here (those are separate fields).\n"
     '      "times": ["HH:MM", ...],// explicit 24h clock times if printed ("08:00"), else []\n'
     '      "frequency": string|null,// the printed frequency when there are NO clock times,\n'
     '                              // e.g. "двічі на день", "3 рази на добу", "вранці"\n'

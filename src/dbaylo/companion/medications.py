@@ -3,7 +3,9 @@
 Rail #1: the bot never suggests or selects a drug or a dose. The user types the
 medication name and the dose *times* (from their doctor's prescription); we store a
 :class:`Medication` record and create one recurring :class:`Reminder` per time. The
-reminder text names the medication and defers to the doctor — it never carries a dose.
+reminder names the medication and shows the doctor's prescribed AMOUNT as a record
+(:func:`safe_dose_record`) — never a dose *directive*: a dosing verb or a frequency is
+refused, so it never reads as Дбайло ordering a dose (the amount-as-record boundary).
 
 Turning a medication off deactivates **all** of its reminders (one per time), so no
 orphaned jobs keep firing.
@@ -19,7 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo.companion import reminders
 from dbaylo.db.models import Medication, Reminder, User
-from dbaylo.triage.safety import contains_dose_directive
+from dbaylo.triage.safety import contains_dose_verb
 
 _TIME_RE = re.compile(r"\b([01]?\d|2[0-3]):([0-5]\d)\b")
 # "N разів/раз" — the number of intakes per day. The number is the one BEFORE "раз", so in
@@ -50,13 +52,16 @@ _TIME_OF_DAY: tuple[tuple[tuple[str, ...], tuple[int, int]], ...] = (
         (21, 0),
     ),
 )
-# A per-intake amount for record-keeping (rail #1 allows storing what a doctor prescribed; never in
-# a reminder). e.g. "2 таблетки", "500 мг", "10 крапель", "1 капсула".
+# A per-intake amount for record-keeping (rail #1 allows storing what a doctor prescribed). Shown in
+# the reminder as a doctor-attributed amount record. e.g. "2 таблетки", "500 мг", "10 крапель".
 _DOSE_RE = re.compile(
     r"\d+(?:[.,]\d+)?\s*(?:табл\w*|таб\b|капсул\w*|капс\b|драже|саше|"
     r"мг|мкг|г\b|мл|крапл\w*|кап\b|од\b|мо\b)",
     re.IGNORECASE,
 )
+# Which dose tokens are a COUNT + dosage FORM ("1 таблетка") vs a STRENGTH ("5 мг"). The count/form
+# is "how many to swallow" — shown first in the record because that is what the owner asked to see.
+_FORM_TOKEN_RE = re.compile(r"табл|таб\b|капсул|капс\b|драже|саше|крапл|кап\b", re.IGNORECASE)
 
 # Deterministic waking-hours dosing schedules. A doctor prescribes "N разів на день", NOT clock
 # times — so the bot spreads the intakes across an ~08:00–22:00 waking day itself.
@@ -124,32 +129,42 @@ def distribute_times(per_day: int) -> list[time]:
 
 
 def parse_dose(text: str) -> str | None:
-    """The per-intake amount as free text for RECORD-KEEPING ("2 таблетки", "500 мг"), or ``None``.
-    Stored on ``Medication.dose`` (rail #1)."""
-    m = _DOSE_RE.search(text)
-    return m.group(0).strip() if m else None
+    """The per-intake amount for RECORD-KEEPING — every count/form/strength token the doctor wrote,
+    de-duplicated and joined ("1 таблетка", "5 мг", both when present → "1 таблетка · 5 мг"), or
+    ``None``. Stored on ``Medication.dose`` (rail #1) and shown in the reminder as a
+    doctor-attributed record so the user need not remember the script. The COUNT/FORM is listed
+    first (what to swallow), then the STRENGTH. A daily frequency ("3 рази") and a duration
+    ("10 днів") are NOT captured here — they drive the schedule / expiry, not the amount."""
+    seen: list[str] = []
+    keys: set[str] = set()
+    for m in _DOSE_RE.finditer(text):
+        token = re.sub(r"\s+", " ", m.group(0).strip())
+        if token.casefold() not in keys:
+            keys.add(token.casefold())
+            seen.append(token)
+    if not seen:
+        return None
+    forms = [t for t in seen if _FORM_TOKEN_RE.search(t)]
+    strengths = [t for t in seen if not _FORM_TOKEN_RE.search(t)]
+    return " · ".join(forms + strengths)
 
 
-# A drug's STRENGTH only — a bare mass/volume amount ("7,5 мг", "60 мг", "5 мл"). NOT a count/form
-# ("по 1 таб", "2 таблетки") and NOT a frequency, which would read as Дбайло dosing (rail #1).
-_STRENGTH_RE = re.compile(r"\b\d+(?:[.,]\d+)?\s*(?:мг|мкг|мл|г)\b", re.IGNORECASE)
-
-
-def safe_dose_label(dose: str | None) -> str | None:
-    """The doctor's drug STRENGTH ("7,5 мг") distilled from a free-text dose, for the reminder
-    note — a doctor-attributed RECORD, never a directive. Only a bare mass/volume strength returns;
-    counts, dosage forms, frequencies and verbs ("по 1 таб", "3 рази на день") are dropped, since
-    those would read as Дбайло telling the user how much to take. ``None`` when no clean strength is
-    present. The result is re-checked against :func:`contains_dose_directive` (defense in depth), so
-    a reminder can never be made to read as a prescription even if the input is unusual."""
+def safe_dose_record(dose: str | None) -> str | None:
+    """The doctor's per-intake AMOUNT ("1 таблетка", "1 таблетка · 5 мг") for the reminder — a
+    doctor-attributed RECORD so the user need not remember the script. The COUNT, dosage FORM and
+    STRENGTH are kept (the owner wants to see exactly how much to take); a dosing VERB ("приймай")
+    or a daily FREQUENCY ("3 рази на день") is refused, so the line can never read as Дбайло
+    *ordering* a dose — the reminder still frames it as the doctor's instruction (rail #1, the
+    amount-as-record boundary). ``None`` when no real amount is present or the text reads as a
+    directive (defense in depth, on top of the reminder renderer's own re-check)."""
     if not dose:
         return None
-    m = _STRENGTH_RE.search(dose)
-    if m is None:
+    cleaned = re.sub(r"\s+", " ", dose).strip(" .;,·")
+    if not cleaned or contains_dose_verb(cleaned) is not None:
         return None
-    parts = re.match(r"(\d+(?:[.,]\d+)?)\s*(мг|мкг|мл|г)", m.group(0), re.IGNORECASE)
-    label = f"{parts.group(1)} {parts.group(2).lower()}" if parts else m.group(0).strip()
-    return label if contains_dose_directive(label) is None else None
+    if _FREQ_NUM_RE.search(cleaned) or _FREQ_ABBR_RE.search(cleaned):
+        return None
+    return cleaned if _DOSE_RE.search(cleaned) else None
 
 
 def times_from_text(text: str) -> list[time]:

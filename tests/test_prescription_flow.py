@@ -1,5 +1,6 @@
-"""Prescription flow: confirm rendering + the confirm handler creating meds (dose stored, not in
-the reminder), and a DB check that add_medication persists the dose as record-keeping."""
+"""Prescription flow: confirm rendering + the confirm handler creating meds (dose stored as a
+record and shown in the reminder as the doctor's amount), and a DB check that add_medication
+persists the dose as record-keeping."""
 
 from __future__ import annotations
 
@@ -260,7 +261,7 @@ async def test_confirm_creates_timed_meds_with_dose_and_skips_untimed(monkeypatc
     assert cb.MENU_MED_LIST in datas and cb.MENU_OPEN_REMINDERS in datas
 
 
-async def test_add_medication_persists_dose_but_reminder_text_has_none(
+async def test_add_medication_persists_dose_and_reminder_shows_the_amount(
     async_session: AsyncSession,
 ) -> None:
     from dbaylo.companion import medications, reminders
@@ -271,9 +272,10 @@ async def test_add_medication_persists_dose_but_reminder_text_has_none(
     await async_session.flush()
 
     med, created = await medications.add_medication(
-        async_session, user=user, name="Аспірин", times=[time(8, 0)], dose="500 мг"
+        async_session, user=user, name="Аспірин", times=[time(8, 0)], dose="1 таблетка (5 мг)"
     )
-    assert med.dose == "500 мг"  # stored as record-keeping (rail #1 allows it)
-    # The reminder text names the drug and defers to the doctor — never the dose.
-    body = reminders.render_reminder(created[0])
-    assert "Аспірин" in body and "500" not in body and "мг" not in body
+    assert med.dose == "1 таблетка (5 мг)"  # stored as record-keeping (rail #1 allows it)
+    # The reminder shows the doctor's prescribed amount (the scheduler passes safe_dose_record) so
+    # the user need not recall the script — a doctor-attributed record, never a directive.
+    body = reminders.render_reminder(created[0], dose=medications.safe_dose_record(med.dose))
+    assert "Аспірин" in body and "1 таблетка" in body and "5 мг" in body

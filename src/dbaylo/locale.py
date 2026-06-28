@@ -153,6 +153,15 @@ DOSE_DIRECTIVE_PATTERNS: tuple[str, ...] = (
 # pass); it is exposed via ``safety.contains_dose_unit_mention`` for soft routing.
 DOSE_UNIT_SOFT_PATTERN: str = r"\b\d+(?:[.,]\d+)?\s?(?:мг|мкг|мл|г|грам\w*|од|мо)\b"
 
+# Imperative / second-person dosing verbs. Used by ``safety.contains_dose_verb`` to
+# vet a medication reminder's doctor-attributed AMOUNT record: the count/form/strength
+# the doctor wrote is shown as a record, but a dose record that smuggles in such a verb
+# would read as Дбайло *ordering* a dose (rail #1) and is refused.
+DOSE_VERB_PATTERN: str = (
+    r"\b(?:прийма\w*|прийми|прийня\w*|випий\w*|випити|пий|пити|"
+    r"вживай\w*|вжива\w*|вжий|розчин\w*|закап\w*|застосов\w*|використов\w*)\b"
+)
+
 # Rail #6: diet / restriction phrasing Дбайло must never *say*. Mirrors the dose
 # philosophy — each pattern requires a number, an imperative, or a named protocol,
 # so benign cautionary copy ("голодування виснажує") and ALLOWED health-literacy
@@ -987,14 +996,14 @@ MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — п
 
 # --- Stage 3: companion (L1) — reminders ----------------------------------------
 
-# A medication reminder names the drug and defers to the doctor (rail #1). It may carry the doctor's
-# drug STRENGTH ("7,5 мг") as a record (REMINDER_MEDICATION_DOSE, used when one was read from the
-# prescription) but NEVER a dose DIRECTIVE — no "приймай N", "по N таб", count or frequency, which
-# the dose guard still hard-blocks. The dose-less line is the fallback when no strength is known.
-REMINDER_MEDICATION = "🔔 Нагадування про твої ліки: {name}. Прийми так, як призначив лікар. 💊"
-REMINDER_MEDICATION_DOSE = (
-    "🔔 Нагадування про твої ліки: {name} — {dose}. Прийми так, як призначив лікар. 💊"
-)
+# A medication reminder names the drug and carries the doctor's prescribed AMOUNT as a record so the
+# user need not remember each script (rail #1, the amount-as-record boundary). The _DOSE variant
+# shows the doctor's per-intake amount — the count/dosage form and/or strength the script printed
+# ("1 таблетка", "1 таблетка · 5 мг"), a doctor-attributed RECORD — while an imperative dose verb or
+# a daily frequency is refused upstream (medications.safe_dose_record / safety.contains_dose_verb),
+# so it never reads as Дбайло *ordering* a dose. The dose-less line is the fallback when none read.
+REMINDER_MEDICATION = "💊 Час прийняти ліки: {name}. Деталі — у твоєму рецепті."
+REMINDER_MEDICATION_DOSE = "💊 Час прийняти ліки: {name} — {dose}. За призначенням лікаря."
 REMINDER_REPEAT_LAB = (
     "🔔 Нагадування: можливо, час повторити аналізи ({name}). Звернись до лабораторії, "
     "коли буде зручно."

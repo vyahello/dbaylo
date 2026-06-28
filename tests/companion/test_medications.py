@@ -63,23 +63,28 @@ def test_parse_dose() -> None:
     assert medications.parse_dose("2 таблетки 3 рази") == "2 таблетки"
     assert medications.parse_dose("500 мг двічі") == "500 мг"
     assert medications.parse_dose("3 рази на день") is None  # a frequency is not a dose
+    # The COUNT/FORM and the STRENGTH are BOTH captured — count first (what to swallow).
+    assert medications.parse_dose("Буспірон 5 мг по 1 таблетці") == "1 таблетці · 5 мг"
+    assert medications.parse_dose("5 мг") == "5 мг"  # strength only is fine
 
 
-def test_safe_dose_label_returns_only_a_clean_strength() -> None:
-    from dbaylo.triage.safety import contains_dose_directive
+def test_safe_dose_record_keeps_the_amount_but_refuses_a_directive() -> None:
+    from dbaylo.triage.safety import contains_dose_verb
 
-    # The drug STRENGTH only — the count/form/frequency ("по 1 таб перед сном") is dropped, since it
-    # would read as Дбайло dosing.
-    assert medications.safe_dose_label("7,5 мг - по 1 таб перед сном") == "7,5 мг"
-    assert medications.safe_dose_label("60 мг по 1 кап зранку") == "60 мг"
-    assert medications.safe_dose_label("90мг") == "90 мг"  # OCR ran them together -> spaced
-    assert medications.safe_dose_label("по 1 таб") is None  # no strength, just a count
-    assert medications.safe_dose_label("2 таблетки") is None  # a form/count is not a strength
-    assert medications.safe_dose_label(None) is None
-    # Whatever it returns must never read as a directive (defense in depth).
-    for raw in ("7,5 мг - по 1 таб", "500 мг/добу", "по 2 таблетки"):
-        label = medications.safe_dose_label(raw)
-        assert label is None or contains_dose_directive(label) is None
+    # The doctor's per-intake AMOUNT is kept — count + form AND strength — so the user sees exactly
+    # how much to take without recalling the script (rail #1, the amount-as-record boundary).
+    assert medications.safe_dose_record("1 таблетка · 5 мг") == "1 таблетка · 5 мг"
+    assert medications.safe_dose_record("2 таблетки") == "2 таблетки"
+    assert medications.safe_dose_record("7,5 мг") == "7,5 мг"
+    # A dosing VERB or a daily FREQUENCY makes it read as a directive -> refused.
+    assert medications.safe_dose_record("приймай 2 таблетки") is None
+    assert medications.safe_dose_record("2 таблетки 3 рази на день") is None
+    assert medications.safe_dose_record("за потреби") is None  # not a real dose amount
+    assert medications.safe_dose_record(None) is None
+    # Whatever it returns must never carry a dosing verb (defense in depth).
+    for raw in ("7,5 мг", "1 таб", "по 1 таблетці", "приймай 1 таб", None):
+        rec = medications.safe_dose_record(raw)
+        assert rec is None or contains_dose_verb(rec) is None
 
 
 def test_normalize_name_keys_same_drug_across_forms() -> None:

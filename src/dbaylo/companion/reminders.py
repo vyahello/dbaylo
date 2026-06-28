@@ -8,7 +8,8 @@ rebuild a trigger from the DB alone:
 
 Parsing here is pure (no APScheduler import); :mod:`dbaylo.companion.scheduler`
 turns a :class:`ScheduleSpec` into an actual trigger. Reminder *message* rendering
-is also here and always defers to a doctor for medication (rail #1 — never a dose).
+is also here; a medication reminder shows the doctor's prescribed AMOUNT as a record
+(rail #1 — an amount, never a dose *directive*: a dosing verb/frequency is refused).
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from dbaylo import locale
 from dbaylo.config import get_settings
 from dbaylo.db.models import Reminder, User
-from dbaylo.triage.safety import assert_safe_output, contains_dose_directive
+from dbaylo.triage.safety import assert_safe_output, contains_dose_verb
 
 # "через 10 днів" / "через 2 тижні" / "через місяць" / "через рік" -> a future datetime.
 _RELATIVE_RE = re.compile(
@@ -315,24 +316,32 @@ async def deactivate_medication(session: AsyncSession, medication_id: int) -> li
 def render_reminder(reminder: Reminder, *, dose: str | None = None) -> str:
     """Render the Ukrainian message for a reminder; always safety-checked.
 
-    For a medication reminder, ``dose`` is the doctor's drug STRENGTH (e.g. "7,5 мг", from
-    :func:`dbaylo.companion.medications.safe_dose_label`) shown as a doctor-attributed RECORD —
-    never a dose DIRECTIVE. The dose-carrying text is itself validated, and falls back to the
-    dose-less line on any guard trip, so the reminder never reads as Дбайло prescribing (rail #1).
-    Callers
-    that don't pass ``dose`` (the reminders list, a repeat-lab one-off) render exactly as before.
+    For a medication reminder, ``dose`` is the doctor's prescribed per-intake AMOUNT (e.g.
+    "1 таблетка · 5 мг", from :func:`dbaylo.companion.medications.safe_dose_record`) shown as a
+    doctor-attributed RECORD so the user need not remember the script — never a dose DIRECTIVE.
+    Callers that don't pass ``dose`` (the reminders list, a repeat-lab one-off) render as before.
     """
     name = reminder.payload or ""
     if reminder.type == TYPE_MEDICATION:
-        body = locale.REMINDER_MEDICATION.format(name=name)
-        if dose:
-            with_dose = locale.REMINDER_MEDICATION_DOSE.format(name=name, dose=dose)
-            if contains_dose_directive(with_dose) is None:
-                body = with_dose
-    elif reminder.type == TYPE_REPEAT_LAB:
+        return _render_medication(name, dose)
+    if reminder.type == TYPE_REPEAT_LAB:
         body = locale.REMINDER_REPEAT_LAB.format(name=name)
     elif reminder.type == TYPE_CONSULT:
         body = locale.REMINDER_CONSULT.format(name=name)
     else:  # check-in
         body = locale.CHECKIN_PROMPT
     return assert_safe_output(body)
+
+
+def _render_medication(name: str, dose: str | None) -> str:
+    """A medication reminder. With a vetted ``dose`` the doctor's per-intake AMOUNT (count/form/
+    strength) is shown so the user need not recall the prescription; a dosing VERB is refused so it
+    can never read as Дбайло ordering a dose (rail #1, the amount-as-record boundary). The whole
+    template is still guarded with the doctor-attributed amount masked out — so a forbidden phrase
+    or any *other* dose directive in the copy still hard-fails, while the vetted amount is allowed.
+    """
+    if dose and contains_dose_verb(dose) is None:
+        body = locale.REMINDER_MEDICATION_DOSE.format(name=name, dose=dose)
+        assert_safe_output(body.replace(dose, "—"))  # guard everything but the vetted amount
+        return body
+    return assert_safe_output(locale.REMINDER_MEDICATION.format(name=name))
