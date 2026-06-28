@@ -95,10 +95,16 @@ def _companion_inline(escaped: str) -> str:
     return _MD_LINK_RE.sub(r'<a href="\2">\1</a>', out)
 
 
-def _disclaimer_ps(*, full: bool) -> str:
-    """The italic P.S. under a divider: the full disclaimer (first turn / one-shot) or the compact
-    reminder (a continuation turn — the not-a-doctor framing stays, just shorter)."""
-    text = DISCLAIMER if full else locale.DISCLAIMER_SHORT
+# Disclaimers that render as the italic P.S. (set off under a divider). The OTC self-care footer is
+# its OWN disclaimer (info-not-prescription · pharmacist · doctor) and gets the SAME premium P.S.
+# styling as the canonical one — so it reads like everywhere else, not a plain trailing line.
+_PS_DISCLAIMERS: tuple[str, ...] = (DISCLAIMER, locale.OTC_FOOTER)
+
+
+def _disclaimer_ps(*, full: bool, override: str | None = None) -> str:
+    """The italic P.S. under a divider: ``override`` (e.g. the OTC footer) when given, else the full
+    disclaimer (first turn / one-shot) or the compact reminder (a continuation turn)."""
+    text = override or (DISCLAIMER if full else locale.DISCLAIMER_SHORT)
     return f"{locale.INTERPRET_DIVIDER}\n{locale.INTERPRET_PS_PREFIX} <i>{_escape(text)}</i>"
 
 
@@ -108,9 +114,9 @@ def render_companion_html(text: str, *, full_disclaimer: bool = True) -> str:
     dropped. The trailing disclaimer is set off as the same italic P.S. under a divider as the lab
     reading (premium look) — compact when ``full_disclaimer`` is False (a continuation turn).
     Escapes first, so a stray '<' can never break Telegram's parser."""
-    body = text
-    if body.endswith(DISCLAIMER):
-        body = body[: -len(DISCLAIMER)].rstrip()
+    stripped = text.rstrip()
+    ps: str | None = next((d for d in _PS_DISCLAIMERS if stripped.endswith(d)), None)
+    body = stripped[: -len(ps)].rstrip() if ps is not None else text
     lines: list[str] = []
     for raw in body.splitlines():
         if _HR_RE.match(raw):
@@ -121,9 +127,10 @@ def render_companion_html(text: str, *, full_disclaimer: bool = True) -> str:
             continue
         lines.append(_companion_inline(_escape(_BULLET_RE.sub(r"\1• ", raw))))
     out = "\n".join(lines).rstrip()
-    if not text.endswith(DISCLAIMER):  # no disclaimer to set off
+    if ps is None:  # no disclaimer to set off
         return out
-    return f"{out}\n\n{_disclaimer_ps(full=full_disclaimer)}"
+    override = None if ps == DISCLAIMER else ps  # the OTC footer rides as its own P.S. text
+    return f"{out}\n\n{_disclaimer_ps(full=full_disclaimer, override=override)}"
 
 
 def render_interpretation_html(text: str, *, full_disclaimer: bool = True) -> str:

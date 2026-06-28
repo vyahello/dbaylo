@@ -67,6 +67,15 @@ def test_companion_html_without_a_disclaimer_has_no_ps() -> None:
     assert locale.INTERPRET_DIVIDER not in out  # nothing to set off -> no stray divider
 
 
+def test_companion_html_styles_the_otc_footer_as_the_italic_ps() -> None:
+    # The OTC self-care footer is the OTC path's single disclaimer — it must read like the canonical
+    # P.S. (italic, under a divider), not a plain trailing line.
+    out = render_companion_html(f"*Парацетамол*\n• 50 грн\n\n{locale.OTC_FOOTER}")
+    assert locale.INTERPRET_DIVIDER in out
+    assert f"{locale.INTERPRET_PS_PREFIX} <i>{locale.OTC_FOOTER}</i>" in out
+    assert out.rstrip().endswith("</i>")
+
+
 def test_continuation_turn_uses_the_compact_disclaimer() -> None:
     # The full disclaimer rides the FIRST turn; a continuation turn shows the short reminder, so a
     # flowing thread doesn't repeat the whole paragraph every message (still not-a-doctor framed).

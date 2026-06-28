@@ -794,17 +794,11 @@ def chat_affordance_keyboard() -> InlineKeyboardMarkup:
 
 
 def otc_affordance_keyboard() -> InlineKeyboardMarkup:
-    """The intake affordances for a MINOR, low-acuity complaint: the usual reminder / clinic pair
-    PLUS 💊 name безрецептурні options + prices (owner-authorized OTC path). Shown only when the
-    caller has confirmed triage MONITOR + an OTC-amenable complaint."""
+    """For a MINOR, low-acuity complaint where OTC options were named: ONLY 💊 безрецептурні + ціни.
+    The 🔔/🏥 affordances are NOT shown here — irrelevant to "болить голова → які ліки" (the owner
+    asked "що він буде нагадувати / де робити?"); reminders/clinics still work by asking."""
     return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                _btn(locale.CONSULT_BTN_REMIND, callbacks.CHAT_REMIND),
-                _btn(locale.CONSULT_BTN_CLINICS, callbacks.CHAT_CLINICS),
-            ],
-            [_btn(locale.BTN_CHAT_OTC, callbacks.CHAT_OTC)],
-        ]
+        inline_keyboard=[[_btn(locale.BTN_CHAT_OTC, callbacks.CHAT_OTC)]]
     )
 
 
