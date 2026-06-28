@@ -719,11 +719,15 @@ async def _engage_with_text(
     # (entering a grounded general consult) so Дбайло ACTS on it — never just claims it will (#6).
     if await consult_flow.start_typed_affordance(message, state, scheduler=reminder_scheduler):
         return
+    # A coverage question ("чи безкоштовне УЗД?", "де безплатно здати аналізи?") → the smart ПМГ /
+    # НСЗУ agent. Checked BEFORE price (more specific). The gate already cleared the text.
+    tg = message.from_user.id if message.from_user else None
+    if await navigator_flow.maybe_handle_coverage(message, text, telegram_id=tg):
+        return
     # A FREE-FORM price request ("знайди Но-шпа у Львові, ціни") — or a follow-up to a fresh price
     # thread ("а дешевше?") — is ACTED on via the price agent, which remembers the drug + city
     # across turns (a real conversation). The gate already cleared the text; the named-drug boundary
     # still refuses a symptom-based pick inside the pipeline.
-    tg = message.from_user.id if message.from_user else None
     if await navigator_flow.maybe_handle_price(message, state, text, telegram_id=tg):
         return
     # Otherwise — ordinary companion chat: a continuous, grounded, memory-backed thread.

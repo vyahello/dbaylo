@@ -1217,6 +1217,52 @@ NAV_COVERAGE_UNKNOWN = (
 # the official site's e-data section. We link the stable homepage — a deep path 404s when the site
 # is restructured; the homepage always resolves and leads to the dashboards / facility map.
 NSZU_DASHBOARD_URL = "https://nszu.gov.ua"
+NSZU_HOTLINE = "16-77"  # НСЗУ contact centre (free) — the human verify channel
+
+# --- Smart НСЗУ / ПМГ agent (the bot path): what can be FREE, what you need, and where ----------
+# A short value explainer on the coverage screen (the owner asked "what is this / why use it").
+NAV_COVERAGE_EXPLAINER = (
+    "🆓 <b>Що це і навіщо</b>\n"
+    "Держава (НСЗУ) оплачує частину медицини за <b>Програмою медичних гарантій (ПМГ)</b> — тобі це "
+    "безкоштовно в закладі, що має договір із НСЗУ. Це, наприклад: сімейний лікар, частина "
+    "аналізів і обстежень за направленням, пологи, екстрена допомога, лікування інсульту/інфаркту, "
+    "психіатрична допомога, стаціонар.\n"
+    "А ліки — за програмою <b>«Доступні ліки»</b> частина препаратів (серце/тиск, діабет, астма, "
+    "психічне здоровʼя тощо) безкоштовні або зі знижкою за е-рецептом.\n\n"
+    "Підкажу, що саме може бути безкоштовним для тебе, що для цього треба і де це поруч."
+)
+BTN_COVERAGE_SERVICE = "🔎 Перевірити послугу"  # type an exam/service -> agent
+BTN_COVERAGE_MEDS = "💊 Мої ліки безкоштовно?"  # check the user's meds against «Доступні ліки»
+NAV_COVERAGE_SEARCHING = "Дивлюся, що покриває держава… 🔎 Це може зайняти трохи часу."
+NAV_COVERAGE_NO_MEDS = (
+    "У тебе ще немає збережених ліків. Додай рецепт — і перевірю їх за «Доступними ліками»."
+)
+# The agent queries (English code; the request is Ukrainian so the model answers in kind).
+NAV_COVERAGE_QUERY_CITY = "Місто користувача: {city} (шукай заклади/аптеки там)."
+NAV_COVERAGE_QUERY_NO_CITY = "Місто не вказане — дай загальну відповідь по Україні."
+NAV_COVERAGE_QUERY = (
+    "{city_line}\nКористувач питає, що з цього може бути БЕЗКОШТОВНИМ за державною Програмою "
+    "медичних гарантій (ПМГ / НСЗУ) або за «Доступними ліками». Поясни: чи зазвичай це покриває "
+    "ПМГ; що для цього треба (декларація / направлення / е-рецепт); і де поруч (заклади з "
+    "договором НСЗУ).\nЗапит: {request}"
+)
+NAV_COVERAGE_MEDS_QUERY = (
+    "{city_line}\nПеревір, чи є ці ліки користувача (або їх діюча речовина) у програмі «Доступні "
+    "ліки» — безкоштовно чи зі знижкою за е-рецептом. Для кожного коротко: так/ні/можливо + що "
+    "треба. Ліки:\n{meds}"
+)
+# Deterministic verify caveat ALWAYS appended to an agent answer — so it never reads as a guarantee
+# of "free" (the per-procedure data is facility/indication-dependent). Mirrors the providers label.
+NAV_COVERAGE_AGENT_FOOTER = (
+    "⚠️ Це орієнтовно — чи буде безкоштовно, залежить від закладу, показань і направлення. "
+    "Підтвердь у закладі, на гарячій лінії НСЗУ {hotline} (безкоштовно) або на дашборді: {url}"
+)
+# Deterministic fallback when the agent is unavailable / trips the guard — still useful + honest.
+NAV_COVERAGE_FALLBACK = (
+    "Зараз не вийшло зібрати деталі. Коротко: багато послуг і ліків можуть бути безкоштовними за "
+    "ПМГ / «Доступними ліками» — з декларацією із сімейним лікарем та направленням. Перевір на "
+    "гарячій лінії НСЗУ {hotline} або на дашборді: {url}"
+)
 
 # Conservative keyword map of service kinds that are clearly within a ПМГ package
 # (publicly defined). A match yields only "may be free — verify", never a
@@ -1345,7 +1391,11 @@ MENU_LABS_INTRO = "Аналізи — обери, що показати (а но
 MENU_GOALS_INTRO = "Твої цілі для здоров'я."
 MENU_PROBLEMS_INTRO = "Те, що зараз турбує (за активними проблемами я роблю щоденні чек-іни)."
 MENU_MEDS_INTRO = "Твої ліки та нагадування про них."
-MENU_PRICES_INTRO = "Ціни на ліки та покриття за Програмою медичних гарантій (ПМГ)."
+MENU_PRICES_INTRO = (
+    "💰 Скільки коштує — і що можна <b>безкоштовно</b> від держави.\n"
+    "• 💊 Ціна ліків — реальні ціни в аптеках з посиланнями.\n"
+    "• 🆓 Безкоштовно (ПМГ) — які послуги й ліки покриває держава, що для цього треба і де поруч."
+)
 
 # Hub destination-button labels (the 🩺 Моє здоровʼя and 💊 Ліки й нагадування screens).
 BTN_MENU_ANALYSES = "📊 Аналізи"
@@ -1363,7 +1413,7 @@ BTN_MENU_MED_LIST = "📋 Мої ліки"
 BTN_MENU_MED_NEW = "➕ Додати ліки"
 BTN_MENU_MED_PHOTO = "📷 З фото рецепта"
 BTN_MENU_PRICE = "💊 Ціна ліків"
-BTN_MENU_COVERAGE = "🏥 Покриття НСЗУ"
+BTN_MENU_COVERAGE = "🆓 Безкоштовно (ПМГ)"
 
 # The single shared dialog-cancel button (clears whatever FSM is active, saves nothing).
 BTN_DIALOG_CANCEL = "✖️ Скасувати"

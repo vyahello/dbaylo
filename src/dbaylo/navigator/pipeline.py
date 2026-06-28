@@ -71,24 +71,31 @@ PRICE_AGENT_PERSONA = (
     "marker like 'Т.' / 'К.' — that only means таблетки / капсули; silently use the plain drug "
     "name and do NOT explain the marker. Prefer the EXACT dosage when given; else the first / most "
     "common form.\n"
+    "PREFER AGGREGATORS first — tabletki.ua and apteki.ua: one product page there lists MANY "
+    "pharmacies' live stock at once, so a single fetch covers lots of options (broad AND fast). "
+    "Also doc.ua, mypharmacy.com.ua, apteka911.ua, liki24, e-apteka, pharmacy chains. Use the "
+    "aggregator's 'в наявності' (in-stock) filter to find what is actually available.\n"
     "VERIFY EVERY OPTION — the most important rule. OPEN each candidate page (fetch it) and keep "
-    "it ONLY if it is the SPECIFIC pharmacy PRODUCT page for THIS medicine + dosage, shows a "
-    "price, and is IN STOCK (в наявності / можна купити / 'в кошик'). DROP anything out of stock, "
-    "any 404, a CATEGORY listing (e.g. a '/c.../c...' path), a homepage, or a SEARCH-results page "
-    "(e.g. '/search/...'). The single link you give MUST open exactly that product page — the user "
-    "has to land on the page for THIS medicine, never a category or a search. If you cannot get "
-    "the exact in-stock product URL, do NOT show a misleading link — say you could not confirm it "
-    "for that medicine; never guess, never invent a number, a pharmacy, or a link.\n"
-    "BE FAST — you have a limited time budget. Verify only the few BEST candidate pages (about 3-5 "
-    "fetches total across all medicines), not dozens; per medicine 1-2 search queries are enough. "
-    "Return the offers you have already confirmed rather than chasing more.\n"
+    "it ONLY if it shows THIS medicine + dosage, a price, and that it is IN STOCK (в наявності / "
+    "можна купити / 'в кошик'). DROP anything out of stock, any 404, a homepage, or a SEARCH-"
+    "results page (e.g. '/search/...'). A concrete aggregator/pharmacy PRODUCT page (e.g. "
+    "apteki.ua/.../product-…) is good; a bare category list is not. The single link you give MUST "
+    "open the page for THIS medicine. If you cannot get an exact in-stock product URL, do NOT show "
+    "a misleading link — never guess or invent a number, a pharmacy, or a link.\n"
+    "BROADEN before giving up: if the medicine is not in stock in the user's city, check NATIONAL "
+    "availability (online pharmacies with delivery) and the aggregators' in-stock filter; try the "
+    "active substance / brand variants. Do NOT declare it unavailable in all of Ukraine — say only "
+    "what you actually checked, and point the user to the aggregator's in-stock filter (and a "
+    "back-in-stock alert) for the rest.\n"
+    "BE EFFICIENT within your time budget: lead with 1-2 aggregator pages (they cover many "
+    "pharmacies) rather than fetching a dozen single sites; return what you have confirmed.\n"
     "Sort the options by price — the CHEAPEST in-stock offer FIRST.\n"
     "Pack size: a '№N' you see (e.g. №28) means the pack holds N units. Do NOT write the '№' "
     "notation — write it plainly as 'N таблеток' or 'N капсул' (match the form). Show the pack "
     "size per option, since the price depends on it.\n"
-    "CITY: if a city is given, the prices AND availability MUST be for THAT city — only pharmacies "
-    "there or delivering there, and say which; never an offer tied to another city. No city -> "
-    "national online prices with delivery.\n"
+    "CITY: if a city is given, list offers for THAT city first (pharmacies there or delivering "
+    "there, say which). If nothing is in stock there, ALSO give national/online options with "
+    "delivery — never leave the user with just 'немає'. No city -> national online prices.\n"
     "Reply EXCLUSIVELY in natural Ukrainian, addressing the user as 'ти'. Prices are approximate "
     "and change between pharmacies — tell the user to confirm at the link before buying.\n"
     "FORMATTING — clean, premium, scannable. For each medicine ONE bold header line "
@@ -234,11 +241,107 @@ async def run_price(
 
 
 async def run_coverage(text: str, *, registry: CoverageRegistry | None = None) -> NavResult:
-    """/coverage — check ПМГ coverage for a service (gated; coverage before price)."""
+    """/coverage — deterministic ПМГ coverage for a service (gated; 'may be free — verify'). The bot
+    uses the smarter :func:`find_coverage` web agent; this stays for the offline path."""
     if (short_circuit := _gate(text)) is not None:
         return short_circuit
     body = assert_safe_navigator_output(lookup_service(text.strip(), registry=registry))
     return NavResult(text=f"{body}\n\n{DISCLAIMER}")
+
+
+# --- Smart НСЗУ / ПМГ agent (the bot path) --------------------------------------
+# What can be FREE for the user under the Програма медичних гарантій (ПМГ) + «Доступні ліки»: which
+# services/meds the state covers, what the user needs (declaration / referral / e-prescription), and
+# WHERE (НСЗУ-contracted facilities in their city, web-searched). Honesty rail: NEVER a categorical
+# "free" — a deterministic verify caveat (facility/indication-dependent + the НСЗУ hotline 16-77 +
+# dashboard) is ALWAYS appended (like the providers label) — even a too-confident answer is hedged.
+COVERAGE_AGENT_PERSONA = (
+    "You are Дбайло, helping the user learn what medical care can be FREE for them under Ukraine's "
+    "Програма медичних гарантій (ПМГ, run by НСЗУ — the state pays a contracted facility so the "
+    "patient pays nothing) and the «Доступні ліки» programme (reimbursed — free or discounted — "
+    "medicines). Use web search to give REAL, current info, never invented. Go straight to the "
+    "answer, no filler preamble.\n"
+    "Given a SERVICE / exam / question (or a list of MEDICINES): (1) say whether it is TYPICALLY "
+    "covered under ПМГ and roughly which package (primary care with a family doctor, diagnostics "
+    "referral, childbirth, emergency, stroke/heart-attack care, mental health, hospital care) — be "
+    "concrete about what is usually free vs usually paid; (2) say WHAT THE USER NEEDS to get it "
+    "free: a signed declaration (декларація) with a primary-care doctor, a referral (направлення) "
+    "for specialists / diagnostics / hospital, an e-prescription (е-рецепт) for «Доступні ліки»; "
+    "(3) WHERE: web-search a few REAL facilities in the user's city that have an НСЗУ contract for "
+    "this (name + how to confirm). For MEDICINES: check the «Доступні ліки» list — say if the drug "
+    "or its active substance is reimbursed and that it needs an e-prescription.\n"
+    "HONESTY (critical): NEVER promise it is definitely free — it depends on the facility, the "
+    "medical indication, and a referral. Always frame it as 'може бути безкоштовно за ПМГ — це "
+    "треба підтвердити'. Do not invent a specific facility or a guarantee.\n"
+    "Reply EXCLUSIVELY in natural Ukrainian, addressing the user as 'ти'. Be practical and "
+    "concrete — the goal is that the user actually knows HOW to get free care. FORMATTING: bold "
+    "*headers*, '• ' bullets, clickable [текст](https://url) links for facilities / sources. No "
+    "other markup (no **double**, #, ---, backticks, raw < >).\n"
+    "NEVER: diagnose; advise WHICH drug to take or a dose; tell the user they can skip a doctor; "
+    "call a clinic 'the best'. Do NOT add your own 'я не лікар' / disclaimer line — it is appended "
+    "automatically.\n" + NATURAL_VOICE
+)
+
+
+def _coverage_footer() -> str:
+    """The deterministic verify caveat appended to EVERY coverage answer — so it never reads as a
+    guarantee of 'free' (rail #4: coverage is facility/indication-dependent)."""
+    return locale.NAV_COVERAGE_AGENT_FOOTER.format(
+        hotline=locale.NSZU_HOTLINE, url=locale.NSZU_DASHBOARD_URL
+    )
+
+
+def _coverage_fallback() -> str:
+    return locale.NAV_COVERAGE_FALLBACK.format(
+        hotline=locale.NSZU_HOTLINE, url=locale.NSZU_DASHBOARD_URL
+    )
+
+
+async def find_coverage(
+    request: str,
+    *,
+    city: str | None = None,
+    is_meds: bool = False,
+    runner: Runner = run_claude,
+    model: str | None = None,
+) -> str:
+    """Smart ПМГ/НСЗУ answer (the bot path): what may be FREE, what the user needs, and where —
+    web-searched, city-grounded. ``is_meds`` switches to the «Доступні ліки» med-reimbursement query
+    (``request`` is then the med list). Gate-screened first; the verify caveat is ALWAYS appended so
+    the output is never a categorical 'free' (rail #4); deterministic fallback on any failure."""
+    text = request.strip()
+    if not text:
+        return f"{_coverage_fallback()}\n\n{DISCLAIMER}"
+    if (short_circuit := _gate(text)) is not None:
+        return short_circuit.text
+    city_line = (
+        locale.NAV_COVERAGE_QUERY_CITY.format(city=city)
+        if city
+        else locale.NAV_COVERAGE_QUERY_NO_CITY
+    )
+    query = (
+        locale.NAV_COVERAGE_MEDS_QUERY.format(city_line=city_line, meds=text)
+        if is_meds
+        else locale.NAV_COVERAGE_QUERY.format(city_line=city_line, request=text)
+    )
+    try:
+        result = await runner(
+            query,
+            append_system_prompt=COVERAGE_AGENT_PERSONA,
+            allowed_tools=["WebSearch", "WebFetch"],
+            model=model,
+            timeout_s=get_settings().claude_price_timeout_s,
+        )
+    except ClaudeUnavailable:
+        result = None
+    if result is None or not result.ok or not result.text.strip():
+        return f"{_coverage_fallback()}\n\n{DISCLAIMER}"
+    body = strip_self_disclaimer(result.text.strip())
+    try:
+        assert_safe_navigator_output(strip_markup(body))
+    except ValueError:
+        return f"{_coverage_fallback()}\n\n{DISCLAIMER}"
+    return f"{body}\n\n{_coverage_footer()}\n\n{DISCLAIMER}"
 
 
 # --- Dry-run CLI (fixture mode, no network) -------------------------------------

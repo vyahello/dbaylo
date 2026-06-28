@@ -738,9 +738,24 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   web-search **agent** (`find_prices_web`), MAY cite ANY public pharmacy page incl. tabletki.ua /
   apteki.ua — that is search-result citation of public pages a search engine already indexed, NOT
   hitting their search endpoints (a different posture from this scraper).
-- **Coverage** (`navigator/coverage.py`): НСЗУ open data, facility-level. The type **cannot express
-  a categorical "free"** — only `may_be_covered` + a verify link ("може бути безкоштовно за ПМГ —
-  перевір"). Coverage is checked **before** price.
+- **Coverage** (`navigator/coverage.py` deterministic + `pipeline.find_coverage` agent): the
+  deterministic path is НСЗУ facility-level data — the type **cannot express a categorical "free"**,
+  only `may_be_covered` + a verify link. **The bot path is a SMART ПМГ/НСЗУ agent**
+  (`find_coverage`, gate→WebSearch+WebFetch→guard, mirrors the price agent): the owner found НСЗУ
+  opaque, so it now explains **what may be FREE** (ПМГ packages + the «Доступні ліки» med
+  reimbursement), **what you need** (декларація / направлення / е-рецепт), and **where** (НСЗУ-
+  contracted facilities web-searched in the user's `User.city`). Honesty rail held WITHOUT the type:
+  a deterministic verify caveat (`_coverage_footer` — facility/indication-dependent + the НСЗУ
+  hotline 16-77 + dashboard) is **always appended** (like the providers label), so even a
+  too-confident answer is never a bald "free"; a deterministic `_coverage_fallback` covers an agent
+  failure. **🆓 Безкоштовно (ПМГ)** (`open_coverage_screen`) explains the value + offers `[🔎
+  Перевірити послугу]` (type) / `[💊 Мої ліки безкоштовно?]` (checks the user's meds against «Доступні
+  ліки»). **Free-form in chat:** `navigator_flow.maybe_handle_coverage` routes a turn that
+  `priceintent.is_coverage_request` flags ("чи безкоштовне УЗД?", "це покриває ПМГ?") to the agent,
+  BEFORE the price intent. The price/coverage agents share a tight `claude_price_timeout_s` (150s) so
+  a slow WebFetch can't hang the chat (falls back fast; the price persona also prefers aggregators
+  tabletki.ua/apteki.ua — one page = many pharmacies' stock — and broadens to national availability
+  rather than declaring a drug unavailable in all of Ukraine).
 - **Ceiling** (`navigator/ceiling.py`): МОЗ regulated prices (reimbursement subset only).
   `CeilingStatus.NO_CEILING` is first-class — for an unregulated drug we say "немає регульованої
   стелі", never a fabricated "overpriced".

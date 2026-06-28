@@ -230,6 +230,32 @@ def test_price_thread_freshness_honours_the_ttl() -> None:
     assert not navigator_flow.price_thread_fresh({})  # nothing stored
 
 
+async def test_coverage_screen_explains_value_and_offers_service_or_meds() -> None:
+    message = AsyncMock()
+    await navigator_flow.open_coverage_screen(message, AsyncMock(), telegram_id=4242)
+    text, kwargs = message.answer.call_args.args[0], message.answer.call_args.kwargs
+    assert "ПМГ" in text and "Доступні ліки" in text  # explains what it is / why
+    datas = [b.callback_data for row in kwargs["reply_markup"].inline_keyboard for b in row]
+    assert callbacks.COVERAGE_SERVICE in datas and callbacks.COVERAGE_MEDS in datas
+
+
+async def test_coverage_question_routes_to_the_coverage_agent(monkeypatch) -> None:
+    sent = AsyncMock()
+    monkeypatch.setattr(navigator_flow, "_send_coverage", sent)
+    message = AsyncMock()
+    handled = await navigator_flow.maybe_handle_coverage(
+        message, "чи безкоштовне УЗД нирок", telegram_id=1
+    )
+    assert handled is True
+    sent.assert_awaited_once()
+
+
+async def test_non_coverage_text_is_not_handled_by_coverage() -> None:
+    message = AsyncMock()
+    handled = await navigator_flow.maybe_handle_coverage(message, "як справи?", telegram_id=1)
+    assert handled is False
+
+
 async def test_start_price_dialog_is_cancellable() -> None:
     from dbaylo.companion import callbacks
 

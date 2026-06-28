@@ -305,9 +305,10 @@ async def cb_price(callback: CallbackQuery, state: FSMContext) -> None:
 
 @router.callback_query(F.data == callbacks.MENU_COVERAGE)
 async def cb_coverage(callback: CallbackQuery, state: FSMContext) -> None:
-    if isinstance(callback.message, Message):
-        await navigator_flow.start_coverage_dialog(callback.message, state)
     await callback.answer()
+    tg = _owner_tg(callback)
+    if isinstance(callback.message, Message) and tg is not None:
+        await navigator_flow.open_coverage_screen(callback.message, state, telegram_id=tg)
 
 
 # --- The one shared dialog cancel (clears any active FSM, saves nothing) ---------

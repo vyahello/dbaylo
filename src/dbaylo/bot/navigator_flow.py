@@ -31,9 +31,9 @@ from dbaylo.db.models import Medication
 from dbaylo.labs.intake import ensure_user, get_city, set_city
 from dbaylo.navigator import priceintent
 from dbaylo.navigator.pipeline import (
+    find_coverage,
     find_prices_freeform,
     find_prices_web,
-    run_coverage,
     run_price,
 )
 from dbaylo.safety import screen
@@ -255,6 +255,16 @@ async def maybe_handle_price(
     return True
 
 
+async def maybe_handle_coverage(message: Message, text: str, *, telegram_id: int | None) -> bool:
+    """If ``text`` asks what may be FREE under ПМГ / НСЗУ / «Доступні ліки» ("чи безкоштовне УЗД?",
+    "де безплатно здати аналізи?"), answer via the coverage agent and return ``True``. Checked
+    BEFORE the price intent (more specific). The gate already cleared ``text`` upstream."""
+    if not priceintent.is_coverage_request(text):
+        return False
+    await _send_coverage(message, text, telegram_id=telegram_id)
+    return True
+
+
 @router.message(Command("price"))
 async def cmd_price(message: Message, command: CommandObject, state: FSMContext) -> None:
     arg = (command.args or "").strip()
@@ -400,19 +410,86 @@ async def on_medication_price(callback: CallbackQuery) -> None:
 
 
 async def start_coverage_dialog(message: Message, state: FSMContext) -> None:
-    """Enter the coverage dialog (from /coverage or the menu) — always cancellable."""
+    """Enter the type-a-service coverage dialog — always cancellable."""
     await state.set_state(NavStates.waiting_service)
     await message.answer(locale.NAV_ASK_SERVICE, reply_markup=cancel_keyboard())
+
+
+async def open_coverage_screen(message: Message, state: FSMContext, *, telegram_id: int) -> None:
+    """🆓 Безкоштовно (ПМГ) — explain the value (what may be FREE from the state), then offer to
+    check a SERVICE or the user's MEDS against «Доступні ліки». The owner found НСЗУ opaque; this
+    screen states why it matters and turns it into one tap."""
+    await state.clear()
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_SERVICE, callback_data=callbacks.COVERAGE_SERVICE
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_MEDS, callback_data=callbacks.COVERAGE_MEDS
+            )
+        ],
+    ]
+    await message.answer(
+        locale.NAV_COVERAGE_EXPLAINER,
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def _send_coverage(message: Message, request: str, *, telegram_id: int | None) -> None:
+    """Gate FIRST, then the smart ПМГ/НСЗУ agent (city-grounded), rendered as HTML."""
+    decision = screen(request)
+    if decision.short_circuited:
+        await message.answer(decision.message)
+        return
+    city = await _city_for(telegram_id)
+    await message.answer(locale.NAV_COVERAGE_SEARCHING)
+    async with keep_typing(message):
+        text = await find_coverage(request, city=city)
+    await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
+
+
+@router.callback_query(F.data == callbacks.COVERAGE_SERVICE)
+async def on_coverage_service(callback: CallbackQuery, state: FSMContext) -> None:
+    await callback.answer()
+    if isinstance(callback.message, Message):
+        await start_coverage_dialog(callback.message, state)
+
+
+@router.callback_query(F.data == callbacks.COVERAGE_MEDS)
+async def on_coverage_meds(callback: CallbackQuery, state: FSMContext) -> None:
+    """💊 Check the user's OWN meds against «Доступні ліки» (free / discounted reimbursement)."""
+    await callback.answer()
+    tg = _telegram_id(callback)
+    if tg is None or not isinstance(callback.message, Message):
+        return
+    await state.clear()
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        meds = await _unique_meds(session, user_id=user.id)
+        city = (user.city or "").strip() or None
+    if not meds:
+        await callback.message.answer(locale.NAV_COVERAGE_NO_MEDS)
+        return
+    names = "\n".join(f"- {medications.clean_drug_name(m.name)}" for m in meds)
+    await callback.message.answer(locale.NAV_COVERAGE_SEARCHING)
+    async with keep_typing(callback.message):
+        text = await find_coverage(names, city=city, is_meds=True)
+    await answer_chunked(callback.message, render_companion_html(text), parse_mode=ParseMode.HTML)
 
 
 @router.message(Command("coverage"))
 async def cmd_coverage(message: Message, command: CommandObject, state: FSMContext) -> None:
     arg = (command.args or "").strip()
+    tg = _telegram_id(message)
     if not arg:
-        await start_coverage_dialog(message, state)
+        if tg is not None:
+            await open_coverage_screen(message, state, telegram_id=tg)
         return
-    result = await run_coverage(arg)  # gated inside the pipeline
-    await message.answer(result.text)
+    await _send_coverage(message, arg, telegram_id=tg)
 
 
 @router.message(NavStates.waiting_service, F.text)
@@ -422,5 +499,4 @@ async def on_coverage_text(message: Message, state: FSMContext) -> None:
     if not text:
         await message.answer(locale.NOTHING_SAVED)
         return
-    result = await run_coverage(text)  # SAME gate as the command arg
-    await message.answer(result.text)
+    await _send_coverage(message, text, telegram_id=_telegram_id(message))

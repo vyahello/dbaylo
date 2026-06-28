@@ -670,6 +670,8 @@ MENU_MED_PHOTO = "menu_med_photo"  # start the "read a prescription photo" flow
 PRESCRIPTION_CONFIRM = "presc_ok"  # confirm the extracted meds (the meds live in FSM state)
 MENU_PRICE = "menu_price"
 MENU_COVERAGE = "menu_coverage"
+COVERAGE_SERVICE = "cov_service"  # type a service to check ПМГ coverage
+COVERAGE_MEDS = "cov_meds"  # check the user's meds against «Доступні ліки»
 # 💊 Ціна ліків proposes the user's own meds for a one-tap price check (by INDEX in the freshly
 # re-derived medication list), plus ✏️ type-another.
 PRICE_MED = "price_med"

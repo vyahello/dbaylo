@@ -115,6 +115,45 @@ def test_is_price_request_detects_cost_phrasings() -> None:
     assert not priceintent.is_price_request("у мене болить голова")  # not a price ask
 
 
+async def test_find_coverage_appends_the_verify_footer_and_disclaimer() -> None:
+    runner = _runner(
+        "*УЗД нирок*\n• Може покривати ПМГ за направленням.\n• [НСЗУ](https://nszu.gov.ua)"
+    )
+    out = await pipeline.find_coverage("чи безкоштовне УЗД нирок", city="Львів", runner=runner)
+    assert "ПМГ" in out and out.endswith(DISCLAIMER)
+    assert locale.NSZU_HOTLINE in out  # the always-appended verify caveat (never a bald "free")
+    assert "Львів" in runner.prompt  # type: ignore[attr-defined]
+
+
+async def test_find_coverage_meds_uses_the_dostupni_liky_query() -> None:
+    runner = _runner("*Бісопролол* — так, за «Доступними ліками» (е-рецепт).")
+    out = await pipeline.find_coverage("- Бісопролол", is_meds=True, runner=runner)
+    assert "Доступними ліками" in out or "Доступні ліки" in runner.prompt  # type: ignore[attr-defined]
+    assert locale.NSZU_HOTLINE in out
+
+
+async def test_find_coverage_symptom_short_circuits() -> None:
+    out = await pipeline.find_coverage("температура і озноб, чи безкоштовно")
+    assert "лікар" in out.lower()
+
+
+async def test_find_coverage_falls_back_when_agent_unavailable() -> None:
+    runner = _runner("", ok=False)
+    out = await pipeline.find_coverage("пологи", runner=runner)
+    assert locale.NSZU_HOTLINE in out and out.endswith(DISCLAIMER)  # honest fallback, still useful
+
+
+def test_is_coverage_request_detects_pmg_questions() -> None:
+    from dbaylo.navigator import priceintent
+
+    assert priceintent.is_coverage_request("чи безкоштовне УЗД нирок?")
+    assert priceintent.is_coverage_request("це покриває ПМГ?")
+    assert priceintent.is_coverage_request("де безплатно здати аналізи")
+    assert priceintent.is_coverage_request("мої ліки за доступними ліками?")
+    assert not priceintent.is_coverage_request("скільки коштує парацетамол")
+    assert not priceintent.is_coverage_request("як ти?")
+
+
 async def test_run_price_web_agent_still_refuses_a_drug_pick() -> None:
     # The named-drug boundary holds on the web path: "ліки від тиску" is a pick request, refused.
     ran = {"x": False}

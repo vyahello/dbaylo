@@ -82,3 +82,34 @@ def is_price_followup(text: str) -> bool:
     thread). Only meaningful while a fresh price thread exists — the caller gates on that."""
     low = (text or "").casefold().strip()
     return any(trigger in low for trigger in _FOLLOWUP_TRIGGERS)
+
+
+# A question about STATE coverage — what may be FREE under ПМГ / НСЗУ / «Доступні ліки». Routed to
+# the smart coverage agent. Specific tokens, so it does not steal ordinary chat.
+_COVERAGE_TRIGGERS: tuple[str, ...] = (
+    "безкоштовн",
+    "безплатн",
+    "за державн",
+    "коштом держав",
+    "держава оплач",
+    "держава покрив",
+    "пмг",
+    "нсзу",
+    "медичн гарант",
+    "медичних гарант",
+    "реімбурс",
+    "відшкодув",
+    "за декларац",
+    "чи покрив",
+    "чи безкошт",
+    "чи платн",
+)
+
+
+def is_coverage_request(text: str) -> bool:
+    """True when ``text`` asks what may be FREE under ПМГ / НСЗУ / «Доступні ліки» (route to the
+    coverage agent). Checked before the price intent (more specific)."""
+    low = (text or "").casefold()
+    if any(trigger in low for trigger in _COVERAGE_TRIGGERS):
+        return True
+    return "доступн" in low and "лік" in low  # «Доступні ліки» in any case form
