@@ -196,11 +196,12 @@ async def _fire_reminder(
                 # so the user need not recall the script — never a dose directive (render_reminder
                 # masks + re-validates; rail #1, the amount-as-record boundary).
                 dose = medications.safe_dose_record(med.dose) if med is not None else None
+                course = med.course if med is not None else None
                 await _send(
                     sender,
                     session,
                     reminder.user_id,
-                    reminders.render_reminder(reminder, dose=dose),
+                    reminders.render_reminder(reminder, dose=dose, course=course),
                 )
         await session.commit()
 

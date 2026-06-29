@@ -1004,6 +1004,9 @@ MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — п
 # so it never reads as Дбайло *ordering* a dose. The dose-less line is the fallback when none read.
 REMINDER_MEDICATION = "💊 Час прийняти ліки: {name}. Деталі — у твоєму рецепті."
 REMINDER_MEDICATION_DOSE = "💊 Час прийняти ліки: {name} — {dose}. За призначенням лікаря."
+# Appended on its own line when the medication belongs to a prescription course, so a fired
+# reminder tells the user WHICH course it is part of (a record, never a directive).
+REMINDER_MEDICATION_COURSE = "📋 Курс: {course}"
 REMINDER_REPEAT_LAB = (
     "🔔 Нагадування: можливо, час повторити аналізи ({name}). Звернись до лабораторії, "
     "коли буде зручно."
@@ -1270,9 +1273,13 @@ NAV_COVERAGE_QUERY = (
     "договором НСЗУ).\nЗапит: {request}"
 )
 NAV_COVERAGE_MEDS_QUERY = (
-    "{city_line}\nПеревір, чи є ці ліки користувача (або їх діюча речовина) у програмі «Доступні "
-    "ліки» — безкоштовно чи зі знижкою за е-рецептом. Для кожного коротко: так/ні/можливо + що "
-    "треба. Ліки:\n{meds}"
+    "Користувач хоче знати, чи входять ЙОГО ліки у державну програму «Доступні ліки» (безкоштовно "
+    "або зі знижкою за е-рецептом). Зроби 1–3 цілеспрямованих пошуки по переліку реімбурсації "
+    "«Доступні ліки» (НСЗУ / МОЗ) і для КОЖНОГО препарату коротко відповідай: ✅ так / ❌ ні / "
+    "🤔 можливо (зіставивши діючу речовину з покритими групами — серце й тиск, діабет 2 типу, "
+    "астма/ХОЗЛ, психічне здоровʼя тощо) + що треба (е-рецепт від сімейного лікаря). НЕ шукай "
+    "конкретні аптеки чи заклади — програма діє в будь-якій аптеці-учаснику, місто тут не важливе. "
+    "Будь швидким і конкретним, без зайвих відкривань сторінок. Ліки користувача:\n{meds}"
 )
 # Deterministic verify caveat ALWAYS appended to an agent answer — so it never reads as a guarantee
 # of "free" (the per-procedure data is facility/indication-dependent). Mirrors the providers label.

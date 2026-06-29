@@ -313,17 +313,21 @@ async def deactivate_medication(session: AsyncSession, medication_id: int) -> li
     return ids
 
 
-def render_reminder(reminder: Reminder, *, dose: str | None = None) -> str:
+def render_reminder(
+    reminder: Reminder, *, dose: str | None = None, course: str | None = None
+) -> str:
     """Render the Ukrainian message for a reminder; always safety-checked.
 
     For a medication reminder, ``dose`` is the doctor's prescribed per-intake AMOUNT (e.g.
     "1 таблетка · 5 мг", from :func:`dbaylo.companion.medications.safe_dose_record`) shown as a
     doctor-attributed RECORD so the user need not remember the script — never a dose DIRECTIVE.
+    ``course`` is the prescription/course label the med belongs to (``Medication.course``), shown
+    on its own line so the reminder says WHICH course it is part of; ``None`` for a manual med.
     Callers that don't pass ``dose`` (the reminders list, a repeat-lab one-off) render as before.
     """
     name = reminder.payload or ""
     if reminder.type == TYPE_MEDICATION:
-        return _render_medication(name, dose)
+        return _render_medication(name, dose, course)
     if reminder.type == TYPE_REPEAT_LAB:
         body = locale.REMINDER_REPEAT_LAB.format(name=name)
     elif reminder.type == TYPE_CONSULT:
@@ -333,15 +337,19 @@ def render_reminder(reminder: Reminder, *, dose: str | None = None) -> str:
     return assert_safe_output(body)
 
 
-def _render_medication(name: str, dose: str | None) -> str:
+def _render_medication(name: str, dose: str | None, course: str | None = None) -> str:
     """A medication reminder. With a vetted ``dose`` the doctor's per-intake AMOUNT (count/form/
     strength) is shown so the user need not recall the prescription; a dosing VERB is refused so it
     can never read as Дбайло ordering a dose (rail #1, the amount-as-record boundary). The whole
     template is still guarded with the doctor-attributed amount masked out — so a forbidden phrase
     or any *other* dose directive in the copy still hard-fails, while the vetted amount is allowed.
+    A ``course`` (the prescription label) is appended on its own line as a record.
     """
+    suffix = ""
+    if course and course.strip():
+        suffix = "\n" + locale.REMINDER_MEDICATION_COURSE.format(course=course.strip())
     if dose and contains_dose_verb(dose) is None:
-        body = locale.REMINDER_MEDICATION_DOSE.format(name=name, dose=dose)
+        body = locale.REMINDER_MEDICATION_DOSE.format(name=name, dose=dose) + suffix
         assert_safe_output(body.replace(dose, "—"))  # guard everything but the vetted amount
         return body
-    return assert_safe_output(locale.REMINDER_MEDICATION.format(name=name))
+    return assert_safe_output(locale.REMINDER_MEDICATION.format(name=name) + suffix)

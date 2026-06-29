@@ -277,6 +277,9 @@ COVERAGE_AGENT_PERSONA = (
     "concrete — the goal is that the user actually knows HOW to get free care. FORMATTING: bold "
     "*headers*, '• ' bullets, clickable [текст](https://url) links for facilities / sources. No "
     "other markup (no **double**, #, ---, backticks, raw < >).\n"
+    "EFFICIENCY (you have a tight time budget): use only a handful of searches and open very few "
+    "pages — answer from search results when you can. For a MEDICINES list, do NOT search for "
+    "pharmacies or facilities at all; just check the «Доступні ліки» reimbursement list.\n"
     "NEVER: diagnose; advise WHICH drug to take or a dose; tell the user they can skip a doctor; "
     "call a clinic 'the best'. Do NOT add your own 'я не лікар' / disclaimer line — it is appended "
     "automatically.\n" + NATURAL_VOICE
@@ -314,16 +317,18 @@ async def find_coverage(
         return f"{_coverage_fallback()}\n\n{DISCLAIMER}"
     if (short_circuit := _gate(text)) is not None:
         return short_circuit.text
-    city_line = (
-        locale.NAV_COVERAGE_QUERY_CITY.format(city=city)
-        if city
-        else locale.NAV_COVERAGE_QUERY_NO_CITY
-    )
-    query = (
-        locale.NAV_COVERAGE_MEDS_QUERY.format(city_line=city_line, meds=text)
-        if is_meds
-        else locale.NAV_COVERAGE_QUERY.format(city_line=city_line, request=text)
-    )
+    if is_meds:
+        # «Доступні ліки» is dispensed at ANY participating pharmacy — no facility/city search
+        # needed. Keeping the meds query lean (no facility WebFetches) is what keeps it inside the
+        # tight timeout (the heavy facility search was timing it out into the fallback).
+        query = locale.NAV_COVERAGE_MEDS_QUERY.format(meds=text)
+    else:
+        city_line = (
+            locale.NAV_COVERAGE_QUERY_CITY.format(city=city)
+            if city
+            else locale.NAV_COVERAGE_QUERY_NO_CITY
+        )
+        query = locale.NAV_COVERAGE_QUERY.format(city_line=city_line, request=text)
     try:
         result = await runner(
             query,
