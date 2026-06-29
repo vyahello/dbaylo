@@ -11,6 +11,7 @@ from dbaylo.companion import otc
 
 def test_minor_complaints_are_amenable() -> None:
     assert otc.otc_amenable("болить голова")
+    assert otc.otc_amenable("які таблетки порадиш від болі в голові?")
     assert otc.otc_amenable("у мене нежить і трохи болить горло")
     assert otc.otc_amenable("печія після їжі")
     assert otc.otc_amenable("застуда, закладений ніс")

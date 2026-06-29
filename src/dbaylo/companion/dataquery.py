@@ -46,6 +46,15 @@ _VOWELS = "аоеиіїєюяь'ʼ`"
 
 _MIN_STEM = 4  # ignore short, ambiguous stems (e.g. "С", "рН")
 
+# A pain / symptom complaint is NOT a question about lab data — it belongs to the symptom intake /
+# OTC path, never a data-lookup consult. Without this, a body-part word in a complaint could collide
+# with a same-stem analyte (e.g. headache "болі в голові" false-matching the spermogram "Патологія
+# голови (еякулят)"). The intake router already runs first in the chat flow; this is belt-and-braces
+# so the data-question matcher never steals a complaint even if it is reached directly.
+_PAIN_SIGNAL_RE = re.compile(
+    r"\bбол(?:ить|ять|ю|і|ів|іло|яч|ям|ями|ях)|\bбіль(?!ш)|знеболю|\bниє\b", re.IGNORECASE
+)
+
 
 def is_data_question(text: str) -> bool:
     """Whether the text reads like a question / ask about something (not a bare statement)."""
@@ -71,6 +80,8 @@ def match_indicator(text: str, findings: list[HealthFinding]) -> HealthFinding |
     ``health.list_indicators``); on equal-length matches the earlier (more interesting) one wins.
     """
     if not is_data_question(text):
+        return None
+    if _PAIN_SIGNAL_RE.search(text):  # a pain complaint is intake/OTC territory, not a data lookup
         return None
     norm = text.casefold()
     alias_stems = {stem for lay, stem in _ALIASES.items() if lay in norm}

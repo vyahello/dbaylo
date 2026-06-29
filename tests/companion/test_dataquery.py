@@ -82,3 +82,13 @@ def test_match_indicator_keeps_the_most_interesting_on_a_tie() -> None:
     ]
     match = dataquery.match_indicator("що з моєю глюкозою?", findings)
     assert match is not None and match.series_key == "blood\x1fглюкоза"
+
+
+def test_pain_complaint_never_matches_a_body_part_analyte() -> None:
+    # Regression: a headache request ("болі в голові") must NOT be routed to the spermogram analyte
+    # "Патологія голови (еякулят)" just because the stem "голов" collides — a pain complaint belongs
+    # to the symptom intake / OTC path, not a lab-data lookup.
+    findings = [_f("Патологія голови", series_key="semen\x1fголов", specimen="semen")]
+    assert dataquery.match_indicator("які таблетки порадиш від болі в голові?", findings) is None
+    # A genuine (pain-free) question about that spermogram finding still matches.
+    assert dataquery.match_indicator("що означає патологія голови?", findings) is not None

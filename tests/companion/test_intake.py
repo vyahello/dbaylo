@@ -42,6 +42,7 @@ async def test_intake_grounds_in_the_patient_context_when_given() -> None:
     ("text", "expected"),
     [
         ("болить голова вже два дні", True),
+        ("які таблетки порадиш від болі в голові?", True),  # plural "болі" must register
         ("сильно нудить і температура", True),
         ("кашель не проходить", True),
         ("запаморочення зранку", True),
