@@ -482,7 +482,11 @@ async def start_checkin_dialog(
     await state.set_state(CheckinStates.waiting_for_answer)
     tg = telegram_id if telegram_id is not None else _telegram_id(message)
     if tg is None:
-        await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+        await message.answer(
+            render_companion_html(checkin.build_prompt()),
+            reply_markup=cancel_keyboard(),
+            parse_mode=ParseMode.HTML,
+        )
         return
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
@@ -490,17 +494,25 @@ async def start_checkin_dialog(
         # so the 📝 button is not a poorer version of the automatic one.
         context = await checkin.full_checkin_context(session, user_id=user.id, today=date.today())
     if not context:  # nothing to ground in -> the gentle generic prompt, instantly
-        await message.answer(checkin.build_prompt(), reply_markup=cancel_keyboard())
+        await message.answer(
+            render_companion_html(checkin.build_prompt()),
+            reply_markup=cancel_keyboard(),
+            parse_mode=ParseMode.HTML,
+        )
         return
     # The grounded prompt is a multi-second claude call. Tell the user what we're doing (a bare
     # "typing…" reads as "waiting for unknown") with a placeholder we then EDIT into the prompt.
+    # Rendered premium (light *bold* markup -> HTML) like the scheduled check-in.
     placeholder = await message.answer(locale.CHECKIN_ANALYZING)
     async with keep_typing(message):
         prompt = await checkin.build_grounded_prompt(context)
+    rendered = render_companion_html(prompt)
     try:
-        await placeholder.edit_text(prompt, reply_markup=cancel_keyboard())
+        await placeholder.edit_text(
+            rendered, reply_markup=cancel_keyboard(), parse_mode=ParseMode.HTML
+        )
     except TelegramBadRequest:  # a stale/uneditable placeholder -> just send the prompt
-        await message.answer(prompt, reply_markup=cancel_keyboard())
+        await message.answer(rendered, reply_markup=cancel_keyboard(), parse_mode=ParseMode.HTML)
 
 
 @router.message(Command("checkin"))

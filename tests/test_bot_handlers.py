@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from aiogram.enums import ParseMode
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -59,11 +60,22 @@ def test_build_dispatcher_registers_routers_and_owner_lock() -> None:
 
 
 async def test_make_sender_forwards_to_the_bot() -> None:
-    # The reminder scheduler delivers via this adapter -> bot.send_message.
+    # The reminder scheduler delivers via this adapter -> bot.send_message, rendered premium (HTML).
     bot = AsyncMock()
     sender = make_sender(bot)
     await sender(123456, "🔔 нагадування")
-    bot.send_message.assert_awaited_once_with(123456, "🔔 нагадування", reply_markup=None)
+    bot.send_message.assert_awaited_once_with(
+        123456, "🔔 нагадування", reply_markup=None, parse_mode=ParseMode.HTML
+    )
+
+
+async def test_make_sender_renders_markup_premium() -> None:
+    # Light *bold* markup in a reminder/check-in is converted to HTML <b> (escaped, then tagged).
+    bot = AsyncMock()
+    sender = make_sender(bot)
+    await sender(123456, "💊 *Час прийняти ліки*: Аспірин")
+    sent = bot.send_message.await_args.args[1]
+    assert "<b>Час прийняти ліки</b>" in sent
 
 
 async def test_make_dialog_reset_clears_state_and_data_for_the_user() -> None:

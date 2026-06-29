@@ -942,7 +942,7 @@ CONSULT_CLINICS_FALLBACK = (
     "(«<послуга> <місто>») чи на сайті НСЗУ."
 )
 # Reminder fired for a consult-set item (an exam / recheck / visit) — no dose, no diagnosis.
-REMINDER_CONSULT = "🔔 Нагадування: {name}. Подбай про себе вчасно. 🌿"
+REMINDER_CONSULT = "🔔 *Нагадування:* {name}\n_Подбай про себе вчасно._ 🌿"
 CONSULT_EMPTY = "Напиши, будь ласка, своє питання текстом. 🙂"
 CONSULT_GONE = "Не вдалося відкрити цей показник — можливо, звіт уже видалено."
 # Deterministic, safe-by-construction reply used when the LLM is unavailable or trips the guard.
@@ -1002,14 +1002,14 @@ MEMORY_FORGET_CANCELLED = "Гаразд, нічого не видаляю — п
 # ("1 таблетка", "1 таблетка · 5 мг"), a doctor-attributed RECORD — while an imperative dose verb or
 # a daily frequency is refused upstream (medications.safe_dose_record / safety.contains_dose_verb),
 # so it never reads as Дбайло *ordering* a dose. The dose-less line is the fallback when none read.
-REMINDER_MEDICATION = "💊 Час прийняти ліки: {name}. Деталі — у твоєму рецепті."
-REMINDER_MEDICATION_DOSE = "💊 Час прийняти ліки: {name} — {dose}. За призначенням лікаря."
+# The fire strings carry light *bold*/_italic_ markup → the sender renders it to premium HTML.
+REMINDER_MEDICATION = "💊 *Час прийняти ліки:* {name}\n_Деталі — у твоєму рецепті._"
+REMINDER_MEDICATION_DOSE = "💊 *Час прийняти ліки:* {name} — {dose}\n_За призначенням лікаря._"
 # Appended on its own line when the medication belongs to a prescription course, so a fired
 # reminder tells the user WHICH course it is part of (a record, never a directive).
-REMINDER_MEDICATION_COURSE = "📋 Курс: {course}"
+REMINDER_MEDICATION_COURSE = "📋 _Курс:_ {course}"
 REMINDER_REPEAT_LAB = (
-    "🔔 Нагадування: можливо, час повторити аналізи ({name}). Звернись до лабораторії, "
-    "коли буде зручно."
+    "🔔 *Час повторити аналізи* ({name})\nЗвернись до лабораторії, коли буде зручно."
 )
 
 # --- Stage 3: companion (L1) — conversation fallback ----------------------------

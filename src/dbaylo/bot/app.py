@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 
 from aiogram import Bot, Dispatcher
+from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -27,6 +28,7 @@ from dbaylo.bot import (
     proactive_flow,
 )
 from dbaylo.bot.access import OwnerOnlyMiddleware
+from dbaylo.bot.formatting import render_companion_html
 from dbaylo.bot.handlers import router
 from dbaylo.bot.state_reset import CommandStateResetMiddleware
 from dbaylo.bot.storage import SQLiteStorage
@@ -110,11 +112,21 @@ async def apply_bot_commands(bot: Bot) -> None:
 
 
 def make_sender(bot: Bot) -> Sender:
-    """A reminder sender that delivers text (+ optional inline buttons) via ``bot``."""
+    """A reminder sender that delivers text (+ optional inline buttons) via ``bot``.
+
+    Proactive messages (the daily check-in, medication / repeat-lab reminders, nudges, review
+    batches) are rendered the SAME premium way as interactive chat — the light *bold*/_italic_
+    markup the text carries is converted to HTML (after escaping) so a reminder reads as a clean,
+    formatted message rather than a flat wall of text. Plain text passes through unchanged."""
 
     async def sender(telegram_id: int, text: str, *, buttons: Buttons | None = None) -> None:
         markup = _keyboard(buttons) if buttons else None
-        await bot.send_message(telegram_id, text, reply_markup=markup)
+        await bot.send_message(
+            telegram_id,
+            render_companion_html(text),
+            reply_markup=markup,
+            parse_mode=ParseMode.HTML,
+        )
 
     return sender
 
