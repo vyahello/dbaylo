@@ -20,6 +20,7 @@ from __future__ import annotations
 import contextlib
 
 from aiogram import F, Router
+from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import StateFilter
 from aiogram.fsm.context import FSMContext
@@ -148,6 +149,7 @@ async def menu_prices(message: Message) -> None:
             (locale.BTN_MENU_PRICE, callbacks.MENU_PRICE),
             (locale.BTN_MENU_COVERAGE, callbacks.MENU_COVERAGE),
         ),
+        parse_mode=ParseMode.HTML,
     )
 
 
