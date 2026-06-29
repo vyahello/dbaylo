@@ -85,6 +85,11 @@ class Settings:
     # is slow — but it must NOT hang the chat for minutes. A tighter cap than interpret: on a
     # timeout it falls back to "не вдалося" fast instead of leaving "typing…" for 10 min.
     claude_price_timeout_s: int = 150
+    # The OTC self-care price agent prices SEVERAL drugs at once (2-3 options for one complaint),
+    # not a single named drug like /price — so it needs a longer budget than the price agent or it
+    # times out into the "не вдалося" fallback. The chat shows a "typing…" indicator throughout, so
+    # a few extra minutes is acceptable here.
+    claude_otc_timeout_s: int = 300
     # Webhook server bind. Defaults to localhost — on the VPS, nginx terminates TLS
     # and proxies to it; set WEB_HOST=0.0.0.0 only to expose it directly.
     web_host: str = "127.0.0.1"
@@ -111,6 +116,7 @@ class Settings:
             claude_interpret_timeout_s=int(_get("CLAUDE_INTERPRET_TIMEOUT_S", "600")),
             claude_interpret_concurrency=int(_get("CLAUDE_INTERPRET_CONCURRENCY", "3")),
             claude_price_timeout_s=int(_get("CLAUDE_PRICE_TIMEOUT_S", "150")),
+            claude_otc_timeout_s=int(_get("CLAUDE_OTC_TIMEOUT_S", "300")),
             web_host=_get("WEB_HOST", "127.0.0.1"),
             web_port=int(_get("WEB_PORT", "8000")),
         )

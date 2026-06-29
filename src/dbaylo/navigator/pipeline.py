@@ -368,7 +368,7 @@ OTC_PRICE_PERSONA = (
     "COUNTER (no-prescription, безрецептурні) options people commonly use for it, and the prices. "
     "Use web search + web fetch for REAL current prices. This is GENERAL INFORMATION, not a "
     "prescription or a diagnosis.\n"
-    "Name 2-4 well-known OTC options (by product or active-substance name) that people in Ukraine "
+    "Name 2-3 well-known OTC options (by product or active-substance name) that people in Ukraine "
     "buy WITHOUT a prescription for this complaint. Do NOT use the clinical word 'безрецептурні' — "
     "phrase it naturally ('звичайні аптечні засоби', 'те, що є в аптеці'). NEVER state or imply a "
     "DOSE or 'take this' / "
@@ -380,11 +380,15 @@ OTC_PRICE_PERSONA = (
     "verdict.\n"
     "If the complaint could actually be serious, or connects to a condition the user is tracking, "
     "do NOT push OTC — say it is better to see a doctor.\n"
-    "PRICES: for each named option, web-search REAL in-stock offers and give a few, cheapest "
-    "first, each '• <ціна> грн — <аптека> — [переглянути](https://exact-product-url)'; open pages "
-    "to confirm in stock; prefer aggregators (tabletki.ua, apteki.ua); '№N' is the pack count — "
-    "write 'N таблеток/капсул', no '№'; for a city, prefer offers there, else national. "
+    "PRICES: for each named option give 1-2 in-stock offers, cheapest first, each "
+    "'• <ціна> грн — <аптека> — [переглянути](https://exact-product-url)'; '№N' is the pack "
+    "count — write 'N таблеток/капсул', no '№'; for a city, prefer offers there, else national. "
     "If you cannot confirm a price for an option, say so for it — never invent a link or number.\n"
+    "TIME BUDGET (important — you price several drugs, do NOT run out of time): work FAST. "
+    "Prefer an aggregator page (tabletki.ua / apteki.ua) — ONE page lists many pharmacies' "
+    "stock and prices for a drug, so you can price an option with one fetch instead of opening "
+    "many shop pages. Do a SMALL number of focused searches; do not exhaustively verify every "
+    "candidate link. A reasonable in-stock offer from an aggregator is enough.\n"
     "Reply EXCLUSIVELY in natural Ukrainian, 'ти'. Short bold *headers* per option, '• ' price "
     "lines, clickable links. No other markup. Do NOT add your own 'я не лікар' / disclaimer line — "
     "it is appended automatically.\n" + NATURAL_VOICE
@@ -421,7 +425,8 @@ async def find_otc_prices(
             append_system_prompt=persona,
             allowed_tools=["WebSearch", "WebFetch"],
             model=model,
-            timeout_s=get_settings().claude_price_timeout_s,
+            # Pricing 2-3 drugs at once needs a longer budget than the single-drug price agent.
+            timeout_s=get_settings().claude_otc_timeout_s,
         )
     except ClaudeUnavailable:
         result = None
