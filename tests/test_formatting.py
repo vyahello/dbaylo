@@ -67,6 +67,14 @@ def test_companion_html_without_a_disclaimer_has_no_ps() -> None:
     assert locale.INTERPRET_DIVIDER not in out  # nothing to set off -> no stray divider
 
 
+def test_companion_html_collapses_a_blank_line_chasm() -> None:
+    # The LLM sometimes leaves a run of blank lines (a big empty gap in Telegram). The renderer
+    # collapses it to a single blank line so the message keeps its tight, premium spacing.
+    out = render_companion_html("Перший рядок.\n\n\n\nДругий рядок.")
+    assert out == "Перший рядок.\n\nДругий рядок."
+    assert "\n\n\n" not in out
+
+
 def test_companion_html_styles_the_otc_footer_as_the_italic_ps() -> None:
     # The OTC self-care footer is the OTC path's single disclaimer — it must read like the canonical
     # P.S. (italic, under a divider), not a plain trailing line.

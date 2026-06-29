@@ -85,6 +85,10 @@ _BOLD2_RE = re.compile(r"\*\*([^*\n]+)\*\*")  # **double** bold
 _HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*#*\s*$")  # a "# Heading" line
 _HR_RE = re.compile(r"^\s*([*_-])\1{2,}\s*$")  # a "---" / "***" / "___" divider line
 _BULLET_RE = re.compile(r"^(\s*)[-*+]\s+")  # "- item" / "* item" / "+ item"
+# The LLM sometimes leaves a run of blank lines (e.g. after a preamble), which Telegram shows as a
+# big empty gap. Collapse any run of 2+ blank lines to a single blank line — one clean paragraph
+# break, never a chasm — so the message keeps its premium, tight spacing.
+_BLANK_RUN_RE = re.compile(r"\n{3,}")
 
 
 def _companion_inline(escaped: str) -> str:
@@ -126,7 +130,7 @@ def render_companion_html(text: str, *, full_disclaimer: bool = True) -> str:
             lines.append(f"<b>{_escape(heading.group(1)).replace('*', '').replace('_', '')}</b>")
             continue
         lines.append(_companion_inline(_escape(_BULLET_RE.sub(r"\1• ", raw))))
-    out = "\n".join(lines).rstrip()
+    out = _BLANK_RUN_RE.sub("\n\n", "\n".join(lines).strip())
     if ps is None:  # no disclaimer to set off
         return out
     override = None if ps == DISCLAIMER else ps  # the OTC footer rides as its own P.S. text

@@ -389,6 +389,9 @@ OTC_PRICE_PERSONA = (
     "stock and prices for a drug, so you can price an option with one fetch instead of opening "
     "many shop pages. Do a SMALL number of focused searches; do not exhaustively verify every "
     "candidate link. A reasonable in-stock offer from an aggregator is enough.\n"
+    "Go STRAIGHT to the result — do NOT open with filler like 'Маю підтверджені ціни' or 'пишу "
+    "відповідь'; the first line is already the answer. No blank-line chasms — one blank line "
+    "between blocks at most.\n"
     "Reply EXCLUSIVELY in natural Ukrainian, 'ти'. Short bold *headers* per option, '• ' price "
     "lines, clickable links. No other markup. Do NOT add your own 'я не лікар' / disclaimer line — "
     "it is appended automatically.\n" + NATURAL_VOICE
