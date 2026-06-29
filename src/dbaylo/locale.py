@@ -1259,6 +1259,10 @@ NAV_COVERAGE_EXPLAINER = (
 )
 BTN_COVERAGE_SERVICE = "🔎 Перевірити послугу"  # type an exam/service -> agent
 BTN_COVERAGE_MEDS = "💊 Мої ліки безкоштовно?"  # check the user's meds against «Доступні ліки»
+# Action buttons UNDER a coverage answer so it is never a dead-end (reuse existing entry points).
+BTN_COVERAGE_TO_PRICES = "💰 Ціни на ці ліки"  # meds answer -> price the same meds
+BTN_COVERAGE_OTHER_SERVICE = "🔎 Інша послуга"  # -> type another service
+BTN_COVERAGE_CHECK_MEDS = "💊 Мої ліки безкоштовно?"  # service answer -> check meds reimbursement
 NAV_COVERAGE_SEARCHING = "Дивлюся, що покриває держава… 🔎 Це може зайняти трохи часу."
 NAV_COVERAGE_NO_MEDS = (
     "У тебе ще немає збережених ліків. Додай рецепт — і перевірю їх за «Доступними ліками»."

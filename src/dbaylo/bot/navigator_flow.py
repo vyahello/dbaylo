@@ -470,6 +470,31 @@ async def open_coverage_screen(message: Message, state: FSMContext, *, telegram_
     )
 
 
+def _coverage_result_keyboard(*, is_meds: bool) -> InlineKeyboardMarkup:
+    """Contextual actions UNDER a coverage answer so it is never a dead-end (all reuse existing
+    entry points). The meds answer offers to price the same meds; the service answer offers the
+    meds check; both offer a quick re-check of another service."""
+    if is_meds:
+        row = [
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_TO_PRICES, callback_data=callbacks.MENU_PRICE
+            ),
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_OTHER_SERVICE, callback_data=callbacks.COVERAGE_SERVICE
+            ),
+        ]
+    else:
+        row = [
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_CHECK_MEDS, callback_data=callbacks.COVERAGE_MEDS
+            ),
+            InlineKeyboardButton(
+                text=locale.BTN_COVERAGE_OTHER_SERVICE, callback_data=callbacks.COVERAGE_SERVICE
+            ),
+        ]
+    return InlineKeyboardMarkup(inline_keyboard=[row])
+
+
 async def _send_coverage(message: Message, request: str, *, telegram_id: int | None) -> None:
     """Gate FIRST, then the smart ПМГ/НСЗУ agent (city-grounded), rendered as HTML."""
     decision = screen(request)
@@ -480,7 +505,12 @@ async def _send_coverage(message: Message, request: str, *, telegram_id: int | N
     await message.answer(locale.NAV_COVERAGE_SEARCHING)
     async with keep_typing(message):
         text = await find_coverage(request, city=city)
-    await answer_chunked(message, render_companion_html(text), parse_mode=ParseMode.HTML)
+    await answer_chunked(
+        message,
+        render_companion_html(text),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_coverage_result_keyboard(is_meds=False),
+    )
 
 
 @router.callback_query(F.data == callbacks.COVERAGE_SERVICE)
@@ -509,7 +539,12 @@ async def on_coverage_meds(callback: CallbackQuery, state: FSMContext) -> None:
     await callback.message.answer(locale.NAV_COVERAGE_SEARCHING)
     async with keep_typing(callback.message):
         text = await find_coverage(names, city=city, is_meds=True)
-    await answer_chunked(callback.message, render_companion_html(text), parse_mode=ParseMode.HTML)
+    await answer_chunked(
+        callback.message,
+        render_companion_html(text),
+        parse_mode=ParseMode.HTML,
+        reply_markup=_coverage_result_keyboard(is_meds=True),
+    )
 
 
 @router.message(Command("coverage"))
