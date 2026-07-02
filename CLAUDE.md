@@ -7,7 +7,12 @@ the full vision; this file is the operational summary. **This is a docs-first bu
 
 Дбайло ("the one who cares for you") is a personal health & wellness companion on
 Telegram. **A caring friend with guardrails — not a doctor, not a prescriber.**
-Single-user, personal use only (no productization — that is a different regulatory tier).
+Personal use only for a **closed allow-list the owner curates by hand** — himself and a few
+family members he authorizes (NOT open registration; that is a different regulatory tier). Every
+authorized user gets their OWN isolated data (labs · meds · reminders · memory); isolation is
+enforced in code (see "Access & isolation" below). The owner-authorized safety relaxations
+(OTC suggestions, dose-as-record, clinic ranking) are the owner extending, to the family he cares
+for, choices he made for himself — still not for strangers.
 
 ## Four-layer architecture
 
@@ -101,6 +106,31 @@ These live in `src/dbaylo/triage/` and are enforced by `tests/triage/test_safety
 When in doubt, **escalate toward care.** Never add prescribing logic or any autonomous
 "skip the doctor" logic, anywhere. The LLM never emits restrictive numeric prescriptions
 and never decides escalation — the two deterministic cores (triage, wellness) do.
+
+## Access & isolation (closed family allow-list)
+
+Two independent boundaries — **who gets in** and **whose data they see**:
+
+- **Who gets in** — `bot/access.py` `OwnerOnlyMiddleware` is the single **outer** update middleware:
+  it admits only ids in the authorized set (`config.Settings.authorized_ids()` = `owner_telegram_id`
+  ∪ `allowed_telegram_ids`, dropping 0), refuses everyone else with one Ukrainian reply (which echoes
+  the sender's own id so the owner can whitelist a family member), and drops the update before any
+  router / gate / `ensure_user` — so **no stranger row is ever created**. Fail-closed: an empty set
+  (owner unset AND no allow-list) locks the bot. `ALLOWED_TELEGRAM_IDS` is a comma-separated env list
+  the owner curates by hand. The middleware accepts a single int (tests, single-owner) or a set.
+- **Whose data** — every domain row is already `user_id`-scoped; handlers resolve the **sender's**
+  user via `ensure_user(telegram_id=from_user.id)` (never a hard-coded owner). The isolation boundary
+  is that **every by-id lookup a callback can reach is scoped to that user** — a forged callback id
+  addresses nobody else's row. Reports use `history.get_report(report_id, user_id=)`; meds/reminders
+  use `medications.get_owned` / `reminders.get_owned`; the mutating concern helpers
+  (`concerns.resolve` / `rename`) check ownership **before** the mutation (a latent single-user bug
+  fixed here); course/goal helpers already scope via `list_by_course(user_id=)` / `user_id` checks.
+  Files are namespaced per user (`storage_dir/<user_id>/`). `tests/test_multiuser_isolation.py` is the
+  proof (user B can neither read nor mutate user A's rows). FSM is naturally isolated (a private chat
+  keys `chat_id == user_id == telegram_id`).
+- **Startup jobs are per-user** — `recover_interrupted_analyses` delivers each interrupted analysis to
+  ITS OWN user; `warm_indicator_notes` warms every user; the scheduler already enumerates all users
+  and `_send` resolves each reminder's own `telegram_id`. Backups now hold several people's data.
 
 ## Language
 
@@ -505,7 +535,9 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   declined — so the lab flow never dead-ends either (full symmetry with the prescription result). The daily check-in no longer appears as a deletable reminder — it's an
   info line ("керую цим я") above the list (`_reminders_payload`). On lab confirm the bot **offers** a repeat-lab
   reminder ([1м][3м][6м][Інше][Ні]) and, if a value is out of range, offers a draft concern
-  (rename later). `/start` now captures `telegram_id`. Reminders go only to the owner (owner lock).
+  (rename later). `/start` now captures `telegram_id`. Reminders go to each row's OWN user (the
+  scheduler resolves `telegram_id` per reminder); the access lock admits only authorized ids (see
+  "Access & isolation").
 - **Tier 1.2 — history & retrieval** (`companion/history.py`, `bot/history_flow.py`, migration
   0005): browse stored labs as a **master-detail UI** (progressive disclosure, not a wall). `/history`
   (alias `/reports`) sends ONE message — a paginated list (`_list_view`, 8/page, `◀ ▶`) of **one
@@ -838,4 +870,8 @@ triage as the non-negotiable escalation backstop). **FSM-cancel fix (done):**
 commands abort in-progress dialogs; blank input never persists; phantom-row cleanup CLI. **Tier 1.3
 (done):** button menu — persistent reply keyboard + section screens delegating to reused flow helpers,
 shared `[Скасувати]`, menu labels reset state, navigator FSM gated like the command arg (UI layer only,
-no new models).
+no new models). **Multi-user family allow-list (done):** the access lock admits a curated set
+(`ALLOWED_TELEGRAM_IDS` ∪ owner), startup jobs + the scheduler are per-user, and every by-id callback
+lookup is user-scoped so authorized family members can't reach each other's data (see "Access &
+isolation"; `tests/test_multiuser_isolation.py`). No new models/migrations — rows were already
+`user_id`-scoped.

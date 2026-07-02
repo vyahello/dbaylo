@@ -90,11 +90,14 @@ async def undismiss(session: AsyncSession, *, user_id: int, condition_id: int) -
     return condition
 
 
-async def resolve(session: AsyncSession, condition_id: int) -> Condition | None:
+async def resolve(session: AsyncSession, *, user_id: int, condition_id: int) -> Condition | None:
+    """Mark a concern RESOLVED — but only if it is this user's (else ``None``, unchanged). The
+    ownership check is BEFORE the mutation: a by-id callback never resolves another user's row."""
     condition = await session.get(Condition, condition_id)
-    if condition is not None:
-        condition.status = ConditionStatus.RESOLVED
-        await session.flush()
+    if condition is None or condition.user_id != user_id:
+        return None
+    condition.status = ConditionStatus.RESOLVED
+    await session.flush()
     return condition
 
 
@@ -124,11 +127,16 @@ async def reopen(session: AsyncSession, *, user_id: int, condition_id: int) -> C
     return condition
 
 
-async def rename(session: AsyncSession, condition_id: int, new_name: str) -> Condition | None:
+async def rename(
+    session: AsyncSession, *, user_id: int, condition_id: int, new_name: str
+) -> Condition | None:
+    """Rename a concern — but only if it is this user's (else ``None``, unchanged). Ownership is
+    checked BEFORE the mutation so a by-id callback can't rename another user's row."""
     condition = await session.get(Condition, condition_id)
-    if condition is not None:
-        condition.name = new_name.strip()
-        await session.flush()
+    if condition is None or condition.user_id != user_id:
+        return None
+    condition.name = new_name.strip()
+    await session.flush()
     return condition
 
 

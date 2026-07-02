@@ -79,9 +79,9 @@ async def resolve_problem(
 ) -> Condition | None:
     """Resolve a concern; retire the check-in only if nothing else (concern or data flag) warrants
     one."""
-    condition = await concerns.resolve(session, condition_id)
-    if condition is None or condition.user_id != user_id:
-        return condition
+    condition = await concerns.resolve(session, user_id=user_id, condition_id=condition_id)
+    if condition is None:
+        return None
     user = await session.get(User, user_id)
     if user is not None:
         await reconcile_checkin(session, user=user, scheduler=scheduler)

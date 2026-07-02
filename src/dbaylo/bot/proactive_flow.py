@@ -624,14 +624,21 @@ async def on_problem_rename(callback: CallbackQuery, state: FSMContext) -> None:
 async def on_problem_new_name(message: Message, state: FSMContext) -> None:
     data = await state.get_data()
     condition_id = data.get("condition_id")
+    tg = message.from_user.id if message.from_user else None
     await state.clear()
-    if not isinstance(condition_id, int):  # state lost (e.g. a restart mid-rename) — say so
+    if not isinstance(condition_id, int) or tg is None:  # state lost (e.g. a restart) — say so
         await message.answer(locale.NOTHING_SAVED)
         return
     async with get_session() as session:
-        await concerns.rename(session, condition_id, (message.text or "").strip())
+        user = await ensure_user(session, telegram_id=tg)
+        renamed = await concerns.rename(
+            session,
+            user_id=user.id,
+            condition_id=condition_id,
+            new_name=(message.text or "").strip(),
+        )
         await session.commit()
-    await message.answer(locale.PROBLEM_RENAMED)
+    await message.answer(locale.PROBLEM_RENAMED if renamed is not None else locale.NOTHING_SAVED)
 
 
 # --- Medications ----------------------------------------------------------------
@@ -1039,12 +1046,14 @@ async def on_reminders_back(callback: CallbackQuery, reminder_scheduler: Reminde
 async def on_reminder_view(callback: CallbackQuery, reminder_scheduler: ReminderScheduler) -> None:
     """Open a reminder's card (read it) — turning it off is a deliberate button, not this tap."""
     reminder_id = callbacks.parse_reminder_view(callback.data or "")
-    if reminder_id is None or not isinstance(callback.message, Message):
+    tg = _telegram_id(callback)
+    if reminder_id is None or tg is None or not isinstance(callback.message, Message):
         await callback.answer()
         return
     next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
     async with get_session() as session:
-        reminder = await session.get(Reminder, reminder_id)
+        user = await ensure_user(session, telegram_id=tg)
+        reminder = await reminders.get_owned(session, reminder_id, user_id=user.id)
     if reminder is None or not reminder.active:
         await _edit_to_list(callback, reminder_scheduler)  # gone meanwhile — show the fresh list
         await callback.answer()
@@ -1121,7 +1130,7 @@ async def on_medication_view(
     next_run = {job.id: job.next_run for job in reminder_scheduler.list_jobs()}
     async with get_session() as session:
         user = await ensure_user(session, telegram_id=tg)
-        med = await session.get(Medication, medication_id)
+        med = await medications.get_owned(session, medication_id, user_id=user.id)
         rems = [
             r
             for r in await reminders.active_reminders_for_user(session, user_id=user.id)
@@ -1447,11 +1456,13 @@ async def on_reminder_delete(
     """Deliberate DELETE from a reminder's card (a turned-off one can't be turned back on, so we
     remove it), then refresh the list in place."""
     reminder_id = callbacks.parse_reminder_off(callback.data or "")
-    if reminder_id is None:
+    tg = _telegram_id(callback)
+    if reminder_id is None or tg is None:
         await callback.answer()
         return
     async with get_session() as session:
-        reminder = await session.get(Reminder, reminder_id)
+        user = await ensure_user(session, telegram_id=tg)
+        reminder = await reminders.get_owned(session, reminder_id, user_id=user.id)
         if reminder is not None:
             await proactive.delete_reminder(
                 session, reminder=reminder, scheduler=reminder_scheduler
@@ -1467,14 +1478,18 @@ async def on_medication_delete(
 ) -> None:
     """Delete a medication's reminders from its reminder card, then refresh the list in place."""
     medication_id = callbacks.parse_medication_delete(callback.data or "")
-    if medication_id is None:
+    tg = _telegram_id(callback)
+    if medication_id is None or tg is None:
         await callback.answer()
         return
     async with get_session() as session:
-        await proactive.delete_medication_reminders(
-            session, medication_id=medication_id, scheduler=reminder_scheduler
-        )
-        await session.commit()
+        user = await ensure_user(session, telegram_id=tg)
+        med = await medications.get_owned(session, medication_id, user_id=user.id)
+        if med is not None:
+            await proactive.delete_medication_reminders(
+                session, medication_id=medication_id, scheduler=reminder_scheduler
+            )
+            await session.commit()
     await callback.answer(locale.REMINDER_DELETED)
     await _edit_to_list(callback, reminder_scheduler)
 
@@ -1484,15 +1499,19 @@ async def on_medication_off(callback: CallbackQuery, reminder_scheduler: Reminde
     """🔕 Turn a medication's reminders off from its card (deliberate) — the Medication row + dose
     stay (a record, not a wipe), then return to the list the card was opened from."""
     parsed = callbacks.parse_medication_off(callback.data or "")
-    if parsed is None:
+    tg = _telegram_id(callback)
+    if parsed is None or tg is None:
         await callback.answer()
         return
     medication_id, origin = parsed
     async with get_session() as session:
-        await proactive.turn_off_medication(
-            session, medication_id=medication_id, scheduler=reminder_scheduler
-        )
-        await session.commit()
+        user = await ensure_user(session, telegram_id=tg)
+        med = await medications.get_owned(session, medication_id, user_id=user.id)
+        if med is not None:
+            await proactive.turn_off_medication(
+                session, medication_id=medication_id, scheduler=reminder_scheduler
+            )
+            await session.commit()
     await callback.answer(locale.MED_TURNED_OFF_TOAST)
     if origin == "m":
         await _edit_to_meds(callback)

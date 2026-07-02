@@ -65,7 +65,10 @@ async def test_non_owner_message_is_refused_and_handler_never_runs() -> None:
     result = await mw(handler, update, {})
     handler.assert_not_awaited()
     assert result is None
-    msg.answer.assert_awaited_once_with(locale.PRIVATE_BOT)
+    msg.answer.assert_awaited_once()
+    text = msg.answer.await_args.args[0]
+    assert text.startswith(locale.PRIVATE_BOT)
+    assert "999" in text  # the refusal echoes the sender's id so the owner can whitelist
 
 
 async def test_non_owner_callback_is_refused() -> None:
@@ -74,7 +77,9 @@ async def test_non_owner_callback_is_refused() -> None:
     update, cb = _callback_update(999)
     await mw(handler, update, {})
     handler.assert_not_awaited()
-    cb.answer.assert_awaited_once_with(locale.PRIVATE_BOT, show_alert=True)
+    cb.answer.assert_awaited_once()
+    assert cb.answer.await_args.args[0].startswith(locale.PRIVATE_BOT)
+    assert cb.answer.await_args.kwargs.get("show_alert") is True
 
 
 async def test_unset_owner_zero_refuses_everyone() -> None:
@@ -84,7 +89,23 @@ async def test_unset_owner_zero_refuses_everyone() -> None:
     update, msg = _message_update(12345)
     await mw(handler, update, {})
     handler.assert_not_awaited()
-    msg.answer.assert_awaited_once_with(locale.PRIVATE_BOT)
+    msg.answer.assert_awaited_once()
+    assert msg.answer.await_args.args[0].startswith(locale.PRIVATE_BOT)
+
+
+async def test_allow_list_admits_a_family_member_and_still_blocks_others() -> None:
+    # A curated allow-list (owner + family) admits every listed id and refuses the rest.
+    mw = OwnerOnlyMiddleware({OWNER, 555})
+    handler = AsyncMock(return_value="handled")
+    update, _ = _message_update(555)
+    assert await mw(handler, update, {}) == "handled"
+    handler.assert_awaited_once()
+
+    blocked = AsyncMock()
+    update2, msg2 = _message_update(999)
+    assert await mw(blocked, update2, {}) is None
+    blocked.assert_not_awaited()
+    msg2.answer.assert_awaited_once()
 
 
 async def test_update_without_sender_is_dropped_silently() -> None:

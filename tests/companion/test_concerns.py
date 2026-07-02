@@ -30,14 +30,16 @@ async def test_add_active_and_list(async_session: AsyncSession) -> None:
 async def test_resolve_drops_from_active(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     condition = await concerns.add_active(async_session, user=user, name="x")
-    await concerns.resolve(async_session, condition.id)
+    await concerns.resolve(async_session, user_id=user.id, condition_id=condition.id)
     assert await concerns.count_active(async_session, user_id=user.id) == 0
 
 
 async def test_rename(async_session: AsyncSession) -> None:
     user = await _user(async_session)
     condition = await concerns.add_active(async_session, user=user, name="креатинін поза нормою")
-    await concerns.rename(async_session, condition.id, "камені в нирках")
+    await concerns.rename(
+        async_session, user_id=user.id, condition_id=condition.id, new_name="камені в нирках"
+    )
     actives = await concerns.list_active(async_session, user_id=user.id)
     assert actives[0].name == "камені в нирках"
 

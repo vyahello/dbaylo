@@ -27,16 +27,32 @@ def _get(name: str, default: str) -> str:
     return value if value else default
 
 
+def _parse_ids(raw: str) -> tuple[int, ...]:
+    """Parse a comma/space-separated list of Telegram ids; ignore blanks and non-integers so a
+    stray comma or typo never crashes startup (it just drops that entry)."""
+    ids: list[int] = []
+    for token in raw.replace(";", ",").replace(" ", ",").split(","):
+        token = token.strip()
+        if token.lstrip("-").isdigit():
+            ids.append(int(token))
+    return tuple(ids)
+
+
 @dataclass(frozen=True)
 class Settings:
     """Resolved runtime settings."""
 
     # Telegram bot token (empty until provisioned; required only to actually run).
     bot_token: str = ""
-    # Owner lock: only this Telegram user id may use the bot. 0 (the default) means
-    # "no owner set" -> the bot refuses everyone (fail-closed), so this MUST be set
-    # in production. Personal, single-user medical data — never leave it open.
+    # Owner lock: THE admin (backups, startup jobs) and always an authorized user. 0 (the
+    # default) means "no owner set" -> combined with an empty allow-list the bot refuses everyone
+    # (fail-closed), so this MUST be set in production. Personal medical data — never leave it open.
     owner_telegram_id: int = 0
+    # Additional authorized Telegram ids (a CLOSED family allow-list the owner curates by hand).
+    # Every authorized user gets their OWN isolated data (labs · meds · reminders · memory). The
+    # owner is always authorized implicitly; this is the set of OTHER people allowed in. Parsed from
+    # ALLOWED_TELEGRAM_IDS as a comma-separated list. Empty by default (single-user).
+    allowed_telegram_ids: tuple[int, ...] = ()
     # Public base URL for the webhook entrypoint (Stage 1: placeholder).
     webhook_base_url: str = ""
     # Database URL; defaults to a local SQLite file at the repo root.
@@ -95,11 +111,17 @@ class Settings:
     web_host: str = "127.0.0.1"
     web_port: int = 8000
 
+    def authorized_ids(self) -> frozenset[int]:
+        """Every Telegram id allowed to use the bot: the owner ∪ the family allow-list, minus 0
+        (unset). An empty result means the bot is fully locked (fail-closed)."""
+        return frozenset(i for i in (self.owner_telegram_id, *self.allowed_telegram_ids) if i)
+
     @classmethod
     def from_env(cls) -> Settings:
         return cls(
             bot_token=_get("BOT_TOKEN", ""),
             owner_telegram_id=int(_get("OWNER_TELEGRAM_ID", "0")),
+            allowed_telegram_ids=_parse_ids(_get("ALLOWED_TELEGRAM_IDS", "")),
             webhook_base_url=_get("WEBHOOK_BASE_URL", ""),
             database_url=_get("DATABASE_URL", cls.database_url),
             timezone=_get("TZ", "Europe/Kyiv"),

@@ -330,6 +330,18 @@ async def list_medications(session: AsyncSession, *, user_id: int) -> list[Medic
     return list(rows.all())
 
 
+async def get_owned(
+    session: AsyncSession, medication_id: int, *, user_id: int
+) -> Medication | None:
+    """One medication BY ID, but only if it belongs to ``user_id`` (else ``None``). The ownership
+    check is the multi-user isolation boundary — a callback carries only an id, so every by-id
+    lookup a user can reach must be scoped, or one user could address another's medication."""
+    row: Medication | None = await session.scalar(
+        select(Medication).where(Medication.id == medication_id, Medication.user_id == user_id)
+    )
+    return row
+
+
 # Leading dosage-form markers a prescription prints before the drug name ("Т. Буспірон",
 # "таб дулоксетин", "К. Симода") — stripped so the SAME drug keys the same across two scripts.
 _FORM_PREFIX_RE = re.compile(

@@ -15,6 +15,7 @@ from aiogram import Bot, Dispatcher
 from aiogram.enums import ParseMode
 from aiogram.fsm.storage.base import BaseStorage, StorageKey
 from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
+from sqlalchemy import select
 
 from dbaylo import locale
 from dbaylo.bot import (
@@ -36,7 +37,7 @@ from dbaylo.companion import callbacks, history, notewarm
 from dbaylo.companion.scheduler import Buttons, DialogReset, ReminderScheduler, Sender
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
-from dbaylo.labs.intake import ensure_user
+from dbaylo.db.models import User
 from dbaylo.labs.labnames import normalize_lab
 
 
@@ -59,10 +60,15 @@ def build_dispatcher(
     dialog / symptom interview survives a restart; the connection is opened lazily, so
     building a dispatcher (e.g. in a test) touches no disk.
     """
-    resolved_owner = owner_id if owner_id is not None else get_settings().owner_telegram_id
+    # The authorized set: an explicit owner_id (tests) stays single-user; otherwise the owner ∪ the
+    # configured family allow-list. An empty set is fail-closed (refuses everyone).
+    if owner_id is not None:
+        allowed: int | frozenset[int] = owner_id
+    else:
+        allowed = get_settings().authorized_ids()
     storage = storage or SQLiteStorage(get_settings().fsm_db_path)
     dispatcher = Dispatcher(storage=storage)
-    dispatcher.update.outer_middleware(OwnerOnlyMiddleware(resolved_owner))
+    dispatcher.update.outer_middleware(OwnerOnlyMiddleware(allowed))
     # Runs before any router resolves a handler: a /command aborts an in-progress FSM
     # dialog so it is never consumed as the dialog's text answer.
     dispatcher.message.outer_middleware(CommandStateResetMiddleware())
@@ -144,16 +150,22 @@ def make_dialog_reset(bot: Bot, storage: BaseStorage) -> DialogReset:
     return reset
 
 
-async def recover_interrupted_analyses(bot: Bot, owner_id: int) -> None:
+async def recover_interrupted_analyses(bot: Bot) -> None:
     """After a restart, offer to finish any analysis that was interrupted mid-run (a deploy /
     crash killed the LLM call, leaving the summary PENDING). One message per affected report with
     a one-tap '▶️ Доробити розбір' — the same cached-or-generate path, which regenerates because
-    the summary is empty. Best-effort: a send failure must never block the bot from starting."""
-    if not owner_id:
-        return
+    the summary is empty. Each report is delivered to ITS OWN user (multi-user), never pooled to the
+    owner. Best-effort: a send failure must never block the bot from starting."""
     async with get_session() as session:
         interrupted = await history.find_interrupted_analyses(session)
-    for report in interrupted:
+        # Resolve each report's owner telegram id up front (inside the session).
+        targets = [
+            (report, user.telegram_id)
+            for report in interrupted
+            if (user := await session.get(User, report.user_id)) is not None
+            and user.telegram_id is not None
+        ]
+    for report, telegram_id in targets:
         date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
         lab_txt = normalize_lab(report.lab) or locale.LAB_LAB_UNKNOWN
         markup = InlineKeyboardMarkup(
@@ -168,23 +180,25 @@ async def recover_interrupted_analyses(bot: Bot, owner_id: int) -> None:
         )
         with contextlib.suppress(Exception):
             await bot.send_message(
-                owner_id,
+                telegram_id,
                 locale.ANALYSIS_INTERRUPTED.format(date=date_txt, lab=lab_txt),
                 reply_markup=markup,
             )
 
 
-async def warm_indicator_notes(owner_id: int) -> None:
-    """Fill the educational-note cache for the owner's indicators in the background, so the dynamics
-    charts/tables/PDF carry a description for EVERY indicator and render with no claude call. Notes
-    are data-independent and persisted, so this is a one-time warm that survives restarts; runs
+async def warm_indicator_notes() -> None:
+    """Fill the educational-note cache for EVERY user's indicators in the background, so the charts,
+    tables and PDF carry a description for every indicator and render with no claude call. Notes are
+    data-independent and persisted, so this is a one-time warm that survives restarts; it is
     best-effort and never blocks startup."""
-    if not owner_id:
-        return
     async with get_session() as session:
-        user = await ensure_user(session, owner_id)
-        user_id = user.id
-    notewarm.warm_user_notes_in_background(user_id)
+        user_ids = [
+            user.id
+            for user in (await session.scalars(select(User))).all()
+            if user.telegram_id is not None
+        ]
+    for user_id in user_ids:
+        notewarm.warm_user_notes_in_background(user_id)
 
 
 async def _run_polling() -> None:
@@ -203,11 +217,11 @@ async def _run_polling() -> None:
     await apply_bot_commands(bot)
     # Offer to finish any analysis a restart interrupted (best-effort; never blocks startup).
     with contextlib.suppress(Exception):
-        await recover_interrupted_analyses(bot, get_settings().owner_telegram_id)
+        await recover_interrupted_analyses(bot)
     # Warm the indicator-note cache in the background so every chart/table/PDF has a description and
     # renders without waiting on claude (best-effort; never blocks startup).
     with contextlib.suppress(Exception):
-        await warm_indicator_notes(get_settings().owner_telegram_id)
+        await warm_indicator_notes()
     try:
         await dispatcher.start_polling(bot)
     finally:

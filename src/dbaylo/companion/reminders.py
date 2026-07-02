@@ -246,6 +246,15 @@ async def active_reminders(session: AsyncSession) -> list[Reminder]:
     return list(rows.all())
 
 
+async def get_owned(session: AsyncSession, reminder_id: int, *, user_id: int) -> Reminder | None:
+    """One reminder BY ID, but only if it belongs to ``user_id`` (else ``None``). The multi-user
+    isolation boundary for reminder callbacks — a forged id addresses nobody else's row."""
+    row: Reminder | None = await session.scalar(
+        select(Reminder).where(Reminder.id == reminder_id, Reminder.user_id == user_id)
+    )
+    return row
+
+
 async def active_reminders_for_user(session: AsyncSession, *, user_id: int) -> list[Reminder]:
     """A single user's active reminders (for the /reminders management list)."""
     rows = await session.scalars(

@@ -319,3 +319,17 @@ async def test_start_does_not_deliver_a_future_one_off(async_session: AsyncSessi
 
     assert recorder.sent == []  # scheduled for later, not delivered now
     assert len(await reminders.active_reminders(async_session)) == 1  # still active
+
+
+async def test_send_routes_each_reminder_to_its_own_user(async_session: AsyncSession) -> None:
+    # Multi-user: a reminder is delivered to ITS OWN user's Telegram id, never pooled to one owner.
+    a = User(telegram_id=101, name="A")
+    b = User(telegram_id=202, name="B")
+    async_session.add_all([a, b])
+    await async_session.flush()
+    recorder = _Recorder()
+
+    await scheduler._send(recorder, async_session, a.id, "для A")
+    await scheduler._send(recorder, async_session, b.id, "для B")
+
+    assert recorder.sent == [(101, "для A"), (202, "для B")]

@@ -81,8 +81,10 @@ HELP_TEXT = (
     "Команди «/» теж працюють — їхній список у меню «/» біля поля вводу.\n\n"
     f"{DISCLAIMER}"
 )
-# Owner lock: shown once to anyone who is not the configured owner.
+# Owner lock: shown once to anyone who is not an authorized user.
 PRIVATE_BOT = "Вибач, це приватний бот — він працює лише для свого власника. 🔒"
+# Appended to the refusal so the owner can whitelist a family member without hunting for their id.
+PRIVATE_BOT_ID = "Твій Telegram ID: {user_id}"
 
 # --- Safety vocabulary (Ukrainian) ----------------------------------------------
 
