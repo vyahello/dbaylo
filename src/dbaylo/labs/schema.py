@@ -59,6 +59,9 @@ class ExtractedReport:
     results: list[ExtractedAnalyte] = field(default_factory=list)
     report_date: date | None = None
     lab: str | None = None
+    # The patient's GIVEN NAME (імʼя) if the header's ПІБ prints it — so Дбайло can address the
+    # user by their real name. Adopted onto ``User.name`` at confirm; never used for clinical logic.
+    patient_name: str | None = None
     # The patient's date of birth if the header prints it ("Дата народження") — used only to resolve
     # AGE-STRATIFIED references (e.g. ПСА) against the lab's own age table. Never shown to the user.
     birth_date: date | None = None

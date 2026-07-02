@@ -311,6 +311,7 @@ def _report_to_state(report: ExtractedReport) -> dict[str, object]:
     # confirmed МРТ into an empty 'tabular' report, whose interpretation hallucinated "table empty".
     return {
         "report_date": report.report_date.isoformat() if report.report_date else None,
+        "patient_name": report.patient_name,
         "birth_date": report.birth_date.isoformat() if report.birth_date else None,
         "sex": report.sex,
         "lab": report.lab,
@@ -333,6 +334,7 @@ def _report_from_state(data: Mapping[str, Any]) -> ExtractedReport:
     return ExtractedReport(
         results=[ExtractedAnalyte(**row) for row in raw_results],
         report_date=date.fromisoformat(raw_date) if isinstance(raw_date, str) else None,
+        patient_name=_str("patient_name"),
         birth_date=date.fromisoformat(raw_birth) if isinstance(raw_birth, str) else None,
         sex=_str("sex"),
         lab=_str("lab"),
@@ -656,6 +658,7 @@ async def on_confirm(
             analytes=report.results,
             report_date=report.report_date,
             lab=report.lab,
+            patient_name=report.patient_name,
             birth_date=report.birth_date,
             sex=report.sex,
             conclusion=report.conclusion,

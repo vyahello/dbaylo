@@ -61,6 +61,33 @@ def test_section_label_maps_index_to_name() -> None:
     assert section_label(99) == "" and section_label(-1) == ""
 
 
+async def test_patient_profile_addresses_the_user_by_name(async_session: AsyncSession) -> None:
+    # The name is fed to EVERY voice via the profile, so Дбайло addresses the user warmly (vocative,
+    # varied forms) — even for a brand-new user with no data yet (name alone yields a profile).
+    from dbaylo.companion.consult_context import patient_profile
+
+    user = await ensure_user(async_session, 1, "Володимир")
+    profile = await patient_profile(async_session, user.id, _TODAY)
+    assert "Володимир" in profile
+    assert "VOCATIVE" in profile  # the how-to-address instruction rides the profile
+
+
+async def test_persist_confirmed_adopts_the_patient_name(async_session: AsyncSession) -> None:
+    # A confirmed report's given name is adopted onto User.name (the medical doc is authoritative),
+    # replacing the Telegram handle so later chat uses the real name.
+    user = await ensure_user(async_session, 1, "tg_handle")
+    report = await create_pending_report(async_session, user=user, file_path=Path("/tmp/n.png"))
+    await persist_confirmed(
+        async_session,
+        report=report,
+        analytes=[_analyte("Холестерин", 5.0, None, 5.2)],
+        report_date=date(2026, 1, 1),
+        lab="Synevo",
+        patient_name="Володимир",
+    )
+    assert user.name == "Володимир"
+
+
 async def test_patient_profile_includes_active_goals(async_session: AsyncSession) -> None:
     # Goals are now FUNCTIONAL: an active goal is grounded into the profile, so Дбайло references &
     # supports it everywhere (chat / consult / check-in), not just stores a dead row.

@@ -50,6 +50,32 @@ def test_parse_defaults_document_type_to_lab() -> None:
     assert report.document_type == "lab" and report.is_prescription is False
 
 
+def test_parse_extracts_given_name_from_full_pib() -> None:
+    # A surname-first ПІБ ('Прізвище Імʼя По-батькові') -> the GIVEN name (the middle token).
+    report = parse_extraction('{"patient_name": "Ягелло Володимир Богданович", "results": []}')
+    assert report is not None
+    assert report.patient_name == "Володимир"
+
+
+def test_parse_keeps_a_bare_given_name() -> None:
+    report = parse_extraction('{"patient_name": "олена", "results": []}')
+    assert report is not None
+    assert report.patient_name == "Олена"  # capitalised
+
+
+def test_parse_rejects_a_non_name() -> None:
+    # Digits / codes are never a name (the model lifted a patient number).
+    report = parse_extraction('{"patient_name": "12345", "results": []}')
+    assert report is not None
+    assert report.patient_name is None
+
+
+def test_merge_propagates_first_seen_patient_name() -> None:
+    a = ExtractedReport(patient_name=None)
+    b = ExtractedReport(patient_name="Володимир")
+    assert merge_reports([a, b]).patient_name == "Володимир"
+
+
 def test_parse_classifies_a_prescription() -> None:
     # The model flagged the upload as a doctor's medication list → is_prescription drives routing.
     report = parse_extraction(

@@ -118,6 +118,7 @@ async def persist_confirmed(
     analytes: list[ExtractedAnalyte],
     report_date: date | None,
     lab: str | None,
+    patient_name: str | None = None,
     birth_date: date | None = None,
     sex: str | None = None,
     conclusion: str | None = None,
@@ -130,7 +131,15 @@ async def persist_confirmed(
     the attention ``flagged`` mark are computed deterministically here, never by the model
     (the model only reports the lab's own out-of-range indicator, which feeds ``flagged``).
     A narrative document (``narrative`` set, no analytes) is stored as kind=NARRATIVE.
+
+    If the report header printed the patient's given name, adopt it onto ``User.name`` — the
+    medical document is a more authoritative (and Ukrainian) source than the Telegram handle, so
+    Дбайло can address the person by their real name.
     """
+    if patient_name:
+        user = await session.get(User, report.user_id)
+        if user is not None:
+            user.name = patient_name
     report.report_date = report_date
     report.birth_date = birth_date or report.birth_date  # keep an already-known DOB
     report.sex = sex or report.sex  # keep an already-known sex

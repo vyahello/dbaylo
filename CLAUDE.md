@@ -168,7 +168,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   fences/partial/malformed output and degrades to "ask the user", never crashes. Default model
   `sonnet`, escalates to `opus`; never `haiku`. **Captures the lab's OWN out-of-range indicator**
   per row (`out_of_range`, the boxed/highlighted "зона уваги" — OCR of the lab's verdict, not ours)
-  and the report's overall `conclusion` (Stage 5). Also classifies the upload via `document_type`
+  and the report's overall `conclusion` (Stage 5). Also captures the patient's **given name**
+  (`patient_name` — the імʼя from the header's ПІБ, `_coerce_name` keeps only the given token) which
+  `persist_confirmed` adopts onto `User.name` at confirm (the medical doc is a more authoritative,
+  Ukrainian source than the Telegram handle) so Дбайло can address the user by their real name (see
+  "Addressing the user by name"). Also classifies the upload via `document_type`
   ("lab" | "prescription") for **auto-routing** a freely-dropped рецепт to the meds flow (see L1
   💊 з фото рецепта). **Argv note:** `run_claude` ends its argv with a
   `--` terminator — `--add-dir`/`--allowedTools` are variadic and otherwise swallow the prompt (this
@@ -649,6 +653,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `conversation` and `intake` personas are built from these blocks (so general chat / the interview
   speak as the SAME expert assistant, with identical safety wording); `consult`/`checkin` keep their
   own tuned text. Lives at the package root (not scanned) so it adds no LLM path.
+- **Addressing the user by name** (`consult_context._first_name`/`_address_line` in
+  `patient_profile`): Дбайло addresses the user by their real name, warmly and like a friend but
+  still the professional expert. The name is per-user DATA, so the instruction rides the grounded
+  **profile** (not the static persona) — and since `build_health_context` includes `patient_profile`
+  and every voice (chat · intake · check-in · consult) routes through it, ONE injection covers all.
+  `_first_name` takes the given token of `User.name` (Telegram "First Last" → "First"; a lab-adopted
+  name is already just the given name); `_address_line` tells the LLM to use correct Ukrainian
+  **vocative** (Володимире / the affectionate Володю), vary full/short forms, but SPARINGLY and never
+  at the cost of the expert tone. The profile now yields output for a name-only user too (so a brand-
+  new user is still addressed). The name is populated from Telegram on `/start` and upgraded to the
+  real Ukrainian name when a lab confirms (`patient_name` → `User.name`).
 - **Conversation** (`companion/conversation.py`): companion LLM via `llm/client.py`. **A continuous,
   grounded, memory-backed thread** (the unified-chat overhaul), not a stateless one-shot. The persona
   is built from the shared core (expert, not "buddy"): casual chit-chat stays short, a health turn

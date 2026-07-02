@@ -37,6 +37,10 @@ EXTRACTION_PERSONA = (
     "Return JSON ONLY — no prose, no markdown, no code fences — matching this shape:\n"
     "{\n"
     '  "report_date": "YYYY-MM-DD" | null,\n'
+    '  "patient_name": string | null,    // the patient\'s GIVEN NAME only (імʼя), Ukrainian,\n'
+    "                                    // from the header's ПІБ ('Пацієнт: Ягелло Володимир\n"
+    "                                    // Богданович' -> 'Володимир'). NOT the surname or\n"
+    "                                    // patronymic, NOT the doctor. null if not printed.\n"
     '  "birth_date": "YYYY-MM-DD" | null, // patient DATE OF BIRTH if the header prints it\n'
     "                                    // ('Дата народження') — needed for age-based references\n"
     '  "sex": "m" | "f" | null,          // patient SEX if the header prints it (Стать:\n'
@@ -192,6 +196,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     results: list[ExtractedAnalyte] = []
     seen: set[tuple[str | None, str, float | None, str | None, str | None]] = set()
     report_date: date | None = None
+    patient_name: str | None = None
     birth_date: date | None = None
     sex: str | None = None
     lab: str | None = None
@@ -215,6 +220,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
             seen.add(key)
             results.append(analyte)
         report_date = report_date or report.report_date
+        patient_name = patient_name or report.patient_name
         birth_date = birth_date or report.birth_date
         sex = sex or report.sex
         # Chunks can disagree on the lab (one page shows the brand "Синево", another only the
@@ -228,6 +234,7 @@ def merge_reports(reports: Sequence[ExtractedReport]) -> ExtractedReport:
     return ExtractedReport(
         results=results,
         report_date=report_date,
+        patient_name=patient_name,
         birth_date=birth_date,
         sex=sex,
         lab=normalize_lab(lab),
@@ -344,6 +351,7 @@ def parse_extraction(text: str) -> ExtractedReport | None:
     return ExtractedReport(
         results=analytes,
         report_date=_coerce_date(data.get("report_date")),
+        patient_name=_coerce_name(data.get("patient_name")),
         birth_date=_coerce_date(data.get("birth_date")),
         sex=_coerce_sex(data.get("sex")),
         lab=normalize_lab(_coerce_str(data.get("lab"))),
@@ -420,6 +428,29 @@ def _coerce_str(value: object) -> str | None:
         return None
     text = str(value).strip()
     return text or None
+
+
+def _coerce_name(value: object) -> str | None:
+    """The patient's given name, defensively cleaned. The prompt asks for the імʼя only, but if the
+    model returns a full ПІБ ('Ягелло Володимир Богданович') we keep the GIVEN name — for a
+    Ukrainian lab that is the token AFTER the surname (Прізвище Імʼя По-батькові). Reject anything
+    that is not a plausible name (digits / punctuation-only / too long)."""
+    if value is None:
+        return None
+    raw = str(value).strip()
+    tokens = [t for t in re.split(r"\s+", raw) if t]
+    if not tokens:
+        return None
+    # Surname-first ПІБ: 3 tokens -> the given name is the middle one; 2 tokens (Прізвище Імʼя) ->
+    # the second; a single token is taken as-is (already just the name).
+    chosen = tokens[1] if len(tokens) >= 2 else tokens[0]
+    chosen = chosen.strip("«»\"'.,;:()").strip()
+    # A real name: letters (Ukrainian or Latin), optionally hyphenated (Анна-Марія); no digits.
+    if not chosen or any(ch.isdigit() for ch in chosen) or len(chosen) > 40:
+        return None
+    if not re.fullmatch(r"[^\W\d_]+(?:[-'ʼ][^\W\d_]+)*", chosen):
+        return None
+    return chosen[:1].upper() + chosen[1:]
 
 
 def _coerce_sex(value: object) -> str | None:

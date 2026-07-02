@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from dbaylo import locale
 from dbaylo.companion import concerns, consult_memory, goals, health, history, notecache
+from dbaylo.db.models import User
 from dbaylo.labs.agerefs import age_on, describe_age
 from dbaylo.labs.humanize import _interpret_table, note_cache_key, strip_markup
 from dbaylo.labs.labnames import normalize_lab
@@ -190,6 +191,33 @@ async def _general_context(session: AsyncSession, user_id: int, today: date) -> 
     return context, locale.CONSULT_GENERAL_LABEL
 
 
+def _first_name(raw: str | None) -> str | None:
+    """The given name to address the user by — the first whitespace token of the stored name
+    (Telegram 'First Last' -> 'First'; a lab-adopted name is already just the given name),
+    trimmed and capitalised. ``None`` when there is no usable name."""
+    if not raw:
+        return None
+    token = raw.strip().split()[0] if raw.strip() else ""
+    token = token.strip("«»\"'.,;:()")
+    if not token or any(ch.isdigit() for ch in token):
+        return None
+    return token[:1].upper() + token[1:]
+
+
+def _address_line(name: str) -> str:
+    """The instruction (fed to EVERY voice via the profile) on HOW to address the user by name —
+    warm and friend-like but still the professional expert; correct Ukrainian vocative, varied
+    forms, used sparingly. The name value is per-user data, so it lives in the grounded context (not
+    the static persona), which every voice already receives."""
+    return (
+        f"- The user's name is {name}. Address them by name naturally and warmly, in correct "
+        "Ukrainian VOCATIVE case (e.g. Володимир→Володимире; the affectionate short Володю/Вова "
+        "when the tone is light) — vary full and short friendly forms as a real friend would. But "
+        "use it SPARINGLY (not every message, never twice in a message), and never let the warmth "
+        "undercut your calm, professional, expert tone."
+    )
+
+
 async def patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
     """A compact, grounded profile of THIS patient — so Дбайло acts like an assistant who knows the
     person: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
@@ -199,15 +227,20 @@ async def patient_profile(session: AsyncSession, user_id: int, today: date) -> s
     reports = await history.list_confirmed(session, user_id=user_id, limit=8)
     conditions = await concerns.list_active(session, user_id=user_id)
     goal_texts = await goals.active_goal_texts(session, user_id=user_id)
+    user = await session.get(User, user_id)
+    name = _first_name(user.name if user is not None else None)
     age = sex = None
     for r in reports:  # newest first — take the first report that printed each
         if age is None and r.birth_date is not None:
             age = age_on(r.birth_date, today)
         if sex is None and r.sex:
             sex = r.sex
-    if age is None and sex is None and not conditions and not goal_texts and not reports:
+    nothing = age is None and sex is None and not conditions and not goal_texts and not reports
+    if name is None and nothing:
         return ""  # nothing to personalise from -> a general (non-grounded) reply
     lines = [f"PATIENT PROFILE (personalise to THIS patient; today is {today.isoformat()}):"]
+    if name is not None:  # so every voice can address the user by name (first line, most prominent)
+        lines.append(_address_line(name))
     who = []
     if age is not None:
         who.append(f"~{age} years old")
