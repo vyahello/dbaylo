@@ -721,16 +721,24 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `StateFilter(None)`, so it threads across free-text turns and is wiped on any `/command` or menu
   tap (the reset middleware clears FSM data too); a gap past `_CHAT_TTL` (6 h) starts a fresh thread.
   `_grounded_context` now also recalls **cross-session memory** (`consult_memory.recall_block`, the
-  same store the consult uses) alongside the lab picture + check-in state — so general chat AND the
-  intake remember earlier talks; a **substantive** exchange (`_worth_remembering`: not a bare
-  greeting/ack) is written back to the GENERAL memory bucket (`report_id=None`). Every reply still
-  passes `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback (a non-`llm`
-  reply is never persisted to memory).
+  same store the consult uses) alongside the lab picture + check-in state — AND the user's **CURRENT
+  MEDICATIONS** (`_med_names`, names only, record-only framing) so an interaction question in ordinary
+  chat ("чи можна пити X з моїми ліками?") is answered knowing what they take (rail #1: never a dose).
+  So general chat AND the intake remember earlier talks; a **substantive** exchange
+  (`_worth_remembering`: not a bare greeting/ack) is written back to the GENERAL memory bucket
+  (`report_id=None`). **The symptom INTAKE now persists too** (`_run_intake_turn` → `_remember_general`,
+  best-effort) — the richest health dialogue (where/when/severity) was the one flow not remembered, so
+  a later session had no "минулого разу боліло в попереку" continuity. Every reply still passes
+  `assert_safe_output` + disclaimer, with a deterministic Ukrainian fallback (a non-`llm` reply is
+  never persisted to memory).
 - **Smart routing of a data question** (#3, `companion/dataquery.py` pure + `health.list_indicators`
   + `consult_flow.start_data_question_consult`): a free-text turn that reads like a QUESTION
   (`dataquery.is_data_question`) AND names one of the indicators the user actually has data for
   (`dataquery.match_indicator` — stem match tolerant of Ukrainian inflection + a few lay aliases,
-  e.g. цукор→глюкоза; over `health.list_indicators`, EVERY analyte not just the trending ones, most-
+  e.g. цукор→глюкоза; **plus a WHOLE-WORD match for short clinical abbreviations the ≥4 stem filter
+  drops** — ТТГ/АЛТ/АСТ/ШОЕ/ГГТ — recovered from the user's OWN indicator names (`_name_abbrevs`,
+  data-driven, `\b…\b` so a 3-char code never substring-matches an unrelated word; 1–2 char codes
+  stay ignored); over `health.list_indicators`, EVERY analyte not just the trending ones, most-
   interesting first) is routed into a **focused, indicator-grounded consult** about THAT analyte —
   the deep expert answer over its full history + the 🔔/🏥 affordances — instead of the general
   companion. Wired in `on_free_text` **before** the chart-prime (a named OTHER analyte overrides a

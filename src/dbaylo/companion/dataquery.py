@@ -46,6 +46,27 @@ _VOWELS = "аоеиіїєюяь'ʼ`"
 
 _MIN_STEM = 4  # ignore short, ambiguous stems (e.g. "С", "рН")
 
+# Short clinical ABBREVIATIONS the stem filter drops (ТТГ / АЛТ / АСТ / ШОЕ / ГГТ / ПСА / HGB) —
+# the most-asked thyroid/liver questions. They are recovered from the user's OWN indicator names
+# (data-driven, not a hardcoded list) and matched as WHOLE WORDS (\b…\b) so a 3-char code can never
+# substring-match an unrelated Ukrainian word. 1–2 char tokens stay ignored (too ambiguous: С, рН).
+_ABBR_MIN, _ABBR_MAX = 3, 6
+
+
+def _looks_like_abbrev(token: str) -> bool:
+    """A short 'code' token — all-uppercase (ТТГ, HGB) or carrying a digit (T4 stays excluded by the
+    length guard), and with at least one letter (a bare '125' is not a name)."""
+    if not (_ABBR_MIN <= len(token) <= _ABBR_MAX) or not any(c.isalpha() for c in token):
+        return False
+    return token.isupper() or any(c.isdigit() for c in token)
+
+
+def _name_abbrevs(name: str) -> set[str]:
+    """The abbreviation tokens in an analyte's FULL name (incl. any '(qualifier)', where the code
+    often lives — 'Тиреотропний гормон (ТТГ)'), casefolded, for a whole-word match."""
+    return {t.casefold() for t in re.split(r"[^\w]+", name) if _looks_like_abbrev(t)}
+
+
 # A pain / symptom complaint is NOT a question about lab data — it belongs to the symptom intake /
 # OTC path, never a data-lookup consult. Without this, a body-part word in a complaint could collide
 # with a same-stem analyte (e.g. headache "болі в голові" false-matching the spermogram "Патологія
@@ -90,6 +111,8 @@ def match_indicator(text: str, findings: list[HealthFinding]) -> HealthFinding |
     for finding in findings:
         stems = _name_stems(finding.name)
         hits = [s for s in stems if s in norm or s in alias_stems]
+        # A short clinical abbreviation the stem filter drops (ТТГ, АЛТ) — matched as a whole word.
+        hits += [a for a in _name_abbrevs(finding.name) if re.search(rf"\b{re.escape(a)}\b", norm)]
         if not hits:
             continue
         longest = max(len(s) for s in hits)

@@ -561,18 +561,22 @@ async def _grounded_context(message: Message, *, exclude: frozenset[str] = froze
         user = await ensure_user(session, telegram_id=tg)
         grounded = await checkin.grounded_context(session, user_id=user.id, today=date.today())
         memory = await consult_memory.recall_block(session, user_id=user.id, exclude=exclude)
-    return "\n\n".join(part for part in (grounded, memory) if part)
+        meds = await _med_names(session, user.id)
+    parts = [grounded, memory]
+    if meds:
+        # So an interaction question in ordinary chat ("чи можна пити X з моїми ліками?") is
+        # answered knowing what the user takes — RECORD ONLY (rail #1: never a dose or a change).
+        parts.append(
+            "CURRENT MEDICATIONS the user is taking (RECORD ONLY — names from their saved "
+            "prescriptions; NEVER suggest or change a dose; if asked about an interaction, say "
+            f"to check with a pharmacist): {meds}."
+        )
+    return "\n\n".join(p for p in parts if p)
 
 
-async def _user_med_names(message: Message) -> str:
-    """The user's current Rx-medication names (deduped, form-marker stripped) for the OTC
-    interaction caution — '' when none / unknown."""
-    tg = _telegram_id(message)
-    if tg is None:
-        return ""
-    async with get_session() as session:
-        user = await ensure_user(session, telegram_id=tg)
-        meds = await medications.list_medications(session, user_id=user.id)
+async def _med_names(session: AsyncSession, user_id: int) -> str:
+    """The user's medication names (deduped, form-marker stripped) — '' when none."""
+    meds = await medications.list_medications(session, user_id=user_id)
     names: list[str] = []
     seen: set[str] = set()
     for med in meds:
@@ -581,6 +585,16 @@ async def _user_med_names(message: Message) -> str:
             seen.add(key)
             names.append(medications.clean_drug_name(med.name))
     return ", ".join(names)
+
+
+async def _user_med_names(message: Message) -> str:
+    """The user's medication names for the OTC interaction caution — '' when none / unknown."""
+    tg = _telegram_id(message)
+    if tg is None:
+        return ""
+    async with get_session() as session:
+        user = await ensure_user(session, telegram_id=tg)
+        return await _med_names(session, user.id)
 
 
 async def _run_intake_turn(
@@ -594,6 +608,7 @@ async def _run_intake_turn(
     low_acuity = decision.triage is None or decision.triage.action == Action.MONITOR
     allow_otc = low_acuity and otc.otc_amenable(accumulated)
     meds = await _user_med_names(message) if allow_otc else ""
+    latest_user = next((t["text"] for t in reversed(transcript) if t.get("role") == "user"), "")
     async with keep_typing(message):  # 'typing…' stays up for the whole LLM call, not ~5 s
         reply = await intake.advance(transcript, context=context, allow_otc=allow_otc, meds=meds)
     transcript.append({"role": "assistant", "text": reply.text})
@@ -614,6 +629,13 @@ async def _run_intake_turn(
     await answer_chunked(
         message, render_companion_html(reply.text), parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
+    # Persist the interview to cross-session memory (best-effort) — the symptom intake is the
+    # richest health dialogue (where/when/severity) yet was the ONE flow not remembered, so a later
+    # session had no 'минулого разу боліло в попереку' continuity. Same GENERAL bucket as chat.
+    tg = _telegram_id(message)
+    if tg is not None and _worth_remembering(latest_user):
+        with contextlib.suppress(Exception):
+            await _remember_general(tg, latest_user, reply.text)
 
 
 @router.message(IntakeStates.in_progress, F.text & ~F.text.startswith("/"))

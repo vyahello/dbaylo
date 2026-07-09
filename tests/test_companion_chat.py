@@ -247,3 +247,25 @@ async def test_checkin_answer_benign_continues_into_companion_chat(monkeypatch) 
     await companion_flow.on_checkin_answer(message, _state({}), AsyncMock())
     intake_turn.assert_not_awaited()
     companion.assert_awaited_once()
+
+
+async def test_intake_persists_the_interview_to_memory(monkeypatch) -> None:
+    # Slice 5: the symptom interview (the richest health dialogue) is now saved to cross-session
+    # memory, so a later session recalls 'минулого разу боліло в попереку'. Best-effort.
+    monkeypatch.setattr(companion_flow, "keep_typing", _noop_typing)
+    advance = AsyncMock(
+        return_value=companion_flow.intake.IntakeReply(text="Де саме болить?", done=False)
+    )
+    monkeypatch.setattr(companion_flow.intake, "advance", advance)
+    remember = AsyncMock()
+    monkeypatch.setattr(companion_flow, "_remember_general", remember)
+
+    await companion_flow._run_intake_turn(
+        _message(), _state({}), [{"role": "user", "text": "болить поперек уже кілька днів"}]
+    )
+    remember.assert_awaited()  # the interview is persisted
+    assert "поперек" in remember.await_args.args[1]  # the user's own complaint is what's saved
+
+    remember.reset_mock()
+    await companion_flow._run_intake_turn(_message(), _state({}), [{"role": "user", "text": "ок"}])
+    remember.assert_not_awaited()  # a trivial turn is not persisted

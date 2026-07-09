@@ -92,3 +92,26 @@ def test_pain_complaint_never_matches_a_body_part_analyte() -> None:
     assert dataquery.match_indicator("які таблетки порадиш від болі в голові?", findings) is None
     # A genuine (pain-free) question about that spermogram finding still matches.
     assert dataquery.match_indicator("що означає патологія голови?", findings) is not None
+
+
+def test_match_indicator_matches_short_clinical_abbreviations() -> None:
+    # Slice 5: a 3-letter clinical abbreviation (ТТГ/АЛТ/ШОЕ) — dropped by the >=4 stem filter —
+    # is recovered from the user's OWN indicator name and matched as a WHOLE WORD, so the most-asked
+    # thyroid/liver questions reach the focused consult instead of context-poor general chat.
+    findings = [_f("Тиреотропний гормон (ТТГ)", series_key="blood\x1fттг")]
+    m = dataquery.match_indicator("чому в мене ТТГ високий?", findings)
+    assert m is not None and m.series_key == "blood\x1fттг"
+    # Lowercased by the user still matches (both sides casefolded).
+    assert dataquery.match_indicator("що з моїм ттг?", findings) is not None
+    # A bare abbreviation-only name (many labs print just "АЛТ") also matches.
+    assert dataquery.match_indicator("який рівень АЛТ?", [_f("АЛТ")]) is not None
+
+
+def test_abbreviation_match_is_whole_word_not_a_substring() -> None:
+    # The boundary guard: a 3-char code must NOT substring-match an unrelated Ukrainian word — the
+    # exact false-positive the length filter existed to prevent.
+    findings = [_f("АЛТ")]
+    # "балт..." / "палтус" contain "алт" but never as a whole word -> no match.
+    assert dataquery.match_indicator("що таке палтус у раціоні?", findings) is None
+    # A 1–2 char code stays ignored (too ambiguous): "Т4" is not matched.
+    assert dataquery.match_indicator("що з моїм Т4?", [_f("Вільний Т4")]) is None
