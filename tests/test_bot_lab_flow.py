@@ -58,7 +58,7 @@ def _report() -> ExtractedReport:
 def _patch_upload(monkeypatch, *, outcome: ExtractedReport) -> AsyncMock:
     """Stub _handle_upload's heavy deps; return the present-prescription spy."""
     session = AsyncMock()
-    session.get = AsyncMock(return_value=SimpleNamespace(status=None, raw_ocr=None))
+    session.get = AsyncMock(return_value=SimpleNamespace(status=None, raw_ocr=None, user_id=1))
 
     @asynccontextmanager
     async def fake_session():
@@ -66,6 +66,8 @@ def _patch_upload(monkeypatch, *, outcome: ExtractedReport) -> AsyncMock:
 
     monkeypatch.setattr(lab_flow, "get_session", fake_session)
     monkeypatch.setattr(lab_flow, "ensure_user", AsyncMock(return_value=SimpleNamespace(id=1)))
+    # The decimal-slip check loads the user's prior series — stub it empty (no history to compare).
+    monkeypatch.setattr(lab_flow, "load_series_points", AsyncMock(return_value=[]))
     monkeypatch.setattr(lab_flow, "find_confirmed_by_hash", AsyncMock(return_value=None))
     monkeypatch.setattr(lab_flow, "save_original_file", Mock(return_value="/tmp/up.jpg"))
     monkeypatch.setattr(
@@ -400,3 +402,22 @@ def test_confirmation_names_the_worst_offenders() -> None:
         results=[ExtractedAnalyte("Натрій", value=140.0, ref_low=135.0, ref_high=146.0)]
     )
     assert _confirm_worst_line(in_range) == ""
+
+
+def test_suspect_decimal_shifts_flags_a_value_10x_off_history() -> None:
+    from dbaylo.bot.lab_flow import suspect_decimal_shifts
+    from dbaylo.labs.trends import LabPoint, series_key
+
+    report = ExtractedReport(
+        results=[
+            ExtractedAnalyte("Креатинін", value=880.0, unit="мкмоль/л"),  # ~10x off ~88
+            ExtractedAnalyte("Глюкоза", value=5.2, unit="ммоль/л"),  # no history -> not suspect
+        ]
+    )
+    series = {
+        series_key(None, "Креатинін"): [
+            LabPoint("Креатинін", date(2023, 1, 1), 85.0, "мкмоль/л"),
+            LabPoint("Креатинін", date(2023, 6, 1), 90.0, "мкмоль/л"),
+        ],
+    }
+    assert suspect_decimal_shifts(report, series) == ["Креатинін"]

@@ -401,3 +401,24 @@ def test_compute_series_stats_single_point_has_no_delta() -> None:
     s = compute_series_stats([p(1, 7.1, 3.9, 6.1)])
     assert s.delta is None and s.previous is None
     assert s.latest_out_of_range is True and s.n_recent == 1 and s.n_out_recent == 1
+
+
+def test_looks_like_decimal_shift_flags_a_10x_slip_not_a_biological_change() -> None:
+    from dbaylo.labs.trends import looks_like_decimal_shift
+
+    hist = [16.5, 17.0, 16.8]
+    assert looks_like_decimal_shift(169.0, hist) is True  # ~10x -> a likely OCR decimal slip
+    assert looks_like_decimal_shift(1.69, hist) is True  # ~0.1x -> also a slip
+    assert looks_like_decimal_shift(17.2, hist) is False  # normal value
+    assert looks_like_decimal_shift(33.0, hist) is False  # ~2x -> a real change, not a clean 10x
+    assert looks_like_decimal_shift(169.0, [16.5]) is False  # < 2 prior values -> never flags
+    assert looks_like_decimal_shift(None, hist) is False
+
+
+def test_ref_changed_flags_a_series_whose_reference_moved() -> None:
+    from dbaylo.labs.trends import compute_trend
+
+    moved = compute_trend([p(1, 5.0, 3.9, 6.1), p(2, 5.2, 4.0, 6.4)])  # two labs, different refs
+    assert moved.ref_changed is True
+    same = compute_trend([p(1, 5.0, 3.9, 6.1), p(2, 5.2, 3.9, 6.1)])  # one consistent ref
+    assert same.ref_changed is False

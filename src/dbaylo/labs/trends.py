@@ -14,8 +14,10 @@ coarse IMPROVING/WORSENING polarity below is **internal only** — surface text
 
 from __future__ import annotations
 
+import math
 import re
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum, auto
@@ -122,6 +124,9 @@ class TrendSummary:
     first_date: date | None
     last_date: date | None
     unit: str | None
+    # The lab's printed reference DIFFERS across the series (a changed norm), so a value in range
+    # under its own report's ruler could be recoloured by the newest ref — the caption says so.
+    ref_changed: bool = False
 
 
 # --- Analyte name normalization + alias map -------------------------------------
@@ -400,6 +405,32 @@ def _classify(latest: LabPoint, previous: LabPoint) -> TrendDirection:
     return TrendDirection.STABLE_OUT_OF_RANGE
 
 
+def _ref_changed(numeric: list[LabPoint]) -> bool:
+    """True when the printed reference DIFFERS across the points that carry one — the lab changed
+    the norm between draws, so classifying the whole series against the single newest ref (what the
+    chart band + trend do) can recolour an older value that was in range under its own ruler."""
+    refs = {
+        (p.ref_low, p.ref_high) for p in numeric if p.ref_low is not None or p.ref_high is not None
+    }
+    return len(refs) > 1
+
+
+def looks_like_decimal_shift(value: float | None, history: Sequence[float | None]) -> bool:
+    """A soft heuristic that the new value is ~10× / ~100× off the median of its OWN history — the
+    classic OCR decimal-point slip (16.9 read as 169). For a confirm-time "перевір значення" nudge,
+    NEVER an auto-correction and NEVER a block. Conservative: needs ≥2 positive prior values and a
+    ratio CLOSE to a power of ten (a genuine biological change is rarely a clean 10×)."""
+    vals = [v for v in history if v is not None and v > 0]
+    if value is None or value <= 0 or len(vals) < 2:
+        return False
+    med = median(vals)
+    if med <= 0:
+        return False
+    log_ratio = math.log10(value / med)
+    nearest = round(log_ratio)
+    return nearest in (-2, -1, 1, 2) and abs(log_ratio - nearest) < 0.18
+
+
 def _series_ref(numeric: list[LabPoint]) -> tuple[float | None, float | None]:
     """The reference to judge the whole series by: the MOST RECENT measurement that actually carries
     a numeric bound. Older reports often captured the reference even when the latest did not, so a
@@ -448,6 +479,7 @@ def compute_trend(points: list[LabPoint]) -> TrendSummary:
         first_date=numeric[0].taken_on if numeric else None,
         last_date=latest.taken_on if latest else None,
         unit=latest.unit if latest else None,
+        ref_changed=_ref_changed(numeric),
     )
 
 

@@ -256,7 +256,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   and out-of-range count over the last N draws. **RETROSPECTIVE DATA ONLY** — deliberately NO
   forward-looking rate/prognosis (a per-time rate fed to the LLM would invite "you'll be diabetic in
   N months", which `assert_safe_output` does not catch), so the pack stays about what the data
-  ALREADY shows; a glyph/chip is coloured by in/out-of-range MEMBERSHIP, never by direction of change. Series are
+  ALREADY shows; a glyph/chip is coloured by in/out-of-range MEMBERSHIP, never by direction of change.
+  **Two honesty guards** (detect-only, never auto-correct): `_ref_changed` sets
+  `TrendSummary.ref_changed` when the printed reference DIFFERS across the series (a lab changed the
+  norm — the chart band uses the newest ref, which could recolour an older in-range value), surfaced
+  as a caption caveat («лабораторія змінила референс — порівнюю самі значення»); and
+  `looks_like_decimal_shift` flags a value ~10×/100× off its OWN same-unit history (an OCR decimal
+  slip, 16.9→169) — the confirm view (`lab_flow.suspect_decimal_shifts`, user-scoped vs prior
+  CONFIRMED history) shows a soft «❓ звір із бланком» nudge, NEVER a correction or a block
+  (conservative: needs ≥2 priors + a near-power-of-ten ratio, so a real biological change isn't
+  flagged). Series are
   grouped by a normalized analyte name + small `ANALYTE_ALIASES` map (known limitation: extend it).
   `classify()` adds a conservative **qualitative** flag (value vs ref text, NORMAL only on a clear
   match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker. **References &

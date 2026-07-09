@@ -54,9 +54,17 @@ from dbaylo.labs.intake import (
     save_original_file,
 )
 from dbaylo.labs.labnames import normalize_lab
-from dbaylo.labs.pipeline import compute_report_summary
+from dbaylo.labs.pipeline import compute_report_summary, load_series_points
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import compute_flag, is_out_of_range, out_of_range_severity, series_key
+from dbaylo.labs.trends import (
+    LabPoint,
+    build_series,
+    compute_flag,
+    is_out_of_range,
+    looks_like_decimal_shift,
+    out_of_range_severity,
+    series_key,
+)
 
 router = Router(name="labs")
 
@@ -187,6 +195,24 @@ def _confirm_glyph(a: ExtractedAnalyte) -> str:
     return locale.FLAG_ATTENTION
 
 
+def _same_unit(u1: str | None, u2: str | None) -> bool:
+    return (u1 or "").strip().casefold() == (u2 or "").strip().casefold()
+
+
+def suspect_decimal_shifts(report: ExtractedReport, series: dict[str, list[LabPoint]]) -> list[str]:
+    """Analyte NAMES whose extracted value looks ~10×/100× off their OWN same-unit history — a
+    likely OCR decimal slip (16.9 read as 169) to double-check at confirm. Never auto-corrects."""
+    out: list[str] = []
+    for a in report.results:
+        if a.value is None:
+            continue
+        pts = series.get(series_key(a.section, a.analyte), [])
+        hist = [p.value for p in pts if p.value is not None and _same_unit(p.unit, a.unit)]
+        if looks_like_decimal_shift(a.value, hist):
+            out.append(a.analyte)
+    return out
+
+
 def _confirm_worst_line(report: ExtractedReport) -> str:
     """The confirm header's worst-offenders digest — the out-of-range rows named + severity-ranked
     (⬆️/⬇️), so the FIRST post-upload view says WHAT is off, not only a count. Reuses the /history
@@ -235,11 +261,12 @@ def _collapses_normal(report: ExtractedReport) -> bool:
     return sum(1 for a in report.results if not _needs_check(a)) > _INLINE_NORMAL_MAX
 
 
-def render_confirmation_text(report: ExtractedReport) -> str:
+def render_confirmation_text(report: ExtractedReport, *, suspect: list[str] | None = None) -> str:
     """Problems-first confirmation view (Telegram HTML): header + summary + the rows that need a
     look (out of range / unreadable). In-range rows are listed by name when there are only a few,
     or collapsed into an aggregate (with a '📋 Усі показники' expand, rail #5) when there are many.
-    A narrative document keeps its prose view."""
+    ``suspect`` (analytes whose value looks like an OCR decimal slip vs their own history) adds a
+    soft "звір із бланком" nudge. A narrative document keeps its prose view."""
     if report.is_narrative:
         return _render_narrative_confirmation(report)
     indexed = list(enumerate(report.results, 1))
@@ -254,6 +281,8 @@ def render_confirmation_text(report: ExtractedReport) -> str:
     worst = _confirm_worst_line(report)  # name the offenders, not just count them
     if worst:
         lines.append(worst)
+    if suspect:  # a value looks ~10x off its own history — ask the user to double-check (rail #5)
+        lines.append(locale.LAB_SUSPECT_VALUES.format(names=", ".join(_esc(n) for n in suspect)))
     if report.conclusion:
         lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {_esc(report.conclusion)}")
     if attention:
@@ -470,10 +499,14 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
         )
         return
 
+    suspect: list[str] = []
     async with get_session() as session:
         pending = await session.get(LabReport, report_id)
         if pending is not None:
             pending.raw_ocr = json.dumps(_report_to_state(outcome), ensure_ascii=False)
+            # Decimal-slip check vs the user's OWN prior confirmed history (user-scoped isolation).
+            series = build_series(await load_series_points(session, pending.user_id))
+            suspect = suspect_decimal_shifts(outcome, series)
 
     await state.set_state(LabStates.confirming)
     await state.update_data(report_id=report_id, report=_report_to_state(outcome))
@@ -482,7 +515,7 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
     # as a safety net — the action buttons ride the last one.
     await answer_chunked(
         message,
-        render_confirmation_text(outcome),
+        render_confirmation_text(outcome, suspect=suspect),
         reply_markup=confirmation_keyboard(outcome),
         parse_mode=ParseMode.HTML,
     )

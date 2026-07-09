@@ -1452,3 +1452,15 @@ async def test_prior_values_is_user_scoped_and_most_recent(async_session: AsyncS
     prior = await history.prior_values(async_session, user_id=1, report=newest)
     p = prior[series_key(None, "Глюкоза")]
     assert p.value == 6.2  # user 1's most recent EARLIER value, not 5.0 and not user 2's 9.9
+
+
+def test_chart_dynamics_caption_notes_a_reference_change() -> None:
+    from dbaylo.labs.trends import LabPoint, compute_trend
+
+    summary = compute_trend(
+        [
+            LabPoint("X", date(2023, 1, 1), 5.0, ref_low=3.9, ref_high=6.1),
+            LabPoint("X", date(2024, 1, 1), 5.2, ref_low=4.0, ref_high=6.4),
+        ]
+    )
+    assert "змінила референс" in history.chart_dynamics_caption(summary)  # the honest caveat

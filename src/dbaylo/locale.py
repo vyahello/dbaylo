@@ -208,6 +208,9 @@ LAB_CONFIRM_COUNT = "{n} показників"
 LAB_CONFIRM_OOR = "⚠️ {n} поза нормою"
 LAB_CONFIRM_ATTENTION = "⚠️ {n} потребують уваги"  # used when some rows are also unreadable
 LAB_CONFIRM_ATT_HEADER = "⚠️ Перевір ці значення ({n}):"
+# A soft nudge when a value looks ~10× off this analyte's own history (a likely OCR decimal slip) —
+# never a correction, just "double-check it against the printed form".
+LAB_SUSPECT_VALUES = "❓ Незвичні значення — звір із бланком: {names}"
 LAB_CONFIRM_NORMAL_AGG = "✅ Решта {n} — у межах норми"
 LAB_CONFIRM_ALL_NORMAL = "✅ Усі {n} — у межах норми"
 LAB_CONFIRM_NORMAL_HEADER = "✅ У межах норми:"  # when a few in-range rows are listed by name
@@ -815,6 +818,9 @@ TREND_LINE = "📈 {analyte}: {value} — {movement}. Вимірів: {n}."
 # dates to stay readable, so the count alone looked wrong).
 CHART_DYNAMICS_LINE = "📈 {value} — {movement} · вимірів: {n}{period}"
 CHART_PERIOD_SUFFIX = " за {span}"  # e.g. " за 2021–2026" / " за 2026"
+# Appended when the lab's printed reference differs across the series — an honest caveat that the
+# chart band (the newest ref) may recolour an older value that was in range under its own ruler.
+CHART_REF_CHANGED = " · лабораторія змінила референс — порівнюю самі значення"
 # Caption under a QUALITATIVE indicator's table image (the parallel of CHART_DYNAMICS_LINE).
 CHART_QUAL_DYNAMICS_LINE = "📋 {value} — {movement} · вимірів: {n}{period}"
 CHART_QUAL_STABLE = "тримається стабільно"  # qualitative result hasn't changed across dates

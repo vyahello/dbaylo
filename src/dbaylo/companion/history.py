@@ -397,12 +397,15 @@ def chart_dynamics_caption(summary: TrendSummary) -> str:
     """The deterministic chart caption: latest value + range-relative movement + count + the period
     it spans. NO analyte name (it is already the chart's title) — the caller may append a note."""
     movement = locale.TREND_PHRASES.get(summary.direction.name, "")
-    return locale.CHART_DYNAMICS_LINE.format(
+    line = locale.CHART_DYNAMICS_LINE.format(
         value=_trend_value(summary),
         movement=movement,
         n=summary.n_points,
         period=_period_suffix(summary),
     )
+    if summary.ref_changed:  # honest caveat: the lab's norm changed across the series
+        line += locale.CHART_REF_CHANGED
+    return line
 
 
 async def render_dynamics_report(
