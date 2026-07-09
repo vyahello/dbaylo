@@ -278,3 +278,40 @@ async def test_build_health_context_lists_current_and_resolved(async_session: As
 async def test_build_health_context_empty_without_data(async_session: AsyncSession) -> None:
     user = await ensure_user(async_session, 1)
     assert await health.build_health_context(async_session, user.id, today=_TODAY) == ""
+
+
+async def test_inventory_block_lists_every_analyte(async_session: AsyncSession) -> None:
+    # The COMPLETE inventory carries every analyte on record — including in-range ones that never
+    # surface as current/watch/resolved — so "have I tested X?" is answerable. Framed EXHAUSTIVE.
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session,
+        user,
+        day=date(2023, 5, 2),
+        analytes=[
+            _analyte("Глюкоза", 5.0, 3.9, 6.1),  # in range — never a finding, but IS in inventory
+            _analyte("Пролактин", 8.0, 4.0, 15.0),  # an in-range hormone the user did test
+        ],
+    )
+    block = await health.inventory_block(async_session, user.id)
+    assert "EXHAUSTIVE" in block  # so the model states a missing analyte was not tested
+    assert "Глюкоза" in block and "Пролактин" in block
+
+
+async def test_inventory_block_empty_without_data(async_session: AsyncSession) -> None:
+    user = await ensure_user(async_session, 1)
+    assert await health.inventory_block(async_session, user.id) == ""
+
+
+async def test_build_health_context_carries_an_in_range_analyte_via_inventory(
+    async_session: AsyncSession,
+) -> None:
+    # Regression for the "/history punt": an analyte that was tested but is IN RANGE (never a
+    # finding) must still reach the grounding through the inventory, so the companion can confirm it
+    # was tested instead of hedging and sending the user off to search.
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session, user, day=date(2023, 5, 2), analytes=[_analyte("Пролактин", 8.0, 4.0, 15.0)]
+    )
+    ctx = await health.build_health_context(async_session, user.id, today=_TODAY)
+    assert "INVENTORY" in ctx and "Пролактин" in ctx

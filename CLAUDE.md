@@ -356,10 +356,16 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   NO diagnosis** (rail #4) — scans ALL confirmed labs through the trend engine into `current` (latest
   out of range), `watch` (still in range but trending toward — within 15% of — a bound: an EARLY
   WARNING), and `resolved` (was off, latest back in range — "remembered, not dwelt on").
-  `build_health_context` (profile + current + watch + resolved) GROUNDS the companion chat, the
+  `build_health_context` (profile + current + watch + resolved + a **COMPLETE analyte inventory**)
+  GROUNDS the companion chat, the
   symptom intake AND the proactive check-in (so "болить поперек" connects to the real kidney history;
   the check-in asks about the real flag, gently flags a worsening trend, and — using the dates in the
-  context — nudges re-testing a months-old flag). `should_have_checkin` = active concern OR
+  context — nudges re-testing a months-old flag). **The inventory** (`inventory_block`, every analyte
+  from `list_indicators` grouped by clinical category, names only, framed EXHAUSTIVE) lets the chat
+  answer "чи здавав я пролактин?" DEFINITIVELY (listed → confirm + offer the value/trend; absent →
+  "не здавав", no hedge) instead of punting the user to go search — the bug where the companion,
+  lacking the full inventory, hedged and pointed at a raw `/history` command. `should_have_checkin` =
+  active concern OR
   `has_current_flags` (conservative: a `watch` alone does not trigger a check-in, only enriches it).
   Phrasing is downstream + always guarded; the analyzer itself only states the numbers.
   **State memory** (`checkin.state_memory_context`, `CheckIn.note`, migration 0016): recent check-ins
@@ -647,7 +653,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   symptom in the drug field short-circuits to triage. No new models/migrations.
 - **Shared persona core** (`dbaylo/persona.py`, root leaf — pure text, NO imports): the parts every
   Дбайло voice must share — `IDENTITY` (the expert "personal health assistant, not a chatbot"),
-  `GROUNDING` (profile + current/watch/resolved + state + MEMORY; never invent), `SAFETY_BOUNDARY`
+  `GROUNDING` (profile + current/watch/resolved + the COMPLETE analyte inventory + state + MEMORY;
+  never invent — answer "have I tested X?" from the inventory, and **never name a slash command**
+  like `/history`: point at the on-screen button «📊 Аналізи» or ask them to send the report here),
+  `SAFETY_BOUNDARY`
   (the numeric boundary + forbidden phrases + "escalation is NOT yours"), `FORMATTING_LIGHT`.
   Distilled from the consult (the most refined voice) and used to bring the lighter voices UP to it:
   `conversation` and `intake` personas are built from these blocks (so general chat / the interview

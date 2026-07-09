@@ -430,15 +430,57 @@ async def findings_context(session: AsyncSession, user_id: int, *, today: date) 
     return _findings_block(picture, today=today)
 
 
+# Compact English labels for the clinical categories — the grounded inventory is English (the model
+# reads English grounding, replies Ukrainian). Ordered by ``grouping.CATEGORY_ORDER``.
+_CATEGORY_LABEL: dict[str, str] = {
+    grouping.BLOOD: "Blood count",
+    grouping.URINE: "Urine",
+    grouping.BIOCHEM: "Biochemistry",
+    grouping.HORMONES: "Hormones",
+    grouping.MARKERS: "Tumour / prostate markers",
+    grouping.INFECTION: "Infection / serology",
+    grouping.COAGULATION: "Coagulation",
+    grouping.SEMEN: "Semen analysis",
+    grouping.OTHER: "Other",
+}
+
+
+async def inventory_block(session: AsyncSession, user_id: int) -> str:
+    """A COMPACT, COMPLETE inventory of every analyte the user has on record, grouped by clinical
+    category — so the companion can answer "have I ever tested X?" DEFINITIVELY, instead of hedging
+    and sending the user off to go search. Names only (a specific value or trend is pulled by asking
+    about that analyte by name); framed as EXHAUSTIVE so an absent name reads as "not tested".
+    ``""`` when the user has no lab data. No verdict."""
+    findings = await list_indicators(session, user_id)
+    if not findings:
+        return ""
+    by_cat: dict[str, list[str]] = {}
+    for f in findings:
+        by_cat.setdefault(f.category, []).append(f.display_name)
+    lines = [
+        "COMPLETE INDICATOR INVENTORY - every analyte the user has ever tested (across all their "
+        "uploaded, confirmed analyses). This list is EXHAUSTIVE: if an analyte is NOT listed, the "
+        "user has NOT tested it - say so plainly; do NOT hedge that it 'might be elsewhere'. "
+        "To see a value or its trend, the user can just ask about that analyte by name."
+    ]
+    for cat in grouping.CATEGORY_ORDER:
+        names = by_cat.get(cat)
+        if names:
+            lines.append(f"• {_CATEGORY_LABEL.get(cat, cat)}: {', '.join(names)}")
+    return "\n".join(lines)
+
+
 async def build_health_context(session: AsyncSession, user_id: int, *, today: date) -> str:
-    """The grounded context the companion / intake / check-in draw on: the patient profile, then the
-    deterministic CURRENT out-of-range indicators and the resolved-but-remembered ones. ``""`` when
-    there is nothing to ground in, so the caller answers generally."""
+    """The grounded context the companion / intake / check-in draw on: the patient profile, the
+    deterministic CURRENT out-of-range indicators and the resolved-but-remembered ones, then the
+    COMPLETE inventory of every analyte on record (so "have I tested X?" is answered, not punted).
+    ``""`` when there is nothing to ground in, so the caller answers generally."""
     # Lazy import: consult_context -> history -> scheduler, and scheduler -> checkin -> health would
     # otherwise be a module-load cycle. At call time everything is already imported.
     from dbaylo.companion.consult_context import patient_profile
 
     profile = await patient_profile(session, user_id, today)
     picture = await analyze_health(session, user_id, today=today)
-    parts = [part for part in (profile, _findings_block(picture, today=today)) if part]
+    inventory = await inventory_block(session, user_id)
+    parts = [part for part in (profile, _findings_block(picture, today=today), inventory) if part]
     return "\n\n".join(parts)
