@@ -32,6 +32,7 @@ from dbaylo.labs.trends import (
     TrendDirection,
     TrendSummary,
     build_series,
+    compute_series_stats,
     compute_trend,
     direction_phrase,
     is_out_of_range,
@@ -72,6 +73,13 @@ class HealthFinding:
     specimen: str = "blood"
     # The trend-series key (trends.series_key) — lets a caller pull this analyte's full history.
     series_key: str = ""
+    # Retrospective SeriesStats numbers (never a rate/prognosis) so the grounded LLM STATES the
+    # figures instead of guessing: absolute change vs the previous draw, fraction past the nearest
+    # violated bound, and how many of the last N draws were out of range.
+    delta: float | None = None
+    severity: float | None = None
+    n_out_recent: int = 0
+    n_recent: int = 0
 
     @property
     def display_name(self) -> str:
@@ -155,8 +163,10 @@ _FLAG_KIND = {ResultFlag.HIGH: "high", ResultFlag.LOW: "low"}
 
 
 def _finding(
-    latest: LabPoint, summary: TrendSummary, n_points: int, *, series_key: str = ""
+    points: list[LabPoint], summary: TrendSummary, *, series_key: str = ""
 ) -> HealthFinding:
+    latest = points[-1]  # build_series sorts ascending — the display latest (may be qualitative)
+    stats = compute_series_stats(points)  # retrospective numbers for the grounded LLM (no rate)
     flag_text = _FLAG_TEXT.get(summary.latest_flag, "flagged by the lab")
     name = summary.analyte or latest.analyte
     return HealthFinding(
@@ -166,11 +176,15 @@ def _finding(
         flag_text=flag_text,
         direction=summary.direction.name,
         last_date=latest.taken_on,
-        n_points=n_points,
+        n_points=len(points),
         kind=_FLAG_KIND.get(summary.latest_flag, "flag"),
         category=grouping.categorize(latest.section, name),
         specimen=specimen(latest.section, name),
         series_key=series_key,
+        delta=stats.delta,
+        severity=stats.severity,
+        n_out_recent=stats.n_out_recent,
+        n_recent=stats.n_recent,
     )
 
 
@@ -190,7 +204,7 @@ async def analyze_health(session: AsyncSession, user_id: int, *, today: date) ->
         if not points:
             continue
         latest = points[-1]  # build_series sorts ascending by date
-        finding = _finding(latest, compute_trend(points), len(points), series_key=key)
+        finding = _finding(points, compute_trend(points), series_key=key)
         if _is_oor(latest):
             current.append(finding)
             continue
@@ -265,7 +279,7 @@ async def list_indicators(session: AsyncSession, user_id: int) -> list[HealthFin
         if not points:
             continue
         latest = points[-1]
-        finding = _finding(latest, compute_trend(points), len(points), series_key=key)
+        finding = _finding(points, compute_trend(points), series_key=key)
         rows.append((finding, _is_oor(latest), len(points)))
     rows.sort(key=lambda r: (not r[1], -r[2]))  # out-of-range first, then more data
     return [finding for finding, _oor, _n in rows]
@@ -392,6 +406,19 @@ def _findings_block(picture: HealthPicture, *, today: date) -> str:
     def _trend(f: HealthFinding) -> str:
         return direction_phrase(TrendDirection[f.direction])  # human phrase, not the raw enum token
 
+    def _stats(f: HealthFinding) -> str:
+        # RETROSPECTIVE numbers so the model STATES figures ("~8% past its limit, out of range in 4
+        # of the last 6") instead of hedging — never a rate/prognosis (that would invite a forbidden
+        # forward-looking claim the output guard can't catch).
+        bits: list[str] = []
+        if f.delta is not None and f.delta != 0:
+            bits.append(f"changed {'+' if f.delta > 0 else ''}{f.delta:g} vs the previous draw")
+        if f.severity is not None:
+            bits.append(f"~{round(f.severity * 100)}% past its nearest limit")
+        if f.n_recent >= 2 and f.n_out_recent > 0:
+            bits.append(f"out of range in {f.n_out_recent} of the last {f.n_recent}")
+        return f"; {'; '.join(bits)}" if bits else ""
+
     parts: list[str] = []
     if picture.current:
         lines = [
@@ -400,8 +427,8 @@ def _findings_block(picture: HealthPicture, *, today: date) -> str:
         ]
         for f in picture.current:
             lines.append(
-                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; trend: {_trend(f)}; "
-                f"{_latest(f)}."
+                f"- {f.name}: {f.value} (ref {f.ref}) — {f.flag_text}; trend: {_trend(f)}"
+                f"{_stats(f)}; {_latest(f)}."
             )
         parts.append("\n".join(lines))
     if picture.watch:

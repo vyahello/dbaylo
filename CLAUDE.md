@@ -388,7 +388,12 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   lacking the full inventory, hedged and pointed at a raw `/history` command. `should_have_checkin` =
   active concern OR
   `has_current_flags` (conservative: a `watch` alone does not trigger a check-in, only enriches it).
-  Phrasing is downstream + always guarded; the analyzer itself only states the numbers.
+  Phrasing is downstream + always guarded; the analyzer itself only states the numbers. **Each
+  `HealthFinding` carries the `SeriesStats` numbers** (`_finding` → `compute_series_stats`), and
+  `_findings_block` HANDS them to the grounded LLM on every current-finding line — *"changed +0.9 vs
+  the previous draw; ~16% past its nearest limit; out of range in 4 of the last 6"* — so chat /
+  intake / check-in / general consult STATE the figures instead of hedging. RETROSPECTIVE only (no
+  rate/prognosis — a forward-looking rate would invite a claim `assert_safe_output` can't catch).
   **State memory** (`checkin.state_memory_context`, `CheckIn.note`, migration 0016): recent check-ins
   (sleep/mood/symptoms + the user's own words) are remembered so Дбайло notices the dynamic and
   follows up. `checkin.grounded_context` = the lab picture + this state memory, shared by the

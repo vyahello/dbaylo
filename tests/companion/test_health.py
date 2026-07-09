@@ -315,3 +315,22 @@ async def test_build_health_context_carries_an_in_range_analyte_via_inventory(
     )
     ctx = await health.build_health_context(async_session, user.id, today=_TODAY)
     assert "INVENTORY" in ctx and "Пролактин" in ctx
+
+
+async def test_findings_block_states_retrospective_numbers(async_session: AsyncSession) -> None:
+    # Slice 4: the grounding HANDS the model the figures (since-last-time delta, severity %, and the
+    # out-of-range count over recent draws) so it STATES them rather than hedging — and carries NO
+    # forward-looking rate/prognosis (a rail the output guard can't catch).
+    user = await ensure_user(async_session, 1)
+    await _confirm(
+        async_session, user, day=date(2023, 1, 1), analytes=[_analyte("Глюкоза", 5.0, 3.9, 6.1)]
+    )
+    await _confirm(
+        async_session, user, day=date(2023, 6, 1), analytes=[_analyte("Глюкоза", 7.0, 3.9, 6.1)]
+    )
+    ctx = await health.build_health_context(async_session, user.id, today=_TODAY)
+    assert "Глюкоза" in ctx
+    assert "changed +2 vs the previous draw" in ctx  # absolute delta (never a rate)
+    assert "past its nearest limit" in ctx  # severity as a fraction of the bound
+    assert "out of range in 1 of the last 2" in ctx  # only 7.0 is out of the last two draws
+    assert "per month" not in ctx and "per week" not in ctx  # no prognostic rate leaks in
