@@ -186,3 +186,46 @@ def test_render_flagged_point_without_a_numeric_reference() -> None:
 def test_out_of_range_classification(value, lo, hi, expected) -> None:
     # This drives the green ●/red ✕ marker colour, so it must be exact.
     assert _out_of_range(value, lo, hi) is expected
+
+
+def _chart(name, vals, lo, hi):
+    pts = [LabPoint(name, date(2023, m, 1), v, "од", lo, hi) for m, v in vals]
+    return PdfChart(title=name, subtitle="", points=pts, caption="")
+
+
+def test_latest_out_uses_the_last_measurement() -> None:
+    from dbaylo.labs.charts import _latest_out
+
+    # Latest 7.1 (>6.1) -> out; latest back in range -> not out.
+    assert _latest_out(_chart("Глюкоза", [(1, 5.0), (6, 7.1)], 3.9, 6.1).points) is True
+    assert _latest_out(_chart("Глюкоза", [(1, 7.1), (6, 5.0)], 3.9, 6.1).points) is False
+
+
+def test_overview_page_emitted_for_many_charts_flagged_first() -> None:
+    from dbaylo.labs import charts as charts_mod
+
+    captured: list[object] = []
+
+    class _Shim:
+        def savefig(self, fig):
+            captured.append(fig)
+
+    ok = _chart("Холестерин", [(1, 4.9), (6, 5.0)], None, 5.2)  # in range
+    bad = _chart("Глюкоза", [(1, 5.0), (6, 7.1)], 3.9, 6.1)  # out of range
+    charts_mod._overview_pages(_Shim(), [ok, bad], heading="Огляд")
+    assert len(captured) == 1  # one grid page for two numeric charts
+
+    # 0–1 charts need no overview page.
+    captured.clear()
+    charts_mod._overview_pages(_Shim(), [bad], heading="Огляд")
+    assert captured == []
+
+
+def test_render_trends_pdf_includes_the_overview_page() -> None:
+    charts = [
+        _chart("Глюкоза", [(1, 5.0), (6, 7.1)], 3.9, 6.1),
+        _chart("АЛТ", [(1, 22), (6, 55)], None, 40),
+    ]
+    cover = PdfCover(heading="Динаміка", report_line="", stat_tiles=(("Поза нормою", "2"),))
+    pdf = render_trends_pdf(charts, cover=cover)
+    assert pdf[:4] == b"%PDF"  # a valid PDF is produced (cover + overview + 2 chart pages)

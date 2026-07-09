@@ -376,3 +376,27 @@ async def test_declining_charts_offers_the_to_analyses_nav() -> None:
     await lab_flow.on_charts_no(callback)
     kb = callback.message.answer.call_args.kwargs["reply_markup"]
     assert _cb_datas(kb) == [callbacks.MENU_OPEN_HISTORY]
+
+
+def test_confirmation_names_the_worst_offenders() -> None:
+    from dbaylo.bot.lab_flow import _confirm_worst_line
+
+    report = ExtractedReport(
+        report_date=date(2026, 5, 12),
+        lab="Synevo",
+        results=[
+            ExtractedAnalyte("Глюкоза", value=9.1, ref_low=3.9, ref_high=6.1),  # 49% over -> ⬆️
+            ExtractedAnalyte("Калій", value=3.0, ref_low=3.5, ref_high=5.1),  # below -> ⬇️
+            ExtractedAnalyte("Натрій", value=140.0, ref_low=135.0, ref_high=146.0),  # in range
+        ],
+    )
+    line = _confirm_worst_line(report)
+    assert "Глюкоза" in line and "⬆️" in line  # HIGH position glyph
+    assert "Калій" in line and "⬇️" in line  # LOW position glyph
+    assert "Натрій" not in line  # in range -> not named
+    assert "Глюкоза" in render_confirmation_text(report)  # and it shows in the full confirm view
+    # Nothing flagged -> no line.
+    in_range = ExtractedReport(
+        results=[ExtractedAnalyte("Натрій", value=140.0, ref_low=135.0, ref_high=146.0)]
+    )
+    assert _confirm_worst_line(in_range) == ""

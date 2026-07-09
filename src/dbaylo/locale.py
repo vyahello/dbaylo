@@ -845,6 +845,8 @@ CHART_PDF_TILE_OOR = "Поза нормою"
 CHART_PDF_TILE_TOTAL = "Показників"
 CHART_PDF_TILE_CATEGORIES = "Категорій"
 CHART_PDF_TILE_PERIOD = "Період"
+# The small-multiples overview grid heading (flagged-first thumbnails, scanned at a glance).
+CHART_PDF_OVERVIEW_HEADING = "Огляд показників"
 # Cover body — a plain "what is inside this document" so it reads at a glance. (No emoji: the PDF
 # font has no emoji glyphs.) Charts = numeric; tables = qualitative ("виявлено / не виявлено").
 CHART_PDF_INTRO = "У звіті {n} показників. Ось як показано їхню динаміку:"

@@ -800,16 +800,142 @@ def _qual_pages(pdf: PdfPages, items: list[PdfQualTrend], *, heading: str) -> No
     _close()
 
 
+# --- Small-multiples overview: a grid of mini trend charts, so a big panel is taken in at a glance
+# instead of flipping one A4 page per analyte. Flagged-first; the same green/red zone language.
+
+_OV_COLS, _OV_ROWS = 3, 4
+_OV_PER_PAGE = _OV_COLS * _OV_ROWS
+_OV_TOP, _OV_BOTTOM, _OV_LEFT, _OV_RIGHT = 0.88, 0.06, 0.06, 0.94
+
+
+def _latest_out(points: list[LabPoint]) -> bool:
+    """Whether the LATEST numeric measurement is out of range (its own lab flag OR outside the
+    series reference) — the flagged-first ordering key + the red/green title colour."""
+    numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
+    if not numeric:
+        return False
+    ref_pt = next(
+        (p for p in reversed(numeric) if p.ref_low is not None or p.ref_high is not None),
+        numeric[-1],
+    )
+    latest = numeric[-1]
+    return bool(latest.flagged) or (
+        latest.value is not None and _out_of_range(latest.value, ref_pt.ref_low, ref_pt.ref_high)
+    )
+
+
+def _mini_draw(ax: Axes, numeric: list[LabPoint]) -> None:
+    """A compact trend: green/red zones + line + status markers + the latest value, no axes chrome
+    (the grid gives context; a full axis would be unreadable at thumbnail size)."""
+    xs = [mdates.date2num(p.taken_on) for p in numeric]
+    ys = [p.value for p in numeric if p.value is not None]
+    ref_pt = next(
+        (p for p in reversed(numeric) if p.ref_low is not None or p.ref_high is not None),
+        numeric[-1],
+    )
+    lo, hi = ref_pt.ref_low, ref_pt.ref_high
+    span = ys + [b for b in (lo, hi) if b is not None]
+    ymin, ymax = min(span), max(span)
+    pad = max((ymax - ymin) * 0.15, abs(ymax) * 0.05, 1.0)
+    ylo, yhi = ymin - pad, ymax + pad
+    ax.set_ylim(ylo, yhi)
+    if lo is not None and hi is not None:
+        ax.axhspan(ylo, lo, color=_RED_ZONE, zorder=0)
+        ax.axhspan(lo, hi, color=_GREEN_ZONE, zorder=0)
+        ax.axhspan(hi, yhi, color=_RED_ZONE, zorder=0)
+    elif hi is not None:
+        ax.axhspan(ylo, hi, color=_GREEN_ZONE, zorder=0)
+        ax.axhspan(hi, yhi, color=_RED_ZONE, zorder=0)
+    elif lo is not None:
+        ax.axhspan(ylo, lo, color=_RED_ZONE, zorder=0)
+        ax.axhspan(lo, yhi, color=_GREEN_ZONE, zorder=0)
+    ax.plot(xs, ys, "-", color=_LINE, linewidth=1.2, zorder=2)
+    flags = [(p.flagged or _out_of_range(y, lo, hi)) for p, y in zip(numeric, ys, strict=True)]
+    in_x = [x for x, b in zip(xs, flags, strict=True) if not b]
+    in_y = [y for y, b in zip(ys, flags, strict=True) if not b]
+    out_x = [x for x, b in zip(xs, flags, strict=True) if b]
+    out_y = [y for y, b in zip(ys, flags, strict=True) if b]
+    if in_x:
+        ax.scatter(
+            in_x, in_y, marker="o", s=16, color=_OK, edgecolors="white", linewidths=0.5, zorder=3
+        )
+    if out_x:
+        ax.scatter(
+            out_x, out_y, marker="X", s=26, color=_OUT, edgecolors="white", linewidths=0.5, zorder=4
+        )
+    ax.annotate(
+        f"{ys[-1]:g}",
+        (xs[-1], ys[-1]),
+        textcoords="offset points",
+        xytext=(3, 3),
+        fontsize=7,
+        fontweight="bold",
+        color=_OUT if flags[-1] else _OK,
+        zorder=5,
+    )
+    ax.margins(x=0.08)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+
+
+def _overview_pages(pdf: PdfPages, charts: list[PdfChart], *, heading: str) -> None:
+    """Grid pages of mini trend charts (flagged-first), a scannable index of a large panel. Only
+    charts with a numeric series appear; 0–1 charts need no grid (the per-page charts suffice)."""
+    minis = [c for c in charts if any(p.value is not None for p in c.points)]
+    if len(minis) < 2:
+        return
+    minis.sort(key=lambda c: not _latest_out(c.points))  # out-of-range thumbnails first
+    gw = (_OV_RIGHT - _OV_LEFT) / _OV_COLS
+    gh = (_OV_TOP - _OV_BOTTOM) / _OV_ROWS
+    for start in range(0, len(minis), _OV_PER_PAGE):
+        chunk = minis[start : start + _OV_PER_PAGE]
+        fig = plt.figure(figsize=_A4)
+        try:
+            fig.patches.append(
+                Rectangle((0, 0.92), 1, 0.08, transform=fig.transFigure, color=_BRAND, zorder=0)
+            )
+            fig.text(0.08, 0.945, _pdf_text(heading), fontsize=15, color="white", weight="bold")
+            fig.patches.append(
+                Rectangle((0, 0), 1, 0.04, transform=fig.transFigure, color=_BRAND, zorder=0)
+            )
+            fig.text(0.07, 0.05, "Дбайло", ha="left", fontsize=9, color=_MUTED)
+            for i, chart in enumerate(chunk):
+                row, col = divmod(i, _OV_COLS)
+                cell_x = _OV_LEFT + col * gw
+                cell_y = _OV_TOP - (row + 1) * gh
+                ax = fig.add_axes((cell_x + 0.015, cell_y + 0.02, gw - 0.04, gh - 0.06))
+                numeric = sorted(
+                    (p for p in chart.points if p.value is not None), key=lambda p: p.taken_on
+                )
+                _mini_draw(ax, numeric)
+                out = _latest_out(chart.points)
+                fig.text(
+                    cell_x + 0.015,
+                    cell_y + gh - 0.028,
+                    _clip(_pdf_text(chart.title), 24),
+                    fontsize=8.5,
+                    weight="bold",
+                    color=_OUT if out else _INK,
+                    va="bottom",
+                )
+            pdf.savefig(fig)
+        finally:
+            plt.close(fig)
+
+
 def render_trends_pdf(
     charts: list[PdfChart], *, cover: PdfCover, qual_trends: tuple[PdfQualTrend, ...] = ()
 ) -> bytes:
-    """A single, premium PDF: a branded cover (avatar + report context + honest breakdown), then ONE
+    """A single, premium PDF: a branded cover (avatar + dashboard + honest breakdown), a
+    small-multiples OVERVIEW grid (flagged-first, so a big panel is scanned at a glance), then ONE
     trend chart per page with a description card, then a text-timeline section for the qualitative
-    indicators that have no numeric chart. The 'save everything' counterpart to the per-chart
-    picker; same chart language as the PNGs."""
+    indicators that have no numeric chart. Same chart language throughout."""
     buffer = io.BytesIO()
     with PdfPages(buffer) as pdf:
         _cover(pdf, cover)
+        _overview_pages(pdf, charts, heading=locale.CHART_PDF_OVERVIEW_HEADING)
         for i, chart in enumerate(charts, 1):
             _chart_page(pdf, chart, page_no=i, total=len(charts))
         _qual_pages(pdf, list(qual_trends), heading=locale.CHART_PDF_QUAL_HEADING)

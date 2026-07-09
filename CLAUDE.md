@@ -192,8 +192,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (`find_confirmed_by_hash`), the bot skips extraction entirely and offers the saved report instead
   (a discarded/deleted upload does not block re-uploading).
   The confirmation view is **problems-first** (mirrors `/history` "Показники"): a bold header +
-  summary (`N показників · ⚠️ K поза нормою`), then ONLY the rows that need a look — out of range OR
-  unreadable (`❔`, `_is_unread`) — grouped by panel, with the in-range rows collapsed to
+  summary (`N показників · ⚠️ K поза нормою`) + a **worst-offenders digest** (`_confirm_worst_line` →
+  the shared `history.format_worst_offenders`: `↳ Глюкоза ⬆️, АЛТ ⬆️, Калій ⬇️`, severity-ranked with
+  position glyphs, so the FIRST post-upload view says WHAT is off), then ONLY the rows that need a
+  look — out of range OR unreadable (`❔`, `_is_unread`) — grouped by panel, with the in-range rows
+  collapsed to
   `✅ Решта N — у межах норми`. A `📋 Усі N показників` button (`render_confirmation_full`,
   `_CB_SHOW_ALL`) expands the full numbered table on demand, so **every** value stays verifiable
   before saving (rail #5). An in-range row carries **no ✅ marker** (rail #4: a screen of green
@@ -235,7 +238,10 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `history_flow._cover_tiles`: the hero is **«Поза нормою: N»** — how many indicators are out of range
   NOW (`history.count_out_of_range_now`, LATEST-point membership, not "ever flagged"), coloured red if
   N>0 / green if 0 (membership, never «все добре») — then Показників / Категорій / Період
-  (`history.charted_period`). The honest graphs-vs-tables-vs-single breakdown stays below.
+  (`history.charted_period`). The honest graphs-vs-tables-vs-single breakdown stays below. **After the
+  cover comes a small-multiples OVERVIEW grid** (`_overview_pages` + `_mini_draw`, 3×4 mini trend
+  charts per A4, flagged-first via `_latest_out`, red title = out-of-range) — a scannable index that
+  turns a 40–85-analyte flip-book into a one-glance dashboard, before the per-analyte pages.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes

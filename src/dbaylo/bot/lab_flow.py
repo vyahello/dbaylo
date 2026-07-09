@@ -56,7 +56,7 @@ from dbaylo.labs.intake import (
 from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.pipeline import compute_report_summary
 from dbaylo.labs.schema import ExtractedAnalyte, ExtractedReport
-from dbaylo.labs.trends import compute_flag, is_out_of_range, series_key
+from dbaylo.labs.trends import compute_flag, is_out_of_range, out_of_range_severity, series_key
 
 router = Router(name="labs")
 
@@ -176,6 +176,32 @@ def _summary_line(total: int, n_oor: int, n_unread: int) -> str:
     return " · ".join(parts)
 
 
+def _confirm_glyph(a: ExtractedAnalyte) -> str:
+    """⬆️ above / ⬇️ below its reference (position, not a verdict); ⚠️ when the lab flagged it with
+    no numeric reference to say which side."""
+    flag = compute_flag(a.value, a.ref_low, a.ref_high)
+    if flag == ResultFlag.HIGH:
+        return locale.FLAG_EMOJI["high"]
+    if flag == ResultFlag.LOW:
+        return locale.FLAG_EMOJI["low"]
+    return locale.FLAG_ATTENTION
+
+
+def _confirm_worst_line(report: ExtractedReport) -> str:
+    """The confirm header's worst-offenders digest — the out-of-range rows named + severity-ranked
+    (⬆️/⬇️), so the FIRST post-upload view says WHAT is off, not only a count. Reuses the /history
+    formatter (one definition); names are HTML-escaped for the confirm view."""
+    flagged = [a for a in report.results if _is_oor(a)]
+    ranked = sorted(
+        flagged,
+        key=lambda a: out_of_range_severity(a.value, a.ref_low, a.ref_high) or -1.0,
+        reverse=True,
+    )
+    return history.format_worst_offenders(
+        [(_esc(a.analyte), _confirm_glyph(a)) for a in ranked[:3]], extra=len(flagged) - 3
+    )
+
+
 def _confirm_header(report: ExtractedReport) -> str:
     date_txt = report.report_date.isoformat() if report.report_date else locale.LAB_DATE_UNKNOWN
     lab_txt = report.lab or locale.LAB_LAB_UNKNOWN
@@ -225,6 +251,9 @@ def render_confirmation_text(report: ExtractedReport) -> str:
     collapse = _collapses_normal(report)
 
     lines = [_confirm_header(report), _summary_line(total, n_oor, n_unread)]
+    worst = _confirm_worst_line(report)  # name the offenders, not just count them
+    if worst:
+        lines.append(worst)
     if report.conclusion:
         lines.append(f"{locale.LAB_CONCLUSION_LABEL}: {_esc(report.conclusion)}")
     if attention:

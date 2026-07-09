@@ -1080,22 +1080,31 @@ def _flag_glyph(r: LabResult) -> str:
     return locale.FLAG_ATTENTION
 
 
+def format_worst_offenders(pairs: list[tuple[str, str]], *, extra: int = 0) -> str:
+    """Format pre-ranked (name, glyph) pairs into the '↳ A ⬆️, B ⬇️ …+N' offenders line — the ONE
+    shared definition behind the /history card AND the lab-confirm header. '' when there are none;
+    ``extra`` (how many more are flagged than shown) adds the '…+N' tail only when positive."""
+    if not pairs:
+        return ""
+    names = ", ".join(f"{name} {glyph}" for name, glyph in pairs)
+    if extra > 0:
+        names = f"{names} {locale.HIST_WORST_MORE.format(n=extra)}"
+    return locale.HIST_CARD_WORST.format(names=names)
+
+
 def worst_offenders_line(results: list[LabResult], *, limit: int = 3) -> str:
     """A one-line, severity-ranked digest of a report's out-of-range indicators (name + ⬆️/⬇️), so a
     card/header says WHAT is off at a glance, not just a count. '' when nothing is flagged. Rows the
     lab flagged with no numeric reference (severity unknown) sort last but are still named."""
     flagged = [r for r in results if r.flagged]
-    if not flagged:
-        return ""
     ranked = sorted(
         flagged,
         key=lambda r: out_of_range_severity(r.value, r.ref_low, r.ref_high) or -1.0,
         reverse=True,
     )
-    names = ", ".join(f"{r.analyte} {_flag_glyph(r)}" for r in ranked[:limit])
-    if len(flagged) > limit:
-        names = f"{names} {locale.HIST_WORST_MORE.format(n=len(flagged) - limit)}"
-    return locale.HIST_CARD_WORST.format(names=names)
+    return format_worst_offenders(
+        [(r.analyte, _flag_glyph(r)) for r in ranked[:limit]], extra=len(flagged) - limit
+    )
 
 
 def render_card(report: LabReport, results: list[LabResult]) -> str:
