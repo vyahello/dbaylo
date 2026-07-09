@@ -15,7 +15,11 @@ from __future__ import annotations
 import re
 
 _NUM = r"\d+(?:\.\d+)?"
-_RANGE_RE = re.compile(rf"({_NUM})\s*-\s*({_NUM})")
+# Two-sided range: "X - Y" OR the Ukrainian word form "[від] X до Y". The word separator "до" is
+# checked here (before the one-sided fallbacks) because otherwise "від 3.9 до 6.1" matched only the
+# upper "до 6.1" and SILENTLY DROPPED the lower bound 3.9 — so anaemia/hypokalaemia (a value below
+# the lower limit) was never flagged and the chart drew no lower red zone.
+_RANGE_RE = re.compile(rf"({_NUM})\s*(?:-|до)\s*({_NUM})")
 _UPPER_RE = re.compile(rf"(?:<=|≤|<|до)\s*({_NUM})")
 _LOWER_RE = re.compile(rf"(?:>=|≥|>|від|більше)\s*({_NUM})")
 
@@ -23,8 +27,8 @@ _LOWER_RE = re.compile(rf"(?:>=|≥|>|від|більше)\s*({_NUM})")
 def parse_ref_range(ref_text: str | None) -> tuple[float | None, float | None]:
     """Return ``(low, high)`` derived from a printed reference, or ``(None, None)``.
 
-    Handles two-sided ("3.9-6.1"), upper-only ("< 5.2", "≤ 5", "до 50"), and lower-only
-    ("> 0.9", "≥ 1", "від 4"). A non-numeric reference returns ``(None, None)``.
+    Handles two-sided ("3.9-6.1", "від 3.9 до 6.1"), upper-only ("< 5.2", "≤ 5", "до 50"), and
+    lower-only ("> 0.9", "≥ 1", "від 4"). A non-numeric reference returns ``(None, None)``.
     """
     if not ref_text:
         return None, None

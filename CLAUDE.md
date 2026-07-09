@@ -238,8 +238,11 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker. **References &
   qualitative values are persisted** (migration 0011: `LabResult.value_text`/`ref_text`): the model
   often leaves a one-sided range as free text, so `labs/refparse.parse_ref_range` derives numeric
-  bounds at extraction ("< 5.2"→high=5.2, "до 50"→high=50, "X-Y"→both) — without this ~40% of rows
-  had no `ref_low/ref_high` and the chart could draw no norm band. **Trend charts honour the lab's
+  bounds at extraction ("< 5.2"→high=5.2, "до 50"→high=50, "X-Y"→both, **"від X до Y"→both**) —
+  without this ~40% of rows had no `ref_low/ref_high` and the chart could draw no norm band. (The
+  word form "від X до Y" used to match only the upper "до Y" and SILENTLY DROP the lower bound, so a
+  low value — anaemia/hypokalaemia — was never flagged; `maintenance.reparse_bounds` re-parses stored
+  `ref_text` to fill that recovered bound on EXISTING confirmed rows, deterministically, no re-upload.) **Trend charts honour the lab's
   own flag**: a point is red when `LabPoint.flagged` (the lab's out-of-range mark, reliable even with
   no numeric ref) OR numerically out of band, so a flagged value shows red even when the band is
   absent (`charts.render_trend_chart`). The **dynamics browser lists only analytes with a real numeric
@@ -578,8 +581,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   **All retrieval is no-LLM** — listing,
   rendering, parsing are pure. The NL search is the one seam: a free-text turn is routed to history
   only when `is_history_query` (intent **and** a concrete token); the handler calls
-  `safety.screen()` **first**, then `parse_history_query`, and **falls back to the companion** when
-  no concrete filter survives (never shows an empty result / steals normal chat). **Delete is
+  `safety.screen()` **first**, then — BEFORE parsing a filter — **defers a DATA QUESTION that names
+  an owned indicator** ("чому в останньому аналізі гемоглобін високий?") to the grounded focused
+  consult (`consult_flow.start_data_question_consult`), since `is_history_query` also matches such a
+  turn ("аналіз" + "останн") and would otherwise answer it with a report LIST; only a pure browse
+  ("аналізи за травень") falls through to `parse_history_query`. When intent matched but no concrete
+  filter survives, it **hands back to the grounded companion engine** (`_engage_with_text` — full
+  routing + threading + `build_health_context`), never a cold context-less `generate_reply` (never
+  shows an empty result / steals normal chat). **Delete is
   two-step**, shows exactly what is removed, and cleans up Tier 1.1 **couplings**: `Condition` /
   repeat-lab `Reminder` rows now carry a nullable `report_id` FK (`SET NULL`), so deleting a report
   resolves its proposed concern and retires its repeat-lab reminder (shown in the confirmation; the
@@ -870,6 +879,7 @@ venv/bin/python -m dbaylo.labs.pipeline --dry-run lab.jpg      # extract only, n
 venv/bin/python -m dbaylo.navigator.pipeline --dry-run парацетамол   # price a drug from a fixture
 venv/bin/python -m dbaylo.maintenance.cleanup_phantoms --dry-run     # list phantom rows, delete nothing
 venv/bin/python -m dbaylo.maintenance.normalize_labs --dry-run       # canonicalize stored lab names
+venv/bin/python -m dbaylo.maintenance.reparse_bounds --dry-run       # re-derive dropped ref bounds (від X до Y)
 ```
 
 After any model change: regenerate a migration and run `alembic check` (must report no drift).

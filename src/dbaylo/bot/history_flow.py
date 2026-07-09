@@ -52,7 +52,6 @@ from dbaylo.bot.formatting import (
 )
 from dbaylo.bot.keyboards import clear_inline_keyboard
 from dbaylo.companion import callbacks, grouping, history, notecache
-from dbaylo.companion.conversation import generate_reply
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
@@ -342,7 +341,9 @@ async def _is_history_text(message: Message) -> bool:
 
 
 @router.message(StateFilter(None), _is_history_text)
-async def on_history_query(message: Message) -> None:
+async def on_history_query(
+    message: Message, state: FSMContext, reminder_scheduler: ReminderScheduler
+) -> None:
     tg = _telegram_id(message)
     text = message.text or ""
     if tg is None:
@@ -352,6 +353,15 @@ async def on_history_query(message: Message) -> None:
     decision = screen(text)
     if decision.source is not GateSource.CLEARED:
         await message.answer(decision.message)
+        return
+
+    # A QUESTION naming one of the user's OWN indicators ("чому в останньому аналізі гемоглобін
+    # високий?") is a data question, NOT a browse — and `is_history_query` also matches it (intent
+    # "аналіз" + a concrete token like "останн"), so without this it would be answered with a report
+    # LIST instead of the grounded expert reading. Defer it to the focused consult BEFORE parsing a
+    # filter (the filter would otherwise resolve "останній" and short-circuit to the list). Only an
+    # owned-indicator match defers; a pure browse ("аналізи за травень") falls through unchanged.
+    if await consult_flow.start_data_question_consult(message, state, scheduler=reminder_scheduler):
         return
 
     orphans = 0
@@ -365,10 +375,12 @@ async def on_history_query(message: Message) -> None:
             orphans = await history.count_orphans(session, user_id=user.id, now=datetime.now())
 
     if reports is None:
-        # Intent matched but nothing concrete for THIS user — don't show an empty
-        # history result; hand the turn back to the companion.
-        reply = await generate_reply(text)
-        await message.answer(reply.text)
+        # Intent matched but nothing concrete for THIS user — don't show an empty history result.
+        # Hand the turn back to the companion engine (grounded + threaded), NOT a cold, context-less
+        # generate_reply(text) that has no inventory/findings/profile and could only hedge.
+        from dbaylo.bot.companion_flow import _engage_with_text
+
+        await _engage_with_text(message, state, text, reminder_scheduler)
         return
     await _send_list(message, reports, orphans)
 

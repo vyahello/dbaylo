@@ -14,6 +14,10 @@ from dbaylo.labs.refparse import parse_ref_range
         ("3,9 - 6,1", (3.9, 6.1)),  # comma decimals, spaces
         ("0 – 2", (0.0, 2.0)),  # en-dash
         ("0 - 2 в п/з", (0.0, 2.0)),  # trailing unit text ignored
+        ("від 3.9 до 6.1", (3.9, 6.1)),  # word form — BOTH bounds recovered (was upper-only)
+        ("від 135 до 145", (135.0, 145.0)),
+        ("3.9 до 6.1", (3.9, 6.1)),  # bare "X до Y" without the leading "від"
+        ("від 3,9 до 6,1 г/л", (3.9, 6.1)),  # comma decimals + trailing unit
         ("< 5.2", (None, 5.2)),  # upper bound
         ("≤ 5", (None, 5.0)),
         ("до 50", (None, 50.0)),
