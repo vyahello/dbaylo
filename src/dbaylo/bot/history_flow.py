@@ -524,8 +524,9 @@ async def on_history_results(callback: CallbackQuery) -> None:
         user = await ensure_user(session, telegram_id=tg)
         report = await history.get_report(session, report_id=report_id, user_id=user.id)
         if report is not None:
+            prior = await history.prior_values(session, user_id=user.id, report=report)
             text = render_interpretation_html(
-                history.render_problems(report, history.ordered_results(report))
+                history.render_problems(report, history.ordered_results(report), prior=prior)
             )
             parse_mode = ParseMode.HTML
             keyboard = InlineKeyboardMarkup(

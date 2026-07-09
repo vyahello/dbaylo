@@ -243,7 +243,14 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `narrative` persist it; narrative reports are never fed to the trend engine (no LabResults).
 - **Trend engine** (`labs/trends.py`): pure, deterministic, **no LLM/DB/network import** (enforced
   by a test). Direction is **range-relative** (`RETURNED_TO_RANGE`, `APPROACHING_RANGE`, …), never
-  a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. Series are
+  a health verdict (rail #4); IMPROVING/WORSENING `Polarity` is **internal only**. **`SeriesStats`
+  (the shared stats pack, `compute_series_stats`)** is the deterministic fuel every surface reuses:
+  latest/previous/`delta` (absolute change vs the prior draw), `out_of_range_severity` (fraction past
+  the nearest violated bound — the worst-offenders RANKING), `latest_out_of_range`, min/max/median,
+  and out-of-range count over the last N draws. **RETROSPECTIVE DATA ONLY** — deliberately NO
+  forward-looking rate/prognosis (a per-time rate fed to the LLM would invite "you'll be diabetic in
+  N months", which `assert_safe_output` does not catch), so the pack stays about what the data
+  ALREADY shows; a glyph/chip is coloured by in/out-of-range MEMBERSHIP, never by direction of change. Series are
   grouped by a normalized analyte name + small `ANALYTE_ALIASES` map (known limitation: extend it).
   `classify()` adds a conservative **qualitative** flag (value vs ref text, NORMAL only on a clear
   match — never LOW/HIGH from free text); `is_out_of_range()` decides the ⚠️ marker. **References &
@@ -567,12 +574,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   (alias `/reports`) sends ONE message — a paginated list (`_list_view`, 8/page, `◀ ▶`) of **one
   button per confirmed report** (`📅 date · lab · N⚠️k`). Tapping a report **edits the message in
   place** into its **card** (`render_card`) with `[🔬 Розбір][📊 Показники] [📈 Динаміка][📄 Файл]
-  [🗑 Видалити][◀ Назад]`; Назад/pager edit back (no message spam). **🔬 Розбір is CACHED** — shows
-  `report.summary` instantly if present, else generates once via `reconstruct_report`→`interpret`
-  and stores it; `[🔄 Оновити][🗑 Видалити розбір]` regenerate / clear it. **📊 Показники is
-  problems-first** (`render_problems`): the lab conclusion + ONLY the out-of-range rows (grouped by
-  panel) + an aggregate `✅ Решта N — у межах норми`, with `[📋 Усі показники]` (opt-in full table)
-  and `[📈 Динаміка]`. **📈 Динаміка** opens the shared **charts picker** (`open_charts_picker`):
+  [🗑 Видалити][◀ Назад]`; Назад/pager edit back (no message spam). **The card NAMES the worst
+  offenders** (`worst_offenders_line`): a `↳ АЛТ ⬆️, Глюкоза ⬆️, Калій ⬇️` line, severity-ranked by
+  `out_of_range_severity` + a `…+N` tail — so the card says WHAT is off at a glance, not only a count
+  (the glyph is ⬆️ HIGH / ⬇️ LOW / ⚠️ lab-flagged-no-ref: a POSITION, not a change verdict). **🔬
+  Розбір is CACHED** — shows `report.summary` instantly if present, else generates once via
+  `reconstruct_report`→`interpret` and stores it; `[🔄 Оновити][🗑 Видалити розбір]` regenerate /
+  clear it. **📊 Показники is problems-first** (`render_problems`): the lab conclusion + ONLY the
+  out-of-range rows (grouped by panel, each with its ⬆️/⬇️ glyph + a **«(було X → Y)» since-last-time
+  delta** when a prior report measured it — `prior_values`, a ONE batched user-scoped series load, is
+  built by the caller and passed in) + an aggregate `✅ Решта N — у межах норми`, with `[📋 Усі
+  показники]` (opt-in full table) and `[📈 Динаміка]`. **📈 Динаміка** opens the shared **charts picker** (`open_charts_picker`):
   one button per trending analyte (flagged-first), tap one → its single chart — no 85-chart flood;
   any indicator also via `/trend <name>`. Every health view ends with the **P.S. disclaimer** (`_ps`
   / `locale.HIST_PS_BLOCK`).

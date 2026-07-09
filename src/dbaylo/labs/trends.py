@@ -19,6 +19,7 @@ from collections import defaultdict
 from dataclasses import dataclass, replace
 from datetime import date
 from enum import Enum, auto
+from statistics import median
 
 from dbaylo.db.models import ResultFlag
 
@@ -447,4 +448,110 @@ def compute_trend(points: list[LabPoint]) -> TrendSummary:
         first_date=numeric[0].taken_on if numeric else None,
         last_date=latest.taken_on if latest else None,
         unit=latest.unit if latest else None,
+    )
+
+
+# --- Deterministic per-series statistics (the shared "stats pack") ---------------
+
+
+def out_of_range_severity(
+    value: float | None, ref_low: float | None, ref_high: float | None
+) -> float | None:
+    """How far ``value`` is PAST the nearest violated bound, as a FRACTION of that bound — so a
+    value 30% over its upper limit ranks above one 5% over. A magnitude for SEVERITY RANKING (the
+    worst-offenders order), never a verdict. ``None`` when in range, undeterminable, or the bound is
+    0 (no meaningful fraction). This is retrospective DATA about the single value, not a trend."""
+    if value is None:
+        return None
+    if ref_low is not None and value < ref_low and ref_low != 0:
+        return (ref_low - value) / abs(ref_low)
+    if ref_high is not None and value > ref_high and ref_high != 0:
+        return (value - ref_high) / abs(ref_high)
+    return None
+
+
+_RECENT_WINDOW = 5  # how many of the most recent numeric draws the "out of range in K of N" reads
+
+
+@dataclass(frozen=True)
+class SeriesStats:
+    """Deterministic, RETROSPECTIVE per-series statistics — the shared fuel for chart captions, the
+    Telegram 'since last time' delta, worst-offender ranking, and (when grounded) the LLM, which is
+    HANDED these numbers rather than asked to compute them.
+
+    RANGE-RELATIVE DATA ONLY — never a health verdict, and deliberately NO forward-looking rate or
+    prognosis: a per-time rate fed to the model would invite 'you'll be diabetic in N months', which
+    the output guard does not catch, so this pack stays strictly about what the data ALREADY shows.
+    """
+
+    key: str
+    analyte: str
+    unit: str | None
+    latest: LabPoint | None
+    previous: LabPoint | None
+    delta: float | None  # latest - previous value (absolute change; None if < 2 numeric points)
+    latest_out_of_range: bool
+    severity: float | None  # out_of_range_severity of the latest (ranking); None if in range/no ref
+    n_recent: int  # min(_RECENT_WINDOW, numeric count)
+    n_out_recent: int  # of those most-recent draws, how many were out of range
+    minimum: float | None
+    maximum: float | None
+    median: float | None
+
+
+def compute_series_stats(points: list[LabPoint]) -> SeriesStats:
+    """The retrospective stats pack for one analyte's series (see :class:`SeriesStats`). Pure."""
+    numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
+    anchor = numeric[-1] if numeric else (points[-1] if points else None)
+    key = series_key(anchor.section, anchor.analyte) if anchor else ""
+    analyte = anchor.analyte if anchor else ""
+    if not numeric:  # a purely-qualitative series still yields a usable pack
+        latest_q = points[-1] if points else None
+        return SeriesStats(
+            key=key,
+            analyte=analyte,
+            unit=latest_q.unit if latest_q else None,
+            latest=latest_q,
+            previous=None,
+            delta=None,
+            latest_out_of_range=bool(
+                latest_q
+                and is_out_of_range(None, None, None, latest_q.flagged, latest_q.value_text)
+            ),
+            severity=None,
+            n_recent=0,
+            n_out_recent=0,
+            minimum=None,
+            maximum=None,
+            median=None,
+        )
+    ref_low, ref_high = _series_ref(numeric)  # one reference for the whole series (see _series_ref)
+    latest = numeric[-1]
+    previous = numeric[-2] if len(numeric) >= 2 else None
+    vals = [p.value for p in numeric if p.value is not None]
+    delta = (
+        latest.value - previous.value
+        if previous is not None and latest.value is not None and previous.value is not None
+        else None
+    )
+    recent = numeric[-_RECENT_WINDOW:]
+    n_out_recent = sum(
+        1 for p in recent if is_out_of_range(p.value, ref_low, ref_high, p.flagged, p.value_text)
+    )
+    return SeriesStats(
+        key=key,
+        analyte=analyte,
+        unit=latest.unit,
+        latest=latest,
+        previous=previous,
+        delta=delta,
+        latest_out_of_range=is_out_of_range(
+            latest.value, ref_low, ref_high, latest.flagged, latest.value_text
+        ),
+        severity=out_of_range_severity(latest.value, ref_low, ref_high),
+        n_recent=len(recent),
+        n_out_recent=n_out_recent,
+        minimum=min(vals),
+        maximum=max(vals),
+        median=median(vals),
     )

@@ -752,6 +752,13 @@ HIST_CARD_DOC = "📄 {date} · {lab}\n{report_type}"
 HIST_CARD_DOC_NOLAB = "📄 {date}\n{report_type}"
 HIST_CARD_FLAGGED = "⚠️ {n} поза нормою"
 HIST_CARD_NORMAL = "✅ усі в межах норми"
+# The card's worst-offenders line — the flagged indicators by name (severity-ranked), each with a
+# ⬆️/⬇️ position glyph, so the card says WHAT is off at a glance instead of only a count.
+HIST_CARD_WORST = "↳ {names}"
+HIST_WORST_MORE = "…+{n}"
+# The "since last time" delta on a flagged problems row: the previous → current value (bare numbers,
+# no verdict). "було 6.2 → 7.1".
+HIST_DELTA_SINCE = "(було {prev} → {now})"
 BTN_HIST_FILE = "📄 Файл"
 BTN_HIST_RESULTS = "📊 Показники"
 BTN_HIST_RESULTS_ALL = "📋 Усі показники"

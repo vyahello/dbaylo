@@ -362,3 +362,42 @@ def test_direction_phrase_is_human_and_never_the_raw_token() -> None:
         assert phrase and phrase != direction.name
     assert direction_phrase(TrendDirection.LEFT_RANGE) == "moved out of range"
     assert direction_phrase(TrendDirection.RETURNED_TO_RANGE) == "came back into range"
+
+
+def test_out_of_range_severity_ranks_by_fraction_past_bound() -> None:
+    from dbaylo.labs.trends import out_of_range_severity
+
+    # 30% over the upper bound ranks above 5% over — a magnitude for worst-offender ordering.
+    assert out_of_range_severity(13.0, None, 10.0) == pytest.approx(0.3)
+    assert out_of_range_severity(10.5, None, 10.0) == pytest.approx(0.05)
+    # Below the lower bound is measured the same way (fraction past the violated bound).
+    assert out_of_range_severity(80.0, 100.0, None) == pytest.approx(0.2)
+    # In range / no bound / a zero bound -> None (never a fabricated ranking number).
+    assert out_of_range_severity(5.0, 3.9, 6.1) is None
+    assert out_of_range_severity(5.0, None, None) is None
+    assert out_of_range_severity(-1.0, 0.0, None) is None
+
+
+def test_compute_series_stats_is_retrospective_data_only() -> None:
+    from dbaylo.labs.trends import compute_series_stats
+
+    # Glucose over four draws: 5.0, 6.4(out), 6.0, 7.1(out). Latest out of range, rising.
+    pts = [p(1, 5.0, 3.9, 6.1), p(2, 6.4, 3.9, 6.1), p(3, 6.0, 3.9, 6.1), p(4, 7.1, 3.9, 6.1)]
+    s = compute_series_stats(pts)
+    assert s.latest is not None and s.latest.value == 7.1
+    assert s.previous is not None and s.previous.value == 6.0
+    assert s.delta == pytest.approx(1.1)  # absolute change vs the previous draw (never a rate)
+    assert s.latest_out_of_range is True
+    assert s.severity == pytest.approx((7.1 - 6.1) / 6.1)  # fraction past the upper bound
+    assert s.n_recent == 4 and s.n_out_recent == 2  # 6.4 and 7.1 are out of the last 4
+    assert s.minimum == 5.0 and s.maximum == 7.1 and s.median == pytest.approx(6.2)
+    # The pack carries NO forward-looking field (no rate/prognosis, by design) — only these names.
+    assert not any("rate" in f or "forecast" in f or "prognos" in f for f in vars(s))
+
+
+def test_compute_series_stats_single_point_has_no_delta() -> None:
+    from dbaylo.labs.trends import compute_series_stats
+
+    s = compute_series_stats([p(1, 7.1, 3.9, 6.1)])
+    assert s.delta is None and s.previous is None
+    assert s.latest_out_of_range is True and s.n_recent == 1 and s.n_out_recent == 1

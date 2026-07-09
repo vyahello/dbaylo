@@ -1361,3 +1361,94 @@ def test_charted_period_spans_all_dated_measurements() -> None:
     )
     assert history.charted_period([same], []) == "2026"  # single year, no dash
     assert history.charted_period([], []) == ""  # nothing dated -> empty
+
+
+def test_worst_offenders_line_ranks_by_severity_with_glyphs() -> None:
+    from dbaylo.db.models import ResultFlag
+
+    hi, lo, ok = ResultFlag.HIGH, ResultFlag.LOW, ResultFlag.NORMAL
+    results = [
+        LabResult(analyte="Холестерин", value=5.4, ref_high=5.2, flag=hi, flagged=True),
+        LabResult(analyte="Глюкоза", value=9.1, ref_high=6.1, flag=hi, flagged=True),
+        LabResult(analyte="Калій", value=3.0, ref_low=3.5, flag=lo, flagged=True),
+        LabResult(analyte="АЛТ", value=50.0, ref_high=40.0, flag=hi, flagged=True),
+        LabResult(analyte="Натрій", value=140.0, ref_low=135.0, ref_high=145.0, flag=ok),
+    ]
+    line = history.worst_offenders_line(results, limit=3)
+    # Ranked: Глюкоза (49% over) > АЛТ (25%) > Калій (14% under); Холестерин (4%) is truncated.
+    assert line.index("Глюкоза") < line.index("АЛТ") < line.index("Калій")
+    assert "Холестерин" not in line
+    assert "…+1" in line  # one more flagged than shown
+    assert "⬆️" in line and "⬇️" in line  # Калій LOW -> ⬇️, HIGH -> ⬆️ (position, not a verdict)
+    assert history.worst_offenders_line([results[-1]]) == ""  # nothing flagged -> no line
+
+
+async def test_render_card_names_the_worst_offenders(async_session: AsyncSession) -> None:
+    report = await _report(
+        async_session,
+        user_id=1,
+        on=date(2024, 6, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 9.1, 3.9, 6.1), ("АЛТ", 50.0, None, 40.0), ("Калій", 4.0, 3.5, 5.1)),
+    )
+    card = history.render_card(report, history.ordered_results(report))
+    assert "⚠️ 2 поза нормою" in card  # the count line stays
+    assert "Глюкоза" in card and "⬆️" in card  # the card now NAMES the offenders
+    assert "Калій" not in card  # Калій (4.0 in 3.5–5.1) is in range -> not named
+
+
+async def test_render_problems_shows_since_last_time_delta(async_session: AsyncSession) -> None:
+    from dbaylo.labs.trends import LabPoint, series_key
+
+    report = await _report(
+        async_session,
+        user_id=1,
+        on=date(2024, 6, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 7.1, 3.9, 6.1),),
+    )
+    prior = {
+        series_key(None, "Глюкоза"): LabPoint(
+            "Глюкоза", date(2024, 1, 1), 6.2, ref_low=3.9, ref_high=6.1
+        )
+    }
+    body = history.render_problems(report, history.ordered_results(report), prior=prior)
+    assert "було 6.2 → 7.1" in body  # the 'since last time' delta (bare numbers, no verdict)
+    assert "⬆️" in body  # a HIGH position glyph on the row, not a flat ⚠️
+
+
+async def test_prior_values_is_user_scoped_and_most_recent(async_session: AsyncSession) -> None:
+    from dbaylo.labs.trends import series_key
+
+    await _report(
+        async_session,
+        user_id=1,
+        on=date(2023, 1, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 5.0, 3.9, 6.1),),
+    )
+    await _report(
+        async_session,
+        user_id=1,
+        on=date(2024, 1, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 6.2, 3.9, 6.1),),
+    )
+    newest = await _report(
+        async_session,
+        user_id=1,
+        on=date(2024, 6, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 7.1, 3.9, 6.1),),
+    )
+    # A DIFFERENT user's newer value must never leak into user 1's prior (multiuser isolation).
+    await _report(
+        async_session,
+        user_id=2,
+        on=date(2024, 5, 1),
+        lab="ДІЛА",
+        results=(("Глюкоза", 9.9, 3.9, 6.1),),
+    )
+    prior = await history.prior_values(async_session, user_id=1, report=newest)
+    p = prior[series_key(None, "Глюкоза")]
+    assert p.value == 6.2  # user 1's most recent EARLIER value, not 5.0 and not user 2's 9.9

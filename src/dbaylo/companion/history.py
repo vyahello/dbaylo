@@ -48,6 +48,7 @@ from dbaylo.labs.trends import (
     compute_trend,
     find_series,
     is_negative_qualitative,
+    out_of_range_severity,
     series_key,
     specimen,
 )
@@ -1068,6 +1069,35 @@ def report_button_label(report: LabReport, results: list[LabResult]) -> str:
     )
 
 
+def _flag_glyph(r: LabResult) -> str:
+    """The position glyph for a flagged row: ⬆️ above its reference (HIGH) / ⬇️ below (LOW) / ⚠️ when
+    the lab flagged it but there is no numeric reference to say which side. This is DATA about which
+    bound is violated — NOT a direction-of-change verdict (coloured/marked by membership only)."""
+    if r.flag == ResultFlag.HIGH:
+        return locale.FLAG_EMOJI["high"]
+    if r.flag == ResultFlag.LOW:
+        return locale.FLAG_EMOJI["low"]
+    return locale.FLAG_ATTENTION
+
+
+def worst_offenders_line(results: list[LabResult], *, limit: int = 3) -> str:
+    """A one-line, severity-ranked digest of a report's out-of-range indicators (name + ⬆️/⬇️), so a
+    card/header says WHAT is off at a glance, not just a count. '' when nothing is flagged. Rows the
+    lab flagged with no numeric reference (severity unknown) sort last but are still named."""
+    flagged = [r for r in results if r.flagged]
+    if not flagged:
+        return ""
+    ranked = sorted(
+        flagged,
+        key=lambda r: out_of_range_severity(r.value, r.ref_low, r.ref_high) or -1.0,
+        reverse=True,
+    )
+    names = ", ".join(f"{r.analyte} {_flag_glyph(r)}" for r in ranked[:limit])
+    if len(flagged) > limit:
+        names = f"{names} {locale.HIST_WORST_MORE.format(n=len(flagged) - limit)}"
+    return locale.HIST_CARD_WORST.format(names=names)
+
+
 def render_card(report: LabReport, results: list[LabResult]) -> str:
     """The per-report 'card' shown when a report is opened from the list."""
     date_txt = report.report_date.isoformat() if report.report_date else locale.HIST_NO_DATE
@@ -1079,7 +1109,9 @@ def render_card(report: LabReport, results: list[LabResult]) -> str:
         return locale.HIST_CARD_DOC_NOLAB.format(date=date_txt, report_type=rtype)
     n_flagged = flagged_count(results)
     status = locale.HIST_CARD_FLAGGED.format(n=n_flagged) if n_flagged else locale.HIST_CARD_NORMAL
-    return locale.HIST_CARD.format(date=date_txt, lab=lab_txt, count=len(results), status=status)
+    card = locale.HIST_CARD.format(date=date_txt, lab=lab_txt, count=len(results), status=status)
+    worst = worst_offenders_line(results)  # name the offenders so the card isn't content-free
+    return f"{card}\n{worst}" if worst else card
 
 
 def _ps(text: str) -> str:
@@ -1152,10 +1184,41 @@ def _grouped_result_lines(results: list[LabResult], marker: str) -> list[str]:
     return out
 
 
-def render_problems(report: LabReport, results: list[LabResult]) -> str:
+def _delta_suffix(r: LabResult, prior: dict[str, LabPoint] | None) -> str:
+    """' (було X → Y)' when a prior report measured this same series to a DIFFERENT value — the
+    'since last time' signal, bare numbers (no verdict). '' when there is no comparable prior."""
+    if not prior:
+        return ""
+    p = prior.get(series_key(r.section, r.analyte))
+    if p is None or p.value is None or r.value is None or p.value == r.value:
+        return ""
+    return " " + locale.HIST_DELTA_SINCE.format(prev=f"{p.value:g}", now=f"{r.value:g}")
+
+
+def _flagged_lines(results: list[LabResult], prior: dict[str, LabPoint] | None) -> list[str]:
+    """The out-of-range rows, each with its OWN ⬆️/⬇️/⚠️ position glyph (not one flat ⚠️) and a
+    'since last time' delta when a prior value exists. Grouped by panel like the other views."""
+    out: list[str] = []
+    prev_section: object = _NO_SECTION
+    for r in results:
+        if r.section != prev_section:
+            prev_section = r.section
+            if r.section:
+                out.append(locale.LAB_SECTION_HEADER.format(section=r.section))
+        out.append(_result_line(r, _flag_glyph(r)) + _delta_suffix(r, prior))
+    return out
+
+
+def render_problems(
+    report: LabReport,
+    results: list[LabResult],
+    *,
+    prior: dict[str, LabPoint] | None = None,
+) -> str:
     """Focused results view: the lab conclusion + the out-of-range rows (grouped by panel). The
     in-range rows are listed by name when there are only a few, or collapsed into an aggregate
-    when there are many — never an 85-row dump."""
+    when there are many — never an 85-row dump. ``prior`` (a {series_key: prior LabPoint} map from
+    the caller, user-scoped) adds a 'since last time' (було X → Y) delta to each flagged row."""
     lines = [_results_title(report)]
     if report.kind == ReportKind.NARRATIVE:
         if report.conclusion:
@@ -1170,7 +1233,7 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
     collapse = len(normal) > _INLINE_NORMAL_MAX
     if flagged:
         lines += ["", _bold(locale.HIST_PROBLEMS_HEADER.format(n=len(flagged)))]
-        lines += _grouped_result_lines(flagged, locale.FLAG_ATTENTION)
+        lines += _flagged_lines(flagged, prior)
     if normal and collapse:
         lines += ["", locale.HIST_PROBLEMS_NORMAL_AGG.format(n=len(normal))]
     elif normal:
@@ -1179,6 +1242,23 @@ def render_problems(report: LabReport, results: list[LabResult]) -> str:
     elif not flagged:  # no rows at all (defensive)
         lines += ["", locale.HIST_NO_PROBLEMS]
     return assert_safe_output(_ps("\n".join(lines)))
+
+
+async def prior_values(
+    session: AsyncSession, *, user_id: int, report: LabReport | None
+) -> dict[str, LabPoint]:
+    """{series_key: the most recent measurement BEFORE this report's date}, USER-SCOPED — the prior
+    values for the 'since last time' delta in the problems view. One batched series load (never N
+    per-row queries); '' report / no date -> empty (nothing to compare against)."""
+    if report is None or report.report_date is None:
+        return {}
+    series = build_series(await load_series_points(session, user_id))
+    out: dict[str, LabPoint] = {}
+    for key, pts in series.items():
+        earlier = [p for p in pts if p.value is not None and p.taken_on < report.report_date]
+        if earlier:
+            out[key] = earlier[-1]  # pts sorted ascending -> last earlier is the most recent prior
+    return out
 
 
 def render_report_line(report: LabReport, results: list[LabResult]) -> str:
