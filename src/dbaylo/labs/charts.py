@@ -42,6 +42,19 @@ _LINE = "#64748b"  # the connecting trend line (neutral, so the markers carry th
 _OK = "#16a34a"  # in-range marker
 _OUT = "#dc2626"  # out-of-range marker
 
+_DPI = 150  # crisp on high-density phone screens (was 120, which read soft)
+
+
+def _style_axes(ax: Axes) -> None:
+    """Give an axes the calm, designed look shared by every chart: no top/right spines, muted
+    remaining spines + ticks. Purely cosmetic — the data meaning is unchanged."""
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+    for side in ("left", "bottom"):
+        ax.spines[side].set_color(_BOUND)
+        ax.spines[side].set_linewidth(0.8)
+    ax.tick_params(colors=_MUTED, labelsize=9, length=3)
+
 
 def _out_of_range(value: float, lo: float | None, hi: float | None) -> bool:
     return (lo is not None and value < lo) or (hi is not None and value > hi)
@@ -77,7 +90,7 @@ def render_qual_table_png(
     The ``highlight_date`` row (the report the table was opened from) is ringed as 'цей аналіз' —
     the table equivalent of the chart's highlighted point."""
     shown = rows[-8:]  # keep it readable; recent history is what matters
-    fig, ax = plt.subplots(figsize=(7, 1.2 + 0.42 * (len(shown) + 1)), dpi=120)
+    fig, ax = plt.subplots(figsize=(7, 1.2 + 0.42 * (len(shown) + 1)), dpi=_DPI)
     try:
         ax.axis("off")
         ax.set_title(_pdf_text(title), fontsize=14, weight="bold", color=_INK, loc="left")
@@ -124,12 +137,13 @@ def render_trend_chart(
     аналіз' so you can see where the report you came from sits in the whole trend."""
     numeric = sorted((p for p in points if p.value is not None), key=lambda p: p.taken_on)
 
-    fig, ax = plt.subplots(figsize=(7, 4), dpi=120)
+    fig, ax = plt.subplots(figsize=(7, 4), dpi=_DPI)
     try:
         if numeric:
             _draw(ax, fig, numeric, highlight_date=highlight_date)
-        ax.set_title(title)
-        ax.grid(True, alpha=0.3, zorder=0)
+        ax.set_title(title, fontsize=13, fontweight="bold", color=_INK, loc="left", pad=12)
+        ax.grid(True, axis="y", alpha=0.3, zorder=0)  # horizontal guides only — a calmer grid
+        _style_axes(ax)
 
         buffer = io.BytesIO()
         fig.savefig(buffer, format="png", bbox_inches="tight")
@@ -189,6 +203,21 @@ def _draw(
     for bound in (lo, hi):
         if bound is not None:
             ax.axhline(bound, color=_BOUND, linestyle="--", linewidth=1, zorder=1)
+            # Print the numeric bound at the right edge, so a forwarded screenshot states the exact
+            # reference the chart judges against (was: unlabelled dashed lines).
+            ax.annotate(
+                f"{bound:g}",
+                xy=(1.0, bound),
+                xycoords=("axes fraction", "data"),
+                xytext=(4, 0),
+                textcoords="offset points",
+                va="center",
+                ha="left",
+                fontsize=8,
+                color=_BOUND,
+                fontweight="bold",
+                clip_on=False,
+            )
 
     # Neutral connecting line; the meaning is carried by the status-coloured markers.
     ax.plot(xs, ys, "-", color=_LINE, linewidth=1.5, zorder=2)
@@ -208,6 +237,8 @@ def _draw(
             out_x, out_y, marker="X", s=90, color=_OUT, edgecolors="white", linewidths=0.8, zorder=4
         )
         for x, y in zip(out_x, out_y, strict=True):  # label the bottleneck points explicitly
+            if x == xs[-1]:
+                continue  # the LATEST point gets the prominent chip below — no double label
             ax.annotate(
                 f"{y:g}",
                 (x, y),
@@ -218,6 +249,29 @@ def _draw(
                 color=_OUT,
                 fontweight="bold",
             )
+
+    # ALWAYS label the LATEST value prominently (the single most important number, previously
+    # unlabelled when in range) in a chip coloured by in/out-of-RANGE membership — NEVER by the
+    # direction of change (down is not "good" for every analyte; that would be a hidden verdict).
+    last_out = flags[-1]
+    ax.annotate(
+        f"{ys[-1]:g}",
+        (xs[-1], ys[-1]),
+        textcoords="offset points",
+        xytext=(9, 9),
+        ha="left",
+        va="bottom",
+        fontsize=10,
+        fontweight="bold",
+        color="white",
+        bbox={
+            "boxstyle": "round,pad=0.3",
+            "fc": _OUT if last_out else _OK,
+            "ec": "white",
+            "lw": 0.8,
+        },
+        zorder=7,
+    )
 
     # Ring the measurement of the report this chart was opened from, so its place in the whole
     # trend is obvious ("where is THIS analysis on the graph?").
@@ -316,6 +370,58 @@ _BRAND_DARK = "#14532d"
 _INK = "#0f172a"  # near-black text
 _MUTED = "#64748b"  # secondary text
 _PANEL = "#f1f5f9"  # light card background
+# Cover dashboard tiles: the hero (out-of-range count) is coloured by MEMBERSHIP — red when
+# something is out of range now, green when all are in range — never by a direction of change.
+_TILE_ALERT_BG, _TILE_ALERT_FG = "#fee2e2", "#b91c1c"
+_TILE_OK_BG, _TILE_OK_FG = "#dcfce7", "#15803d"
+
+
+def _stat_tiles(
+    fig: Figure, tiles: tuple[tuple[str, str], ...], *, top: float, hero_alert: bool
+) -> float:
+    """Draw a row of dashboard stat tiles (a big value over a small label) across the cover; the
+    hero (first) tile is coloured by whether anything is out of range. Returns the row's bottom."""
+    n = len(tiles)
+    if not n:
+        return top
+    left, right, gap = 0.09, 0.91, 0.02
+    tile_w = (right - left - gap * (n - 1)) / n
+    tile_h = 0.11
+    bottom = top - tile_h
+    for i, (label, value) in enumerate(tiles):
+        x = left + i * (tile_w + gap)
+        if i == 0:
+            bg, fg = (_TILE_ALERT_BG, _TILE_ALERT_FG) if hero_alert else (_TILE_OK_BG, _TILE_OK_FG)
+        else:
+            bg, fg = _PANEL, _INK
+        fig.patches.append(
+            Rectangle((x, bottom), tile_w, tile_h, transform=fig.transFigure, color=bg, zorder=1)
+        )
+        # Shrink the value font for a longer string (a year span "2023–2024") so it never spills
+        # past the tile; a single count stays big and bold.
+        shown = _pdf_text(value)
+        value_fs = 27 if len(shown) <= 3 else (20 if len(shown) <= 6 else 15)
+        fig.text(
+            x + tile_w / 2,
+            bottom + tile_h * 0.60,
+            shown,
+            ha="center",
+            va="center",
+            fontsize=value_fs,
+            weight="bold",
+            color=fg,
+        )
+        fig.text(
+            x + tile_w / 2,
+            bottom + tile_h * 0.22,
+            _pdf_text(label),
+            ha="center",
+            va="center",
+            fontsize=10,
+            color=_MUTED,
+        )
+    return bottom
+
 
 # matplotlib's PDF font (DejaVu Sans) has no emoji glyphs — they render as tofu boxes. Strip emoji /
 # symbol / arrow / variation-selector chars from PDF text, keeping normal Cyrillic + punctuation
@@ -408,6 +514,10 @@ class PdfCover:
     summary_line: str = ""
     category_rows: tuple[str, ...] = ()
     notes: tuple[str, ...] = ()
+    # The dashboard: (label, value) tiles drawn big across the cover, the hero (first) being the
+    # out-of-range count. Empty -> the plain summary_line layout (backward compatible).
+    stat_tiles: tuple[tuple[str, str], ...] = ()
+    hero_alert: bool = False  # colour the hero tile red (something out of range) vs green (all in)
 
 
 @dataclass(frozen=True)
@@ -427,21 +537,26 @@ def _cover(pdf: PdfPages, cover: PdfCover) -> None:
     fig = plt.figure(figsize=_A4)
     try:
         fig.patches.append(
-            Rectangle((0, 0.82), 1, 0.18, transform=fig.transFigure, color=_BRAND, zorder=0)
+            Rectangle((0, 0.88), 1, 0.12, transform=fig.transFigure, color=_BRAND, zorder=0)
         )
         fig.patches.append(
             Rectangle((0, 0), 1, 0.05, transform=fig.transFigure, color=_BRAND, zorder=0)
         )
-        _place_avatar(fig, (0.5 - 0.16, 0.60, 0.32, 0.20))
+        _place_avatar(fig, (0.5 - 0.15, 0.66, 0.30, 0.18))
         fig.text(
-            0.5, 0.52, _pdf_text(cover.heading), ha="center", fontsize=26, color=_INK, weight="bold"
+            0.5, 0.60, _pdf_text(cover.heading), ha="center", fontsize=25, color=_INK, weight="bold"
         )
         if cover.report_line:
             fig.text(
-                0.5, 0.475, _pdf_text(cover.report_line), ha="center", fontsize=13, color=_MUTED
+                0.5, 0.562, _pdf_text(cover.report_line), ha="center", fontsize=12.5, color=_MUTED
             )
-        y = 0.41
-        if cover.summary_line:
+        # The dashboard tiles lead — the hero being the out-of-range count — then the plain
+        # "graphs / tables / single" breakdown lines below. A caller without tiles keeps the old
+        # bold summary_line (backward compatible).
+        if cover.stat_tiles:
+            y = _stat_tiles(fig, cover.stat_tiles, top=0.50, hero_alert=cover.hero_alert) - 0.05
+        elif cover.summary_line:
+            y = 0.41
             fig.text(
                 0.5,
                 y,
@@ -452,8 +567,10 @@ def _cover(pdf: PdfPages, cover: PdfCover) -> None:
                 weight="bold",
             )
             y -= 0.045
+        else:
+            y = 0.41
         for row in cover.category_rows:
-            fig.text(0.5, y, _pdf_text(row), ha="center", fontsize=12, color=_INK)
+            fig.text(0.5, y, _pdf_text(row), ha="center", fontsize=11.5, color=_INK)
             y -= 0.030
         if cover.notes:
             y -= 0.018

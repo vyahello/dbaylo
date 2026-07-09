@@ -832,6 +832,12 @@ CHART_REPORT_HINT = "Щоб побачити графік — обери пок�
 # One-PDF export: every chart + a short description, saved as a file.
 CHART_PDF_HEADING = "Динаміка показників"
 CHART_PDF_REPORT_LINE = "За аналізом від {date} · {lab}"  # the report this PDF is built from
+# Cover "dashboard" stat tiles — the hero number leads with how many indicators are out of range
+# NOW (latest measurement), then the totals. Single short labels; the value is drawn big above.
+CHART_PDF_TILE_OOR = "Поза нормою"
+CHART_PDF_TILE_TOTAL = "Показників"
+CHART_PDF_TILE_CATEGORIES = "Категорій"
+CHART_PDF_TILE_PERIOD = "Період"
 # Cover body — a plain "what is inside this document" so it reads at a glance. (No emoji: the PDF
 # font has no emoji glyphs.) Charts = numeric; tables = qualitative ("виявлено / не виявлено").
 CHART_PDF_INTRO = "У звіті {n} показників. Ось як показано їхню динаміку:"

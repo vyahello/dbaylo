@@ -599,6 +599,43 @@ class QualTrend:
     changed: bool  # the text result differs across dates (a real qualitative change)
 
 
+def _latest_out_of_range(points: list[LabPoint]) -> bool:
+    """Whether an analyte's LATEST measurement is out of range — its own lab flag OR a value outside
+    its own reference. This is 'out of range NOW', deliberately NOT 'ever flagged in history', so a
+    summary count (the PDF cover's out-of-range tile) never over-alarms on a since-resolved flag.
+    """
+    valued = [p for p in points if p.value is not None]
+    if valued:
+        p = max(valued, key=lambda x: x.taken_on)
+        if p.flagged:
+            return True
+        v = p.value
+        return v is not None and (
+            (p.ref_low is not None and v < p.ref_low) or (p.ref_high is not None and v > p.ref_high)
+        )
+    return bool(points) and bool(max(points, key=lambda x: x.taken_on).flagged)
+
+
+def count_out_of_range_now(data: list[TrendChartData], quals: list[QualTrend]) -> int:
+    """How many of the charted/timelined indicators are out of range at their LATEST measurement —
+    the hero number of the PDF cover dashboard. Deterministic; latest-point membership, not 'ever'.
+    """
+    numeric = sum(1 for d in data if _latest_out_of_range(d.points))
+    qual = sum(1 for q in quals if q.timeline and q.timeline[-1].flagged)
+    return numeric + qual
+
+
+def charted_period(data: list[TrendChartData], quals: list[QualTrend]) -> str:
+    """The calendar span of the charted data as a compact string ('2023' or '2023–2024'), for the
+    PDF cover's «Період» tile. '' when there are no dated measurements."""
+    dates = [p.taken_on for d in data for p in d.points]
+    dates += [m.taken_on for q in quals for m in q.timeline]
+    if not dates:
+        return ""
+    lo, hi = min(dates), max(dates)
+    return str(lo.year) if lo.year == hi.year else f"{lo.year}–{hi.year}"
+
+
 def _report_qual_dynamics_from(
     report: LabReport, series: dict[str, list[LabPoint]]
 ) -> list[QualTrend]:

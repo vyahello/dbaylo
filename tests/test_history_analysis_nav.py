@@ -189,9 +189,9 @@ async def test_gather_notes_bounded_keeps_order_and_handles_empty(monkeypatch) -
     assert await history_flow._gather_notes_bounded([]) == []
 
 
-def test_pdf_cover_reads_as_plain_what_is_inside() -> None:
-    # The cover must read as a plain "what is inside": total + how the dynamics are shown
-    # (графіки for numeric, таблиці for qualitative), not a dense jargon block.
+def test_pdf_cover_leads_with_a_dashboard_then_the_plain_breakdown() -> None:
+    # The cover LEADS with a dashboard (out-of-range count + totals) and still carries the plain
+    # "what is inside" breakdown (графіки for numeric, таблиці for qualitative) below.
     from dbaylo.bot.history_flow import _pdf_cover
     from dbaylo.companion.history import ReportBreakdown
 
@@ -199,8 +199,11 @@ def test_pdf_cover_reads_as_plain_what_is_inside() -> None:
     breakdown = ReportBreakdown(
         total=39, numeric=19, qualitative=14, single=6, categories=[("urine", 19)]
     )
-    cover = _pdf_cover(report, breakdown)
-    assert "39" in cover.summary_line  # the honest total leads
+    cover = _pdf_cover(report, breakdown, data=[], quals=[])
+    # The dashboard tiles: the hero is the out-of-range count (0 here -> no alert), the total is 39.
+    assert cover.stat_tiles[0] == (locale.CHART_PDF_TILE_OOR, "0")
+    assert cover.hero_alert is False  # nothing out of range -> the hero tile is green, not red
+    assert any(v == "39" for _, v in cover.stat_tiles)  # the honest total is a tile
     body = " | ".join(cover.category_rows)
     assert "Графіки" in body and "19" in body  # numeric -> charts
     assert "Таблиці" in body and "14" in body  # qualitative -> tables ("словами" is gone)
@@ -213,6 +216,8 @@ def test_pdf_cover_reads_as_plain_what_is_inside() -> None:
         ReportBreakdown(
             total=20, numeric=20, qualitative=0, single=0, categories=[("blood", 10), ("urine", 10)]
         ),
+        data=[],
+        quals=[],
     )
     assert any("Розділи" in n and "Аналіз крові" in n for n in multi.notes)
 

@@ -1295,3 +1295,69 @@ def test_chart_dynamics_caption_states_the_measurement_period() -> None:
         [LabPoint("X", date(2026, 1, 1), 1.0), LabPoint("X", date(2026, 6, 1), 2.0)]
     )
     assert "2026" in history.chart_dynamics_caption(same_year)
+
+
+def _lp(name, day, value, lo=None, hi=None, flagged=False):
+    from dbaylo.labs.trends import LabPoint
+
+    return LabPoint(name, day, value, ref_low=lo, ref_high=hi, flagged=flagged)
+
+
+def test_count_out_of_range_now_uses_the_latest_point_not_ever_flagged() -> None:
+    # The PDF cover's hero number must count 'out of range NOW' (latest measurement), never 'ever
+    # flagged' — a value that WAS off but the latest is back in range must NOT be counted.
+    resolved = history.TrendChartData(
+        title="Холестерин",
+        category="Біохімія",
+        points=[
+            _lp("Холестерин", date(2023, 1, 1), 5.6, hi=5.2, flagged=True),
+            _lp("Холестерин", date(2024, 1, 1), 5.0, hi=5.2),
+        ],
+        dynamics="",
+        specimen="blood",
+        flagged=False,
+    )
+    current = history.TrendChartData(
+        title="Глюкоза",
+        category="Біохімія",
+        points=[
+            _lp("Глюкоза", date(2023, 1, 1), 5.0, 3.9, 6.1),
+            _lp("Глюкоза", date(2024, 1, 1), 7.1, 3.9, 6.1),
+        ],
+        dynamics="",
+        specimen="blood",
+        flagged=False,
+    )
+    qual_off = history.QualTrend(
+        title="Білок (сеча)",
+        key="k",
+        category="Сеча",
+        specimen="urine",
+        timeline=[history.QualMeasurement(date(2024, 1, 1), "виявлено", True)],
+        flagged=True,
+        changed=False,
+    )
+    # Глюкоза (latest out) + Білок (latest flagged) count; Холестерин (latest in range) does not.
+    assert history.count_out_of_range_now([resolved, current], [qual_off]) == 2
+
+
+def test_charted_period_spans_all_dated_measurements() -> None:
+    d = history.TrendChartData(
+        title="X",
+        category="c",
+        points=[_lp("X", date(2021, 3, 1), 1.0), _lp("X", date(2024, 6, 1), 2.0)],
+        dynamics="",
+        specimen="blood",
+        flagged=False,
+    )
+    assert history.charted_period([d], []) == "2021–2024"
+    same = history.TrendChartData(
+        title="Y",
+        category="c",
+        points=[_lp("Y", date(2026, 1, 1), 1.0)],
+        dynamics="",
+        specimen="blood",
+        flagged=False,
+    )
+    assert history.charted_period([same], []) == "2026"  # single year, no dash
+    assert history.charted_period([], []) == ""  # nothing dated -> empty

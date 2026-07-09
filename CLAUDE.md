@@ -225,6 +225,17 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   or red ✕ (out — labelled with its value, shape+colour so it survives colour-blindness), a
   legend (норма / у нормі / поза нормою), and the y-axis always spans the reference bounds (the band
   is never cut off; a flat series is not over-zoomed). Legend text is in `locale.CHART_LEGEND_*`.
+  **Premium theme** (`_style_axes`, `_DPI`=150): a bold left-aligned title, top/right spines removed,
+  muted remaining spines/ticks, a horizontal-only grid — the everyday PNG reads as a designed medical
+  product. The **latest value is ALWAYS labelled** in a chip coloured by in/out-of-range MEMBERSHIP
+  (green in range, red out) — **never by direction of change** (a hidden verdict); and each numeric
+  **reference bound is printed** at the right edge (so a forwarded screenshot states the ref it judges
+  against). Still deterministic, still no verdict. **The PDF export cover** (`_cover` + `PdfCover`,
+  the 📊 Показати всі / dynamics PDF) LEADS with a **dashboard** of stat tiles built by
+  `history_flow._cover_tiles`: the hero is **«Поза нормою: N»** — how many indicators are out of range
+  NOW (`history.count_out_of_range_now`, LATEST-point membership, not "ever flagged"), coloured red if
+  N>0 / green if 0 (membership, never «все добре») — then Показників / Категорій / Період
+  (`history.charted_period`). The honest graphs-vs-tables-vs-single breakdown stays below.
 - **Narrative documents** (Stage 6, migration 0007): a non-tabular medical document (МРТ/КТ/УЗД/
   висновок/виписка) is no longer rejected. Extraction returns `kind=narrative` with `report_type`,
   `narrative` (findings), and `conclusion` (no analyte rows); `ExtractedReport.is_narrative` routes

@@ -907,7 +907,7 @@ async def on_chart_pdf(callback: CallbackQuery) -> None:
         callback.message,
         data=data,
         quals=quals,
-        cover=_pdf_cover(report, breakdown),
+        cover=_pdf_cover(report, breakdown, data=data, quals=quals),
         highlight=report.report_date if report else None,
         filename=_pdf_filename(report),
     )
@@ -972,10 +972,35 @@ async def _render_and_send_pdf(
     await message.answer_document(BufferedInputFile(pdf, filename=filename))
 
 
-def _pdf_cover(report: LabReport | None, breakdown: history.ReportBreakdown) -> PdfCover:
-    """A clear "what is inside" cover: total count + a plain breakdown of HOW the dynamics are shown
-    (graphs for numeric, tables for qualitative, plus any single-measurement ones). The category
-    split is a secondary line only when the report spans more than one category."""
+def _cover_tiles(
+    breakdown: history.ReportBreakdown,
+    data: list[history.TrendChartData],
+    quals: list[history.QualTrend],
+) -> tuple[tuple[tuple[str, str], ...], bool]:
+    """The dashboard tiles + whether to raise the alert: the hero is how many indicators are out of
+    range NOW (latest measurement, deterministic), then Показників / Категорій / Період."""
+    oor = history.count_out_of_range_now(data, quals)
+    tiles: tuple[tuple[str, str], ...] = (
+        (locale.CHART_PDF_TILE_OOR, str(oor)),
+        (locale.CHART_PDF_TILE_TOTAL, str(breakdown.total)),
+        (locale.CHART_PDF_TILE_CATEGORIES, str(len(breakdown.categories))),
+    )
+    period = history.charted_period(data, quals)
+    if period:
+        tiles = (*tiles, (locale.CHART_PDF_TILE_PERIOD, period))
+    return tiles, oor > 0
+
+
+def _pdf_cover(
+    report: LabReport | None,
+    breakdown: history.ReportBreakdown,
+    *,
+    data: list[history.TrendChartData],
+    quals: list[history.QualTrend],
+) -> PdfCover:
+    """A cover that LEADS with a dashboard (out-of-range count + totals + period), then a plain
+    breakdown of HOW the dynamics are shown (graphs for numeric, tables for qualitative, plus any
+    single-measurement ones). The category split is a secondary line only when there is >1."""
     date_txt, lab = _report_date_lab(report)
     rows = [locale.CHART_PDF_ON_CHARTS.format(n=breakdown.numeric)]
     if breakdown.qualitative:
@@ -988,12 +1013,14 @@ def _pdf_cover(report: LabReport | None, breakdown: history.ReportBreakdown) -> 
             locale.CHART_PDF_CATEGORY_LABELS.get(key, key) for key, _ in breakdown.categories
         )
         notes.append(locale.CHART_PDF_SECTIONS.format(names=names))
+    tiles, alert = _cover_tiles(breakdown, data, quals)
     return PdfCover(
         heading=locale.CHART_PDF_HEADING,
         report_line=locale.CHART_PDF_REPORT_LINE.format(date=date_txt, lab=lab),
-        summary_line=locale.CHART_PDF_INTRO.format(n=breakdown.total),
         category_rows=tuple(rows),
         notes=tuple(notes),
+        stat_tiles=tiles,
+        hero_alert=alert,
     )
 
 
@@ -1016,21 +1043,29 @@ def _dyn_home_view(counts: list[tuple[str, int]]) -> tuple[str, InlineKeyboardMa
     return locale.DYN_HEADER, InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _dyn_pdf_cover(category: str, breakdown: history.ReportBreakdown) -> PdfCover:
-    """Cover for a SINGLE-category PDF: the category name + how its dynamics are shown (charts for
-    numeric, tables for qualitative). One document per category, never one giant file."""
+def _dyn_pdf_cover(
+    category: str,
+    breakdown: history.ReportBreakdown,
+    *,
+    data: list[history.TrendChartData],
+    quals: list[history.QualTrend],
+) -> PdfCover:
+    """Cover for a SINGLE-category PDF: the same dashboard (out-of-range count + totals + period) +
+    the category name + how its dynamics are shown. One document per category, never one giant."""
     name = locale.CHART_PDF_CATEGORY_LABELS.get(
         category, locale.CATEGORY_NAMES.get(category, category)
     )
     rows = [locale.CHART_PDF_ON_CHARTS.format(n=breakdown.numeric)]
     if breakdown.qualitative:
         rows.append(locale.CHART_PDF_IN_TABLES.format(n=breakdown.qualitative))
+    tiles, alert = _cover_tiles(breakdown, data, quals)
     return PdfCover(
         heading=locale.CHART_PDF_CATEGORY_HEADING.format(category=name),
         report_line=locale.CHART_PDF_CATEGORY_SUBTITLE,
-        summary_line=locale.CHART_PDF_INTRO.format(n=breakdown.total),
         category_rows=tuple(rows),
         notes=(),
+        stat_tiles=tiles,
+        hero_alert=alert,
     )
 
 
@@ -1062,7 +1097,7 @@ async def on_dyn_pdf(callback: CallbackQuery) -> None:
         callback.message,
         data=data,
         quals=quals,
-        cover=_dyn_pdf_cover(category, breakdown),
+        cover=_dyn_pdf_cover(category, breakdown, data=data, quals=quals),
         highlight=None,
         filename=_dyn_pdf_filename(category),
     )
