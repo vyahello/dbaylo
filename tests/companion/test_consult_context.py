@@ -234,3 +234,98 @@ async def test_missing_subject_resolves_to_none(async_session: AsyncSession) -> 
     )
     gone = Subject(kind=KIND_INDICATOR, report_id=0, analyte_key="nope", analyte_name="Невідомо")
     assert await build_context(async_session, user.id, gone, today=_TODAY) is None
+
+
+async def _narrative(session, user, *, day: date, report_type: str, findings: str, verdict: str):
+    report = await create_pending_report(session, user=user, file_path=Path(f"/tmp/n{day}.png"))
+    await persist_confirmed(
+        session,
+        report=report,
+        analytes=[],
+        report_date=day,
+        lab="Urosvit",
+        report_type=report_type,
+        narrative=findings,
+        conclusion=verdict,
+    )
+    return report
+
+
+def test_clip_body_collapses_wraps_and_cuts_on_a_word_boundary() -> None:
+    from dbaylo.companion.consult_context import _clip_body
+
+    # OCR hard-wraps are collapsed so the findings read as flowing text.
+    assert _clip_body("Права\n  нирка:\tконкремент 7мм") == "Права нирка: конкремент 7мм"
+    # A long body is cut on a word boundary (never mid-number, which would fake a measurement).
+    clipped = _clip_body("слово " * 400, limit=50)
+    assert len(clipped) <= 51 and clipped.endswith("…") and not clipped.endswith("сло…")
+
+
+async def test_documents_block_carries_the_findings_text(async_session: AsyncSession) -> None:
+    # The reported gap: a УЗД/КТ has NO analyte rows, so without this block the model knows only
+    # that the exam exists — it cannot say how many stones it described.
+    from dbaylo.companion.consult_context import _documents_block
+
+    user = await ensure_user(async_session, 1)
+    assert await _documents_block(async_session, user.id, _TODAY) == ""  # none yet
+    await _narrative(
+        async_session,
+        user,
+        day=date(2026, 1, 19),
+        report_type="УЗД нирок",
+        findings="Права нирка: конкременти 7мм та 5мм. Ліва нирка: конкременти 8мм, 6,5мм, 6,7мм.",
+        verdict="УЗ-ознаки двобічного нефролітіазу.",
+    )
+    block = await _documents_block(async_session, user.id, _TODAY)
+    assert "УЗД нирок" in block and "2026-01-19" in block
+    assert "конкременти 7мм та 5мм" in block  # the actual FINDINGS, not just the date
+    assert "нефролітіазу" in block  # the doctor's own conclusion
+    assert "COMPARING" in block  # the instruction that unlocks a cross-exam answer
+
+
+async def test_profile_lets_two_exams_be_compared(async_session: AsyncSession) -> None:
+    # The exact failing scenario: "порівняй з кількістю які були у січні" — BOTH exams' texts must
+    # be in the grounded profile, so the answer is a comparison, not "I don't have that report".
+    from dbaylo.companion.consult_context import patient_profile
+
+    user = await ensure_user(async_session, 1)
+    await _narrative(
+        async_session,
+        user,
+        day=date(2026, 1, 19),
+        report_type="УЗД нирок",
+        findings="Ліва нирка: конкременти 8мм, 6,5мм, 6,7мм.",
+        verdict="Нефролітіаз.",
+    )
+    await _narrative(
+        async_session,
+        user,
+        day=date(2026, 7, 14),
+        report_type="УЗД нирок повторне",
+        findings="Ліва нирка: конкременти 10мм, 3,7мм, 7,9мм, 6,7мм, 4,2мм.",
+        verdict="Нефролітіаз.",
+    )
+    profile = await patient_profile(async_session, user.id, _TODAY)
+    assert "8мм, 6,5мм, 6,7мм" in profile  # January's stones
+    assert "10мм, 3,7мм" in profile  # July's stones — both readable in ONE context
+    assert profile.index("2026-07-14") < profile.index("2026-01-19")  # most recent first
+
+
+async def test_documents_block_caps_a_long_imaging_history(async_session: AsyncSession) -> None:
+    # Bounded so many exams cannot crowd out the rest of the grounding — and the truncation is
+    # STATED, never silent (a silent cut would read as "that is everything").
+    from dbaylo.companion.consult_context import _DOCS_MAX, _documents_block
+
+    user = await ensure_user(async_session, 1)
+    for i in range(_DOCS_MAX + 2):
+        await _narrative(
+            async_session,
+            user,
+            day=date(2026, 1, i + 1),
+            report_type=f"УЗД {i}",
+            findings=f"Знахідка {i}.",
+            verdict="",
+        )
+    block = await _documents_block(async_session, user.id, _TODAY)
+    assert block.count("FINDINGS:") == _DOCS_MAX
+    assert "older document(s) exist" in block

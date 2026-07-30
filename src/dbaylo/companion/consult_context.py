@@ -218,6 +218,62 @@ def _address_line(name: str) -> str:
     )
 
 
+# Imaging / narrative documents (МРТ · КТ · УЗД · висновок) carry findings that exist NOWHERE ELSE
+# in the grounding: they have no analyte rows, so the trend engine, the indicator inventory and the
+# findings block are all blind to them. Without their TEXT the companion could name only their dates
+# and had to answer "I don't have that report in front of me" when asked to compare across exams
+# (e.g. how many kidney stones in January vs July). Bounded so a long imaging history cannot crowd
+# out the rest of the context.
+_DOCS_MAX = 6  # most recent narrative documents carried in full
+_DOC_CHARS = 1100  # per-document findings budget (a two-kidney ultrasound fits comfortably)
+
+
+def _clip_body(text: str, limit: int = _DOC_CHARS) -> str:
+    """Trim a findings body to ``limit`` chars on a WORD boundary, so a long study does not eat the
+    whole context and a mid-word cut never looks like a measurement ('7 m…')."""
+    body = " ".join(text.split())  # collapse the OCR's hard wraps into flowing text
+    if len(body) <= limit:
+        return body
+    cut = body[:limit]
+    space = cut.rfind(" ")
+    return (cut[:space] if space > limit * 0.6 else cut).rstrip() + "…"
+
+
+async def _documents_block(session: AsyncSession, user_id: int, today: date) -> str:
+    """The user's imaging / narrative documents as grounded lines — study type, date, the doctor's
+    printed CONCLUSION and the findings text — so free conversation can quote and COMPARE them
+    (stone counts, sizes, organ measurements) instead of only knowing that such an exam exists.
+    ``""`` when the user has none. Deterministic; the text is the doctor's own, not our verdict."""
+    docs = await history.list_narratives(session, user_id=user_id)
+    if not docs:
+        return ""
+    lines = [
+        "IMAGING / NARRATIVE DOCUMENTS (МРТ · КТ · УЗД · висновок) — the doctor's OWN printed "
+        "text, "
+        "verbatim. These carry details found NOWHERE else in this context (they have no analyte "
+        "rows): stone counts and sizes, organ measurements, described findings. When the user asks "
+        "about them — including COMPARING two exams ('how many stones in January vs July') — read "
+        "and quote THIS text and answer from it; do NOT say you lack the report. Never invent a "
+        "detail that is not written here, and if a document does not state something, say so."
+    ]
+    for report in docs[:_DOCS_MAX]:
+        when = report.report_date.isoformat() if report.report_date else "date unknown"
+        ago = f" ({describe_age(report.report_date, today=today)})" if report.report_date else ""
+        what = report.report_type or locale.LAB_DOC_GENERIC
+        lab = normalize_lab(report.lab)
+        lines.append(f"- {when}{ago} — {what}{f' [{lab}]' if lab else ''}:")
+        if report.conclusion:
+            lines.append(f"    CONCLUSION: {_clip_body(report.conclusion)}")
+        if report.narrative:
+            lines.append(f"    FINDINGS: {_clip_body(report.narrative)}")
+    if len(docs) > _DOCS_MAX:
+        # Never let a silent truncation read as "that is everything".
+        lines.append(
+            f"({len(docs) - _DOCS_MAX} older document(s) exist beyond these — say so if relevant.)"
+        )
+    return "\n".join(lines)
+
+
 async def patient_profile(session: AsyncSession, user_id: int, today: date) -> str:
     """A compact, grounded profile of THIS patient — so Дбайло acts like an assistant who knows the
     person: age/sex, the concerns they track, and their recent reports WITH DATES (so the model can
@@ -273,6 +329,12 @@ async def patient_profile(session: AsyncSession, user_id: int, today: date) -> s
         "Use these dates to judge how recent each exam is, and tailor your questions and advice to "
         "this person."
     )
+    # The imaging/narrative documents' actual TEXT — without it the model knows a УЗД exists but not
+    # what it found, and cannot compare two exams (the reported gap).
+    documents = await _documents_block(session, user_id, today)
+    if documents:
+        lines.append("")
+        lines.append(documents)
     return "\n".join(lines)
 
 

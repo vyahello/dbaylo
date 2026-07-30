@@ -727,6 +727,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
   `conversation` and `intake` personas are built from these blocks (so general chat / the interview
   speak as the SAME expert assistant, with identical safety wording); `consult`/`checkin` keep their
   own tuned text. Lives at the package root (not scanned) so it adds no LLM path.
+- **Imaging / narrative documents in the grounding** (`consult_context._documents_block`, fed into
+  `patient_profile`): a МРТ/КТ/УЗД/висновок has **no analyte rows**, so the trend engine, the
+  indicator inventory and the findings block were all blind to it — the profile named only its DATE
+  ("2026-01-19: УЗД нирок"). The companion could therefore discuss the report it was *anchored* to
+  but had to answer *"я бачу лише самі дати… немає перед очима детального тексту"* when asked to
+  COMPARE two exams (the owner's "порахуй камені в січні vs липні"). The block now carries each
+  document's type · date · the doctor's printed **CONCLUSION** · the **FINDINGS text**, framed as
+  quotable DATA ("read and quote THIS text; do NOT say you lack the report; never invent a detail").
+  Because it rides `patient_profile`, ONE injection reaches every voice — chat · intake · check-in ·
+  **and every consult kind** (`build_context` prepends the profile), so an anchored consult can now
+  compare against other documents. Bounded: the `_DOCS_MAX`=6 most recent, each body clipped to
+  `_DOC_CHARS`=1100 on a word boundary (never mid-number — a mid-cut would fake a measurement), and
+  a dropped tail is **stated**, never silent.
 - **Addressing the user by name** (`consult_context._first_name`/`_address_line` in
   `patient_profile`): Дбайло addresses the user by their real name, warmly and like a friend but
   still the professional expert. The name is per-user DATA, so the instruction rides the grounded
