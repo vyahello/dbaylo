@@ -198,7 +198,14 @@ LAB_LOOKS_LIKE_PRESCRIPTION = (
     "📋 Це більше схоже на рецепт / лист призначень, ніж на аналізи — зчитую ліки. 💊"
 )
 LAB_UNSUPPORTED_FILE = (
-    "Я вмію читати фото (JPEG/PNG) або PDF з результатами аналізів. Спробуй надіслати такий файл."
+    "Я вмію читати фото (JPEG/PNG/HEIC) або PDF з результатами аналізів. "
+    "Спробуй надіслати такий файл."
+)
+# A HEIC arrived but could not be decoded (corrupt / truncated upload). The user keeps a way
+# forward: sending it as a PHOTO makes Telegram convert it to JPEG itself.
+LAB_HEIC_FAILED = (
+    "Не вдалося прочитати цей HEIC-файл 😔 Спробуй надіслати те саме фото як ФОТО "
+    "(не файлом) — Telegram сам його сконвертує."
 )
 LAB_CONFIRM_PROMPT = "Усе правильно?"
 # Problems-first confirmation view (mirrors the history "Показники" redesign): a compact

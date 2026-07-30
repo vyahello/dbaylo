@@ -21,7 +21,10 @@ from dbaylo.labs.labnames import normalize_lab
 from dbaylo.labs.schema import ExtractedAnalyte
 from dbaylo.labs.trends import classify, is_out_of_range
 
-SUPPORTED_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".pdf"})
+# ``.heic``/``.heif`` are accepted because an iPhone shoots HEIC by default and sending the file
+# (rather than a compressed photo) is the better input for OCR. They are TRANSCODED to JPEG on
+# receipt (``labs.images.normalize_upload``) — the reader cannot render HEIC itself.
+SUPPORTED_SUFFIXES = frozenset({".jpg", ".jpeg", ".png", ".pdf", ".heic", ".heif"})
 
 
 def is_supported(suffix: str) -> bool:

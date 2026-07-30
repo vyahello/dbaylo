@@ -163,6 +163,19 @@ action (`python -m dbaylo.labs.pipeline --dry-run <file>`). English-only code an
 
 ## L2 — lab pipeline (Stage 2)
 
+- **Upload normalization** (`labs/images.py`, migration-free): an iPhone shoots **HEIC** by default,
+  and a lab form sent *as a file* — the BETTER input, since it skips Telegram's compression — arrives
+  as raw `.heic` (sending it *as a photo* is unaffected: Telegram transcodes to JPEG itself). The
+  extraction reader **cannot render HEIC** — the Read tool returns the raw bytes — so allow-listing
+  the extension alone would turn a clear refusal into a SILENT bad read. `normalize_upload` therefore
+  **transcodes HEIC/HEIF → JPEG** on receipt (`pillow-heif`, a self-contained wheel bundling libheif —
+  no apt package on the VPS), applying the **EXIF orientation** (an iPhone stores rotation in EXIF, so
+  without `exif_transpose` a form reaches the OCR sideways). Everything else passes through
+  byte-for-byte (never re-encoded). Wired into BOTH upload paths (`lab_flow` + `prescription_flow`);
+  the `content_hash` dedup key is taken **before** transcoding (it identifies what the USER sent, so a
+  re-sent HEIC still hits the duplicate guard regardless of the encoder version), and the JPEG becomes
+  the stored `source_file`. Fail-soft: an undecodable HEIC saves nothing and answers
+  `LAB_HEIC_FAILED` ("надішли як ФОТО — Telegram сам сконвертує").
 - **Extraction** (`labs/extraction.py`): `claude --print` reads the file (Read tool) and
   returns JSON constrained by the prompt (no `--json-schema`); a **defensive parser** tolerates
   fences/partial/malformed output and degrades to "ask the user", never crashes. Default model

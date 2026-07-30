@@ -421,3 +421,54 @@ def test_suspect_decimal_shifts_flags_a_value_10x_off_history() -> None:
         ],
     }
     assert suspect_decimal_shifts(report, series) == ["Креатинін"]
+
+
+def test_suffix_from_mime_maps_iphone_heic() -> None:
+    # An iPhone document upload sometimes carries the mime type but a suffix-less file name.
+    assert lab_flow._suffix_from_mime("image/heic") == ".heic"
+    assert lab_flow._suffix_from_mime("image/heif") == ".heif"
+    assert lab_flow._suffix_from_mime("image/jpeg") == ".jpg"
+    assert lab_flow._suffix_from_mime("application/octet-stream") == ""
+
+
+async def test_a_heic_document_is_transcoded_to_jpeg_before_saving(monkeypatch) -> None:
+    # The end-to-end wiring: a HEIC arrives as a FILE (an iPhone's default format), and what gets
+    # STORED is a JPEG — because the extraction reader cannot render HEIC at all.
+    import io as _io
+
+    pillow_heif = pytest.importorskip("pillow_heif")
+    from PIL import Image
+
+    pillow_heif.register_heif_opener()
+    buf = _io.BytesIO()
+    Image.new("RGB", (30, 10), "white").save(buf, format="HEIF")
+    heic = buf.getvalue()
+
+    _patch_upload(monkeypatch, outcome=ExtractedReport(results=[ExtractedAnalyte("X", value=1.0)]))
+
+    async def _download(_file_id, destination):
+        destination.write(heic)  # the real HEIC bytes land in the handler's buffer
+
+    message, state = _upload_message(), AsyncMock()
+    message.bot.download = AsyncMock(side_effect=_download)
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".heic")
+
+    saved = lab_flow.save_original_file.call_args
+    assert saved.kwargs["suffix"] == ".jpg"  # stored as JPEG, not .heic
+    assert saved.args[0][:3] == b"\xff\xd8\xff"  # ...and the bytes really are a JPEG
+
+
+async def test_an_undecodable_heic_tells_the_user_to_send_it_as_a_photo(monkeypatch) -> None:
+    # Fail-soft: a corrupt HEIC must not be saved as something the reader can never read; the user
+    # gets a way forward (send it as a PHOTO — Telegram transcodes it itself).
+    _patch_upload(monkeypatch, outcome=ExtractedReport(results=[]))
+
+    async def _download(_file_id, destination):
+        destination.write(b"not a real heic")
+
+    message, state = _upload_message(), AsyncMock()
+    message.bot.download = AsyncMock(side_effect=_download)
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".heic")
+
+    message.answer.assert_awaited_with(locale.LAB_HEIC_FAILED)
+    lab_flow.save_original_file.assert_not_called()  # nothing unreadable is persisted

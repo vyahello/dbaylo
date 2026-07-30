@@ -40,6 +40,7 @@ from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.labs.extraction import ExtractionFailed
+from dbaylo.labs.images import normalize_upload
 from dbaylo.labs.intake import ensure_user, file_hash, is_supported, save_original_file
 from dbaylo.labs.prescription import ExtractedMedication, extract_prescription
 
@@ -82,15 +83,19 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
     buffer = BytesIO()
     await message.bot.download(file_id, destination=buffer)
     data = buffer.getvalue()
+    content_hash = file_hash(data)  # identity of what the USER sent — taken BEFORE transcoding
+    normalized = normalize_upload(data, suffix)  # iPhone HEIC -> JPEG (the reader can't see HEIC)
+    if normalized is None:
+        await message.answer(locale.LAB_HEIC_FAILED)
+        return
+    data, suffix = normalized
     await message.answer(locale.PRESCRIPTION_RECEIVED)
 
     async with get_session() as session:
         user = await ensure_user(session, message.from_user.id, message.from_user.full_name)
         path = save_original_file(data, user_id=user.id, suffix=suffix)
 
-    await present_prescription_from_path(
-        message, state, path=str(path), content_hash=file_hash(data)
-    )
+    await present_prescription_from_path(message, state, path=str(path), content_hash=content_hash)
 
 
 async def is_duplicate(telegram_id: int, content_hash: str) -> bool:

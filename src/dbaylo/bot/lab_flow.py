@@ -44,6 +44,7 @@ from dbaylo.config import get_settings
 from dbaylo.db import get_session
 from dbaylo.db.models import LabReport, ReportStatus, ResultFlag, User
 from dbaylo.labs.extraction import ExtractionFailed, extract_document
+from dbaylo.labs.images import normalize_upload
 from dbaylo.labs.intake import (
     create_pending_report,
     ensure_user,
@@ -435,7 +436,14 @@ async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, s
     buffer = BytesIO()
     await message.bot.download(file_id, destination=buffer)
     data = buffer.getvalue()
+    # The hash identifies what the USER sent, so it is taken BEFORE any transcoding — a re-sent
+    # HEIC then still hits the duplicate guard regardless of the encoder's version.
     content_hash = file_hash(data)
+    normalized = normalize_upload(data, suffix)  # iPhone HEIC -> JPEG (the reader can't see HEIC)
+    if normalized is None:
+        await message.answer(locale.LAB_HEIC_FAILED)
+        return
+    data, suffix = normalized
 
     # The hash is checked FIRST, before any extraction. A re-dropped PRESCRIPTION is a Medication
     # (its lab report was discarded), so the lab-report dedup below would miss it — and we'd pay for
@@ -1048,4 +1056,7 @@ def _suffix_from_mime(mime: str | None) -> str:
         "image/jpeg": ".jpg",
         "image/png": ".png",
         "application/pdf": ".pdf",
+        # An iPhone document upload sometimes carries the mime but a suffix-less name.
+        "image/heic": ".heic",
+        "image/heif": ".heif",
     }.get(mime or "", "")

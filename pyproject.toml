@@ -29,6 +29,12 @@ dependencies = [
     # Pure-Python PDF page splitting so a big multi-page panel is extracted page-by-page,
     # concurrently (no system libraries, unlike pikepdf/qpdf).
     "pypdf>=4,<6",
+    # HEIC/HEIF decoding: an iPhone shoots HEIC by DEFAULT, and a lab form sent as a file
+    # (uncompressed — the better OCR input) arrives in that format, which the extraction reader
+    # cannot render. A self-contained wheel bundling libheif, so the VPS needs no apt package.
+    # Pillow is declared with it because we call it directly (it also ships with matplotlib).
+    "pillow-heif>=0.16",
+    "pillow>=10",
 ]
 
 [project.optional-dependencies]
@@ -92,6 +98,11 @@ strict = true
 # aiogram/apscheduler ship partial stubs; don't fail the build on their internals.
 [[tool.mypy.overrides]]
 module = ["apscheduler.*"]
+ignore_missing_imports = true
+
+# pillow-heif ships no py.typed marker; it is used only to register a HEIF opener into Pillow.
+[[tool.mypy.overrides]]
+module = ["pillow_heif.*"]
 ignore_missing_imports = true
 
 # matplotlib's stubs are partial/loosely typed; relax untyped-call checks where we use it.
