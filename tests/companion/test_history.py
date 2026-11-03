@@ -982,7 +982,9 @@ async def test_delete_report_cleans_couplings_and_file(
     await proactive.add_repeat_lab(
         async_session,
         user=user,
-        run_at=datetime(2026, 8, 1, 9, 0),
+        # Relative to now: a hard-coded date goes stale, and APScheduler then fires the missed
+        # one-off immediately, so the job vanishes before the assertion below.
+        run_at=(datetime.now() + timedelta(days=90)).replace(hour=9, minute=0, microsecond=0),
         label="Глюкоза",
         scheduler=scheduler,
         report_id=report.id,
