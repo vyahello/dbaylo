@@ -207,6 +207,15 @@ LAB_HEIC_FAILED = (
     "Не вдалося прочитати цей HEIC-файл 😔 Спробуй надіслати те саме фото як ФОТО "
     "(не файлом) — Telegram сам його сконвертує."
 )
+# Telegram's Bot API lets a bot download at most 20 MB — a bigger file never reaches us.
+UPLOAD_TOO_BIG = (
+    "Файл завеликий ({size}) 😔 Telegram дозволяє ботам отримувати файли лише до 20 МБ, "
+    "тож я його не бачу.\n\n"
+    "Що можна зробити:\n"
+    "• надіслати сторінки як ФОТО (не файлом) — Telegram сам їх стисне;\n"
+    "• або стиснути PDF (наприклад, «Зменшити розмір PDF» у будь-якому онлайн-сервісі) "
+    "і надіслати ще раз."
+)
 LAB_CONFIRM_PROMPT = "Усе правильно?"
 # Problems-first confirmation view (mirrors the history "Показники" redesign): a compact
 # header + summary, only the rows that need a look, the in-range rows collapsed.

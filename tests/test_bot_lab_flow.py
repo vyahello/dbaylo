@@ -472,3 +472,34 @@ async def test_an_undecodable_heic_tells_the_user_to_send_it_as_a_photo(monkeypa
 
     message.answer.assert_awaited_with(locale.LAB_HEIC_FAILED)
     lab_flow.save_original_file.assert_not_called()  # nothing unreadable is persisted
+
+
+async def test_an_oversized_upload_is_refused_with_a_clear_reply_before_downloading(
+    monkeypatch,
+) -> None:
+    # A 31 MB discharge PDF exceeds the Bot API's 20 MB getFile limit: the bot used to crash on
+    # download with NO reply. Now the declared size is checked first and the user is told how.
+    _patch_upload(monkeypatch, outcome=ExtractedReport(results=[]))
+    message, state = _upload_message(), AsyncMock()
+    message.bot.download = AsyncMock()
+    await lab_flow._handle_upload(
+        message, state, file_id="f", suffix=".pdf", file_size=31 * 1024 * 1024
+    )
+    message.bot.download.assert_not_awaited()
+    text = message.answer.await_args.args[0]
+    assert "20 МБ" in text and "31 МБ" in text
+    lab_flow.extract_document.assert_not_awaited()
+
+
+async def test_a_too_big_server_error_still_gets_a_reply(monkeypatch) -> None:
+    # Size unknown up front, but Telegram refuses the download: the user still gets the answer.
+    from aiogram.exceptions import TelegramBadRequest
+
+    _patch_upload(monkeypatch, outcome=ExtractedReport(results=[]))
+    message, state = _upload_message(), AsyncMock()
+    message.bot.download = AsyncMock(
+        side_effect=TelegramBadRequest(method=Mock(), message="Bad Request: file is too big")
+    )
+    await lab_flow._handle_upload(message, state, file_id="f", suffix=".pdf")
+    assert "20 МБ" in message.answer.await_args.args[0]
+    lab_flow.save_original_file.assert_not_called()

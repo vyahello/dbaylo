@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 from dataclasses import replace
 from datetime import date, time
-from io import BytesIO
 from pathlib import Path
 
 from aiogram import F, Router
@@ -35,6 +34,7 @@ from aiogram.types import (
 
 from dbaylo import locale
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
+from dbaylo.bot.upload import download_upload
 from dbaylo.companion import callbacks, medications, proactive
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
@@ -62,7 +62,10 @@ async def start_prescription_dialog(message: Message, state: FSMContext) -> None
 async def on_prescription_photo(message: Message, state: FSMContext) -> None:
     if not message.photo:
         return
-    await _handle_upload(message, state, file_id=message.photo[-1].file_id, suffix=".jpg")
+    photo = message.photo[-1]
+    await _handle_upload(
+        message, state, file_id=photo.file_id, suffix=".jpg", file_size=photo.file_size
+    )
 
 
 @router.message(PrescriptionStates.waiting_photo, F.document)
@@ -74,15 +77,20 @@ async def on_prescription_document(message: Message, state: FSMContext) -> None:
     if not is_supported(suffix):
         await message.answer(locale.LAB_UNSUPPORTED_FILE)
         return
-    await _handle_upload(message, state, file_id=document.file_id, suffix=suffix)
+    await _handle_upload(
+        message, state, file_id=document.file_id, suffix=suffix, file_size=document.file_size
+    )
 
 
-async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, suffix: str) -> None:
+async def _handle_upload(
+    message: Message, state: FSMContext, *, file_id: str, suffix: str, file_size: int | None = None
+) -> None:
     if message.from_user is None or message.bot is None:
         return
-    buffer = BytesIO()
-    await message.bot.download(file_id, destination=buffer)
-    data = buffer.getvalue()
+    downloaded = await download_upload(message, file_id, file_size=file_size)
+    if downloaded is None:  # over Telegram's 20 MB bot limit — the user was already told how
+        return
+    data = downloaded
     content_hash = file_hash(data)  # identity of what the USER sent — taken BEFORE transcoding
     normalized = normalize_upload(data, suffix)  # iPhone HEIC -> JPEG (the reader can't see HEIC)
     if normalized is None:

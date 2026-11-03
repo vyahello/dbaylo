@@ -17,7 +17,6 @@ import html
 import json
 from collections.abc import Mapping
 from datetime import date, datetime, timedelta
-from io import BytesIO
 from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo
@@ -38,6 +37,7 @@ from dbaylo.bot import prescription_flow
 from dbaylo.bot.formatting import answer_chunked
 from dbaylo.bot.history_flow import send_analysis
 from dbaylo.bot.keyboards import cancel_keyboard, clear_inline_keyboard
+from dbaylo.bot.upload import download_upload
 from dbaylo.companion import callbacks, history, notewarm, proactive, reminders
 from dbaylo.companion.scheduler import ReminderScheduler
 from dbaylo.config import get_settings
@@ -420,22 +420,30 @@ async def on_document(message: Message, state: FSMContext) -> None:
     if not is_supported(suffix):
         await message.answer(locale.LAB_UNSUPPORTED_FILE)
         return
-    await _handle_upload(message, state, file_id=document.file_id, suffix=suffix)
+    await _handle_upload(
+        message, state, file_id=document.file_id, suffix=suffix, file_size=document.file_size
+    )
 
 
 @router.message(F.photo)
 async def on_photo(message: Message, state: FSMContext) -> None:
     if not message.photo or message.from_user is None or message.bot is None:
         return
-    await _handle_upload(message, state, file_id=message.photo[-1].file_id, suffix=".jpg")
+    photo = message.photo[-1]
+    await _handle_upload(
+        message, state, file_id=photo.file_id, suffix=".jpg", file_size=photo.file_size
+    )
 
 
-async def _handle_upload(message: Message, state: FSMContext, *, file_id: str, suffix: str) -> None:
+async def _handle_upload(
+    message: Message, state: FSMContext, *, file_id: str, suffix: str, file_size: int | None = None
+) -> None:
     assert message.from_user is not None and message.bot is not None
 
-    buffer = BytesIO()
-    await message.bot.download(file_id, destination=buffer)
-    data = buffer.getvalue()
+    downloaded = await download_upload(message, file_id, file_size=file_size)
+    if downloaded is None:  # over Telegram's 20 MB bot limit — the user was already told how
+        return
+    data = downloaded
     # The hash identifies what the USER sent, so it is taken BEFORE any transcoding — a re-sent
     # HEIC then still hits the duplicate guard regardless of the encoder's version.
     content_hash = file_hash(data)
