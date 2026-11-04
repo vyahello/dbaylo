@@ -422,3 +422,24 @@ def test_ref_changed_flags_a_series_whose_reference_moved() -> None:
     assert moved.ref_changed is True
     same = compute_trend([p(1, 5.0, 3.9, 6.1), p(2, 5.2, 3.9, 6.1)])  # one consistent ref
     assert same.ref_changed is False
+
+
+@pytest.mark.parametrize(
+    ("name", "key"),
+    [
+        ("Креатинін (CREA)", "креатинін"),
+        ("Гематокрит (НСТ)", "гематокрит"),
+        ("Гематокрит (HCT)", "гематокрит"),
+        ("Аланінамінотрансфераза (АЛТ, ALT)", "аланінамінотрансфераза"),
+        ("Глікований гемоглобін (HbA1c)", "глікований гемоглобін"),
+        ("Рівень кислотності (pH)", "ph"),
+    ],
+)
+def test_a_trailing_abbreviation_code_does_not_split_the_series(name: str, key: str) -> None:
+    # "Креатинін" and "Креатинін (CREA)" are ONE analyte — two series fragmented the trend.
+    assert normalize_analyte(name) == key
+
+
+@pytest.mark.parametrize("name", ["Глюкоза (сироватка)", "Базофіли (абс.)", "Еритроцити (сеча)"])
+def test_a_descriptive_parenthetical_is_kept(name: str) -> None:
+    assert normalize_analyte(name) == name.casefold()

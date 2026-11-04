@@ -155,6 +155,7 @@ ANALYTE_ALIASES: dict[str, str] = {
     "мертві сперматозоїди": "мертві",
     "реакція (ph)": "ph",
     "рн": "ph",
+    "рівень кислотності": "ph",
     "прогресивна рухливість (%) (a+b)": "рухливість прогресивна",
     "рухливість прогресивна (а+в)": "рухливість прогресивна",
     "кількість сперматозоїдів в еякуляті": "сперматозоїди в еякуляті",
@@ -180,7 +181,32 @@ def normalize_analyte(name: str) -> str:
     one lab's '1. З нормальною морфологією' group with another's plain spelling."""
     base = _WS_RE.sub(" ", name).strip().translate(_APOSTROPHES).casefold()
     base = _ENUM_RE.sub("", base)
-    return ANALYTE_ALIASES.get(base, base)
+    if base in ANALYTE_ALIASES:
+        return ANALYTE_ALIASES[base]
+    # "Креатинін (CREA)" / "Гематокрит (НСТ)" / "АЛТ (АЛТ, ALT)" are the SAME analyte as the bare
+    # name — a trailing abbreviation code is layout, not identity. Drop it (case is checked on the
+    # ORIGINAL so a descriptive "(сироватка)" / "(абс.)" / "(сеча)" is kept).
+    stripped = _strip_abbrev(_WS_RE.sub(" ", name).strip())
+    if stripped is not None:
+        short = _ENUM_RE.sub("", stripped.translate(_APOSTROPHES).casefold())
+        return ANALYTE_ALIASES.get(short, short)
+    return base
+
+
+# A trailing "(CODE)" / "(CODE, CODE)": each token short and carrying an uppercase letter.
+_ABBREV_RE = re.compile(r"^(?P<head>.+?)\s*\((?P<codes>[^()]+)\)$")
+_ABBREV_TOKEN_RE = re.compile(r"^[A-Za-zА-ЯІЇЄҐа-яіїєґ0-9\-]{2,8}$")
+
+
+def _strip_abbrev(name: str) -> str | None:
+    """The name without a trailing abbreviation parenthetical, or ``None`` if it has none."""
+    m = _ABBREV_RE.match(name)
+    if m is None:
+        return None
+    tokens = [t.strip() for t in m.group("codes").split(",")]
+    if not all(_ABBREV_TOKEN_RE.match(t) and any(c.isupper() for c in t) for t in tokens):
+        return None
+    return m.group("head").strip() or None
 
 
 # --- Specimen (body fluid) discriminator ----------------------------------------
